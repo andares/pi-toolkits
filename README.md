@@ -1,43 +1,50 @@
-# pi-toolkits
+# @andares/pi-toolkits
 
-My collection of [pi](https://github.com/earendil-works/pi-coding-agent) toolkits and extensions, published as npm packages under the `@andares/*` scope.
+Integrated toolkit extension for [pi](https://github.com/earendil-works/pi-coding-agent) — a single npm package that grows new capabilities over time. Currently provides **ask mode**.
 
-## Packages
+## Features
 
-| Package | Status | Description |
-| --- | --- | --- |
-| [`@andares/pi-ask-mode`](packages/pi-ask-mode/) | 🚧 WIP | Lightweight ask mode (read-only Q&A) — `/ask` toggle, write/edit hard-removal, read-only bash sandbox, system prompt banner |
+### ask — read-only Q&A mode
 
-## Project structure
+Toggle with `/ask` (press again to exit). While active:
 
-```text
-packages/
-└── pi-ask-mode/        # ask mode extension (first toolkit)
-    ├── src/index.ts    # extension entry (loaded by pi at runtime)
-    ├── package.json    # pi extension metadata ("pi.extensions")
-    └── README.md
+- **`write`/`edit` hard-disabled** — removed from the active tool set; pi's runtime rejects calls to non-active tools, so file modification is genuinely impossible
+- **`bash` kept but sandboxed to read-only commands** — shell-quote tokenization with per-segment validation plus write-intent detection (`curl -o/-O`, `wget -O`, `dd of=`, `tee`, redirects); heuristic, not a security boundary
+- **System prompt banner** appended describing the current mode and its restrictions
+- **Gray `ask` footer status** while active
+
+Exiting restores the exact tool set from before ask mode was entered.
+
+## Install
+
+```bash
+# local development
+pi install .
+# or one-off session
+pi -e ./src/index.ts
 ```
 
 ## Development
 
-Workspace management uses pnpm.
-
 ```bash
-pnpm install          # install workspace deps (incl. per-package dev deps)
-pnpm typecheck        # type-check all packages
+pnpm install      # install deps (pnpm is the only supported toolchain)
+pnpm typecheck    # tsc --noEmit
+pnpm test         # vitest (bash sandbox boundary cases)
 ```
 
-To try a package inside pi without publishing:
+## Project structure
 
-```bash
-pi install ./packages/pi-ask-mode
+```text
+src/
+├── index.ts              # entry point: aggregates feature modules
+├── lib/                  # shared infrastructure (tool-set snapshot/restore)
+└── features/             # feature modules — one directory per feature
+    └── ask/              # ask mode: command + state machine, bash sandbox,
+                          #           system prompt banner, tests
 ```
 
-Or for a one-off session:
-
-```bash
-pi -e ./packages/pi-ask-mode/src/index.ts
-```
+Adding a new feature = create `src/features/<name>/` exporting `registerXxx(pi)`
+and call it from `src/index.ts`. Existing modules stay untouched.
 
 ## License
 

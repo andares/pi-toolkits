@@ -1,12 +1,37 @@
 {
-  "name": "pi-toolkits",
+  "name": "@andares/pi-toolkits",
   "version": "0.1.0",
-  "private": true,
-  "description": "My collection of pi coding agent toolkits / extensions",
+  "description": "Integrated toolkit extension for pi — currently provides ask mode (read-only Q&A); more features to come",
   "type": "module",
   "license": "MIT",
-  "packageManager": "pnpm@11.20.0",
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "ask-mode",
+    "readonly",
+    "toolkit"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "dependencies": {
+    "@dreki-gg/pi-command-sandbox": "^0.4.3"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.0",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.10"
+  },
   "scripts": {
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
   }
 }
