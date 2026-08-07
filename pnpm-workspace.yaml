@@ -1,6 +1,7 @@
+# pnpm 11 configuration (auto-generated on install; workspace is single-package).
 allowBuilds:
-  '@google/genai': set this to true or false
-  protobufjs: set this to true or false
+  '@google/genai': false
+  protobufjs: false
 minimumReleaseAgeExclude:
   - '@earendil-works/pi-agent-core@0.84.0'
   - '@earendil-works/pi-ai@0.84.0'
