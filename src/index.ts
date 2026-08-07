@@ -11,6 +11,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAsk } from "./features/ask/index.js";
 
 export default function piToolkits(pi: ExtensionAPI): void {
-  registerAsk(pi);
-  // registerXxx(pi); // future features
+	registerAsk(pi);
+	// registerXxx(pi); // future features
 }

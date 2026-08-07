@@ -18,5 +18,5 @@ Answer the user's question directly. If a question requires changing files, say 
 
 /** Append the ask-mode banner to an existing system prompt. */
 export function appendAskBanner(systemPrompt: string): string {
-  return `${systemPrompt}\n\n${ASK_BANNER}`;
+	return `${systemPrompt}\n\n${ASK_BANNER}`;
 }

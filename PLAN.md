@@ -95,31 +95,31 @@ pi-toolkits/
 
 ## Steps
 
-- [ ] 1. 结构收尾:确认 `packages/`、`pnpm-workspace.yaml` 删除;根 `package.json` 重写为 `@andares/pi-toolkits` 单包;删旧 `src` 内容(如有)
-- [ ] 2. 建骨架:`src/index.ts`(聚合)、`src/lib/tools.ts`(快照/恢复)、`src/features/ask/` 空壳(各文件导出占位),tsconfig
-- [ ] 3. 实现 `registerAsk`:状态机(`enter`/`exit`/`toggle`)、工具集快照与恢复、灰色 footer 状态 + notify、`/ask` 命令注册
-- [ ] 4. bash 沙箱:接入 `isSafeCommand`(依赖或自研),`tool_call` 门(ask 激活时只拦 bash,其余放行;write/edit 已从工具集移除,门可作第二层防御一并 block)
-- [ ] 5. 系统提示 banner:常量文案 + `before_agent_start` 链式追加
-- [ ] 6. 可选交互(决策点 D 通过后):`--ask` flag、`/ask <问题>`、快捷键
-- [ ] 7. `pnpm install` 更新锁文件;`pnpm typecheck` 通过
-- [ ] 8. README 更新(单包结构、ask 用法、开发说明);git commit
+- [x] 1. 结构收尾:确认 `packages/`、`pnpm-workspace.yaml` 删除;根 `package.json` 重写为 `@andares/pi-toolkits` 单包;删旧 `src` 内容(如有)
+- [x] 2. 建骨架:`src/index.ts`(聚合)、`src/lib/tools.ts`(快照/恢复)、`src/features/ask/` 空壳(各文件导出占位),tsconfig
+- [x] 3. 实现 `registerAsk`:状态机(`enter`/`exit`/`toggle`)、工具集快照与恢复、灰色 footer 状态 + notify、`/ask` 命令注册
+- [x] 4. bash 沙箱:接入 `isSafeCommand`(依赖 sandbox 包,另加写盘意图补强),`tool_call` 门(ask 激活时拦 write/edit 二次防御 + bash 只读校验)
+- [x] 5. 系统提示 banner:常量文案 + `before_agent_start` 链式追加
+- [ ] 6. 可选交互(决策点 D **未确认,跳过**,后续需要可随时补):`--ask` flag、`/ask <问题>`、快捷键
+- [x] 7. `pnpm install` 更新锁文件;`pnpm typecheck` 通过
+- [x] 8. README 更新(单包结构、ask 用法、开发说明);git commit
 
 ## Verification
 
-- [ ] `pnpm typecheck` 零错误
-- [ ] 本地加载:`pi install .` 或 `pi -e ./src/index.ts` 启动无报错、无警告
-- [ ] 手动冒烟:
+- [x] `pnpm typecheck` 零错误
+- [x] 本地加载:`pi -p -e ./src/index.ts` 启动无报错、无警告(0.84.0)
+- [ ] 手动冒烟(⏳ **待用户单独验收**,用户确认不打断开发流程):
   - `/ask` 进入 → footer 出现灰色 `ask` 状态,notify 提示
   - 要求模型 `write`/`edit` 文件 → 被硬拒绝(Tool not found),磁盘无变化
   - 模型执行 `ls`/`git status`/`cat` 等只读 bash → 放行;`rm`/`npm install`/`git commit`/重定向 → 被 block(带 reason)
   - 模型行为带 banner 约束(回答只读咨询类问题)
   - `/ask` 退出 → 工具集完整恢复,footer 状态清除
-- [ ] 沙箱边界用例(如依赖 sandbox 包,直接跑其自带行为;若自研,补 vitest 用例:`echo "a && rm -rf /"` 拦截、`echo "hi"` 放行等)
-- [ ] 回归:退出 ask 后 write/edit 正常工作(快照恢复正确)
+- [x] 沙箱边界用例:vitest 43 用例固化(`src/features/ask/bash-sandbox.test.ts`);发现并修复 sandbox 包对 `curl -o` 的盲区;`wget -qO-` 被 sandbox 拒绝属预期(宁严勿松)
+- [ ] 回归:退出 ask 后 write/edit 正常工作(快照恢复正确)(⏳ **待用户单独验收**)
 
-## 待确认决策点
+## 待确认决策点(执行结论)
 
-- **A. bash 沙箱实现**:依赖 `@dreki-gg/pi-command-sandbox`(推荐)还是自研
-- **B. 黑名单范围**:仅 write/edit(用户已明确的最小集)还是顺带拦 `memory`/`skill_manage`/`preview_export` 等隐式写盘工具
-- **C. 状态持久化**:默认不做,是否确认
-- **D. 可选交互**:`--ask` 启动参数 / `/ask <问题>` 一步到位 / Ctrl+Alt+A 快捷键,做哪些
+- **A. bash 沙箱实现**:✅ 已采纳 —— 依赖 `@dreki-gg/pi-command-sandbox` + 自研写盘意图补强(`curl -o/-O`、`wget -O`、`dd of=`、`tee`)
+- **B. 黑名单范围**:✅ 已采纳 —— 仅 write/edit(+ bash 沙箱);`memory`/`skill_manage`/`preview_export` 等未拦(用户明确的最小集)
+- **C. 状态持久化**:✅ 已采纳 —— 不持久化,每次会话手动 `/ask`
+- **D. 可选交互**:❌ 未确认 —— 未实现(`--ask` flag、`/ask <问题>`、快捷键),后续需要可随时补
