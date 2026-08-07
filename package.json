@@ -4,6 +4,13 @@
   "description": "Integrated toolkit extension for pi — currently provides ask mode (read-only Q&A); more features to come",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/andares/pi-toolkits.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "src"
   ],
@@ -27,7 +34,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "pnpm typecheck && pnpm test"
   },
   "pi": {
     "extensions": [
