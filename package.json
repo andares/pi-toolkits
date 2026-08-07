@@ -1,0 +1,12 @@
+{
+  "name": "pi-toolkits",
+  "version": "0.1.0",
+  "private": true,
+  "description": "My collection of pi coding agent toolkits / extensions",
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@11.20.0",
+  "scripts": {
+    "typecheck": "pnpm -r typecheck"
+  }
+}
