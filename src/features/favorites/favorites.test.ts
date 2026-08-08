@@ -17,11 +17,24 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AgentSession, initTheme, ModelSelectorComponent, type Theme } from "@earendil-works/pi-coding-agent";
+import {
+	AgentSession,
+	initTheme,
+	ModelSelectorComponent,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeEach, beforeAll, describe, expect, it } from "vitest";
-import { FavoritesStore, getFavoritesStore, modelKey, setSharedFavoritesStore } from "./store.js";
+import {
+	FavoritesStore,
+	getFavoritesStore,
+	modelKey,
+	setSharedFavoritesStore,
+} from "./store.js";
 import { applyCyclePatch } from "./patch-cycle.js";
-import { applyModelSelectorPatches, setSelectorThemeProvider } from "./patch-selector.js";
+import {
+	applyModelSelectorPatches,
+	setSelectorThemeProvider,
+} from "./patch-selector.js";
 
 // ─── setup ───────────────────────────────────────────────────────
 
@@ -33,13 +46,17 @@ beforeAll(() => {
 	// replicated updateList paths.
 	initTheme("dark");
 	// Fake theme for the selector patch's own rendering (only fg() is used).
-	setSelectorThemeProvider(() => ({ fg: (_c: string, t: string) => t }) as unknown as Theme);
+	setSelectorThemeProvider(
+		() => ({ fg: (_c: string, t: string) => t }) as unknown as Theme,
+	);
 	tmpDir = mkdtempSync(join(tmpdir(), "pi-toolkits-fav-"));
 });
 
 beforeEach(() => {
 	storeSeq += 1;
-	setSharedFavoritesStore(new FavoritesStore(join(tmpDir, `fav-${storeSeq}.json`)));
+	setSharedFavoritesStore(
+		new FavoritesStore(join(tmpDir, `fav-${storeSeq}.json`)),
+	);
 });
 
 afterAll(() => {
@@ -99,7 +116,10 @@ describe("FavoritesStore", () => {
 		const file = freshStoreFile();
 		writeFileSync(
 			file,
-			JSON.stringify({ favorites: ["anthropic/claude-sonnet-4"], config: { cycleOnlyFavorites: false } }),
+			JSON.stringify({
+				favorites: ["anthropic/claude-sonnet-4"],
+				config: { cycleOnlyFavorites: false },
+			}),
 			"utf8",
 		);
 		const store = new FavoritesStore(file);
@@ -111,7 +131,9 @@ describe("FavoritesStore", () => {
 		const file = freshStoreFile();
 		const store = new FavoritesStore(file);
 		store.toggle(models[0]);
-		const raw = JSON.parse(readFileSync(file, "utf8")) as { favorites: string[] };
+		const raw = JSON.parse(readFileSync(file, "utf8")) as {
+			favorites: string[];
+		};
 		expect(raw.favorites).toEqual([modelKey(models[0])]);
 	});
 });
@@ -119,17 +141,30 @@ describe("FavoritesStore", () => {
 // ─── cycle patch ─────────────────────────────────────────────────
 
 interface FakeCycleSession {
-	_scopedModels: Array<{ model: (typeof models)[number]; thinkingLevel?: string }>;
+	_scopedModels: Array<{
+		model: (typeof models)[number];
+		thinkingLevel?: string;
+	}>;
 	_modelRuntime: { getAvailableSnapshot(): (typeof models)[number][] };
 	model: (typeof models)[number];
 	agent: { state: { model: unknown } };
-	sessionManager: { appendModelChange(provider: string, id: string): void; calls: Array<[string, string]> };
-	settingsManager: { setDefaultModelAndProvider(provider: string, id: string): void; calls: Array<[string, string]> };
+	sessionManager: {
+		appendModelChange(provider: string, id: string): void;
+		calls: Array<[string, string]>;
+	};
+	settingsManager: {
+		setDefaultModelAndProvider(provider: string, id: string): void;
+		calls: Array<[string, string]>;
+	};
 	setThinkingLevel(level: unknown): void;
 	_getThinkingLevelForModelSwitch(explicit?: string): string;
 	_cycleAvailableModel(direction: "forward" | "backward"): Promise<unknown>;
 	_cycleScopedModel(direction: "forward" | "backward"): Promise<unknown>;
-	_emitModelSelect(next: unknown, previous: unknown, source: "cycle"): Promise<void>;
+	_emitModelSelect(
+		next: unknown,
+		previous: unknown,
+		source: "cycle",
+	): Promise<void>;
 	thinkingLevel: string;
 	emitted: Array<{ next: unknown; previous: unknown; source: string }>;
 }
@@ -137,24 +172,36 @@ interface FakeCycleSession {
 type ModelLike = (typeof models)[number];
 
 /** Stock cycle algorithm used by the real AgentSession (mirrored for the fake). */
-function stockAvailableCycle(this: FakeCycleSession, direction: "forward" | "backward"): Promise<unknown> {
+function stockAvailableCycle(
+	this: FakeCycleSession,
+	direction: "forward" | "backward",
+): Promise<unknown> {
 	const available = this._modelRuntime.getAvailableSnapshot();
 	if (available.length <= 1) return Promise.resolve(undefined);
 	const current = this.model;
-	let idx = available.findIndex((m) => m.provider === current.provider && m.id === current.id);
+	let idx = available.findIndex(
+		(m) => m.provider === current.provider && m.id === current.id,
+	);
 	if (idx === -1) idx = 0;
 	const len = available.length;
-	const nextIdx = direction === "forward" ? (idx + 1) % len : (idx - 1 + len) % len;
+	const nextIdx =
+		direction === "forward" ? (idx + 1) % len : (idx - 1 + len) % len;
 	const next = available[nextIdx];
 	this.agent.state.model = next;
 	this.sessionManager.appendModelChange(next.provider, next.id);
 	this.settingsManager.setDefaultModelAndProvider(next.provider, next.id);
 	const level = this._getThinkingLevelForModelSwitch();
 	this.setThinkingLevel(level);
-	return Promise.resolve({ model: next, thinkingLevel: level, isScoped: false });
+	return Promise.resolve({
+		model: next,
+		thinkingLevel: level,
+		isScoped: false,
+	});
 }
 
-function fakeSession(overrides: Partial<FakeCycleSession> = {}): FakeCycleSession {
+function fakeSession(
+	overrides: Partial<FakeCycleSession> = {},
+): FakeCycleSession {
 	const session = {
 		_scopedModels: [],
 		_modelRuntime: { getAvailableSnapshot: () => models },
@@ -162,13 +209,21 @@ function fakeSession(overrides: Partial<FakeCycleSession> = {}): FakeCycleSessio
 		agent: { state: { model: models[0] } },
 		sessionManager: {
 			calls: [] as Array<[string, string]>,
-			appendModelChange(this: { calls: Array<[string, string]> }, provider: string, id: string) {
+			appendModelChange(
+				this: { calls: Array<[string, string]> },
+				provider: string,
+				id: string,
+			) {
 				this.calls.push([provider, id]);
 			},
 		},
 		settingsManager: {
 			calls: [] as Array<[string, string]>,
-			setDefaultModelAndProvider(this: { calls: Array<[string, string]> }, provider: string, id: string) {
+			setDefaultModelAndProvider(
+				this: { calls: Array<[string, string]> },
+				provider: string,
+				id: string,
+			) {
 				this.calls.push([provider, id]);
 			},
 		},
@@ -191,7 +246,9 @@ function fakeSession(overrides: Partial<FakeCycleSession> = {}): FakeCycleSessio
 type PatchedCycle = (
 	this: FakeCycleSession,
 	direction?: "forward" | "backward",
-) => Promise<{ model: ModelLike; thinkingLevel: string; isScoped: boolean } | undefined>;
+) => Promise<
+	{ model: ModelLike; thinkingLevel: string; isScoped: boolean } | undefined
+>;
 
 describe("cycle patch", () => {
 	const originalCycleModel = AgentSession.prototype.cycleModel;
@@ -203,7 +260,8 @@ describe("cycle patch", () => {
 	});
 
 	it("falls back to stock cycling when no favorites exist", async () => {
-		const patched = AgentSession.prototype.cycleModel as unknown as PatchedCycle;
+		const patched = AgentSession.prototype
+			.cycleModel as unknown as PatchedCycle;
 		const result = await patched.call(fakeSession(), "forward");
 		// Stock: sonnet-4 → opus-4 (next available model).
 		expect(result?.model.id).toBe("claude-opus-4");
@@ -212,7 +270,8 @@ describe("cycle patch", () => {
 	it("cycles only among favorites once favorites exist", async () => {
 		getFavoritesStore().toggle(models[0]);
 		getFavoritesStore().toggle(models[1]); // favorites: sonnet-4, opus-4 (gpt-5 excluded)
-		const patched = AgentSession.prototype.cycleModel as unknown as PatchedCycle;
+		const patched = AgentSession.prototype
+			.cycleModel as unknown as PatchedCycle;
 		const session = fakeSession({ model: models[1] }); // current = opus-4
 		const result = await patched.call(session, "forward");
 		expect(result?.model.id).toBe("claude-sonnet-4"); // wraps within favorites
@@ -223,32 +282,49 @@ describe("cycle patch", () => {
 	it("jumps to first favorite forward / last backward when current is not a favorite", async () => {
 		getFavoritesStore().toggle(models[1]);
 		getFavoritesStore().toggle(models[2]); // favorites: opus-4, gpt-5; current = sonnet-4 (not fav)
-		const patched = AgentSession.prototype.cycleModel as unknown as PatchedCycle;
+		const patched = AgentSession.prototype
+			.cycleModel as unknown as PatchedCycle;
 
-		const forward = await patched.call(fakeSession({ model: models[0] }), "forward");
+		const forward = await patched.call(
+			fakeSession({ model: models[0] }),
+			"forward",
+		);
 		expect(forward?.model.id).toBe("claude-opus-4"); // first favorite
 
-		const backward = await patched.call(fakeSession({ model: models[0] }), "backward");
+		const backward = await patched.call(
+			fakeSession({ model: models[0] }),
+			"backward",
+		);
 		expect(backward?.model.id).toBe("openai/gpt-5"); // last favorite
 	});
 
 	it("returns undefined when already on the only favorite", async () => {
 		getFavoritesStore().toggle(models[0]);
-		const patched = AgentSession.prototype.cycleModel as unknown as PatchedCycle;
-		expect(await patched.call(fakeSession({ model: models[0] }), "forward")).toBeUndefined();
+		const patched = AgentSession.prototype
+			.cycleModel as unknown as PatchedCycle;
+		expect(
+			await patched.call(fakeSession({ model: models[0] }), "forward"),
+		).toBeUndefined();
 	});
 
 	it("respects cycleOnlyFavorites=false (falls back to stock)", async () => {
 		const file = freshStoreFile();
 		writeFileSync(
 			file,
-			JSON.stringify({ favorites: [modelKey(models[0])], config: { cycleOnlyFavorites: false } }),
+			JSON.stringify({
+				favorites: [modelKey(models[0])],
+				config: { cycleOnlyFavorites: false },
+			}),
 			"utf8",
 		);
 		setSharedFavoritesStore(new FavoritesStore(file));
 		getFavoritesStore().toggle(models[1]); // ensure favorites exist
-		const patched = AgentSession.prototype.cycleModel as unknown as PatchedCycle;
-		const result = await patched.call(fakeSession({ model: models[0] }), "forward");
+		const patched = AgentSession.prototype
+			.cycleModel as unknown as PatchedCycle;
+		const result = await patched.call(
+			fakeSession({ model: models[0] }),
+			"forward",
+		);
 		// Stock behavior: next available model, not favorites-only.
 		expect(result?.model.id).toBe("claude-opus-4");
 	});
@@ -292,7 +368,10 @@ function fakeSelector(overrides: Partial<FakeSelector> = {}): FakeSelector {
 	// implementations run with `this` = the fake. IMPORTANT: the fake must NOT
 	// have own handleInput/updateList/filterModels stubs — own properties
 	// shadow the patched prototype methods.
-	return Object.setPrototypeOf(selector, ModelSelectorComponent.prototype) as unknown as FakeSelector;
+	return Object.setPrototypeOf(
+		selector,
+		ModelSelectorComponent.prototype,
+	) as unknown as FakeSelector;
 }
 
 describe("selector patches", () => {
@@ -310,7 +389,9 @@ describe("selector patches", () => {
 		selector.handleInput("\x0a"); // ctrl+j
 		expect(selector.__favoritesOnly).toBe(true);
 		// Original filterModels ran on the favorites subset:
-		expect(selector.filteredModels.map((m) => m.id)).toEqual(["claude-sonnet-4"]);
+		expect(selector.filteredModels.map((m) => m.id)).toEqual([
+			"claude-sonnet-4",
+		]);
 		selector.handleInput("\x0a"); // toggle off
 		expect(selector.__favoritesOnly).toBe(false);
 		expect(selector.filteredModels).toHaveLength(3);
@@ -348,6 +429,9 @@ describe("selector patches", () => {
 		});
 		// No ctrl+j pressed: filterModels with a query keeps all models (stock path).
 		selector.filterModels("claude");
-		expect(selector.filteredModels.map((m) => m.id)).toEqual(["claude-sonnet-4", "claude-opus-4"]);
+		expect(selector.filteredModels.map((m) => m.id)).toEqual([
+			"claude-sonnet-4",
+			"claude-opus-4",
+		]);
 	});
 });

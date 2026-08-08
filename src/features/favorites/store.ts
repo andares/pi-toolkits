@@ -18,7 +18,13 @@
  * config with a console.warn; writes are atomic (tmp file + rename) and
  * failures are logged, never thrown.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { FAVORITES_FILE } from "./constants.js";

@@ -24,10 +24,17 @@
  * Both patches are version-guarded (skip + warn if the API changed) and
  * idempotent across /reload.
  */
-import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	Theme,
+} from "@earendil-works/pi-coding-agent";
 import { FAVORITES_STATUS_KEY } from "./constants.js";
 import { applyCyclePatch } from "./patch-cycle.js";
-import { applyModelSelectorPatches, setSelectorThemeProvider } from "./patch-selector.js";
+import {
+	applyModelSelectorPatches,
+	setSelectorThemeProvider,
+} from "./patch-selector.js";
 import { getFavoritesStore } from "./store.js";
 
 export function registerFavorites(pi: ExtensionAPI): void {
@@ -93,7 +100,9 @@ export function registerFavorites(pi: ExtensionAPI): void {
 				);
 				return;
 			}
-			const cycle = getFavoritesStore().getConfig().cycleOnlyFavorites ? "on" : "off";
+			const cycle = getFavoritesStore().getConfig().cycleOnlyFavorites
+				? "on"
+				: "off";
 			ctx.ui.notify(
 				`Favorites (${list.length}): ${list.join(", ")} — ctrl+p cycling: ${cycle}`,
 				"info",

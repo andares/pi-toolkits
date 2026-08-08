@@ -19,7 +19,10 @@
  * Version guard: missing cycleModel → warn and skip; the patch is idempotent
  * across /reload.
  */
-import { AgentSession, type ModelCycleResult } from "@earendil-works/pi-coding-agent";
+import {
+	AgentSession,
+	type ModelCycleResult,
+} from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
 import { getFavoritesStore, modelKey } from "./store.js";
 
@@ -34,10 +37,18 @@ interface CycleSessionInternals {
 	model: Model<any>;
 	agent: { state: { model: unknown } };
 	sessionManager: { appendModelChange(provider: string, id: string): void };
-	settingsManager: { setDefaultModelAndProvider(provider: string, id: string): void };
+	settingsManager: {
+		setDefaultModelAndProvider(provider: string, id: string): void;
+	};
 	setThinkingLevel(level: unknown): void;
-	_getThinkingLevelForModelSwitch(explicitLevel?: string): ModelCycleResult["thinkingLevel"] | undefined;
-	_emitModelSelect(next: unknown, previous: unknown, source: "cycle"): Promise<void>;
+	_getThinkingLevelForModelSwitch(
+		explicitLevel?: string,
+	): ModelCycleResult["thinkingLevel"] | undefined;
+	_emitModelSelect(
+		next: unknown,
+		previous: unknown,
+		source: "cycle",
+	): Promise<void>;
 	thinkingLevel: ModelCycleResult["thinkingLevel"];
 }
 
@@ -58,7 +69,9 @@ export function applyCyclePatch(): boolean {
 		): Promise<ModelCycleResult | undefined>;
 	};
 	if (typeof proto.cycleModel !== "function") {
-		console.warn("[pi-toolkits/favorites] AgentSession.cycleModel missing; cycle patch skipped.");
+		console.warn(
+			"[pi-toolkits/favorites] AgentSession.cycleModel missing; cycle patch skipped.",
+		);
 		return false;
 	}
 	patched = true;
@@ -68,22 +81,34 @@ export function applyCyclePatch(): boolean {
 		this: CycleSessionInternals,
 		direction: "forward" | "backward" = "forward",
 	): Promise<ModelCycleResult | undefined> {
-		if (!getFavoritesStore().getConfig().cycleOnlyFavorites || !getFavoritesStore().hasAny()) {
+		if (
+			!getFavoritesStore().getConfig().cycleOnlyFavorites ||
+			!getFavoritesStore().hasAny()
+		) {
 			return original.call(this, direction);
 		}
 
 		const scoped = this._scopedModels.length > 0;
 		const candidates: CycleCandidate[] = scoped
-			? this._scopedModels.map((sm) => ({ model: sm.model, thinkingLevel: sm.thinkingLevel }))
-			: this._modelRuntime.getAvailableSnapshot().map((model) => ({ model, thinkingLevel: undefined }));
-		const favorites = candidates.filter((candidate) => getFavoritesStore().has(candidate.model));
+			? this._scopedModels.map((sm) => ({
+					model: sm.model,
+					thinkingLevel: sm.thinkingLevel,
+				}))
+			: this._modelRuntime
+					.getAvailableSnapshot()
+					.map((model) => ({ model, thinkingLevel: undefined }));
+		const favorites = candidates.filter((candidate) =>
+			getFavoritesStore().has(candidate.model),
+		);
 		if (favorites.length === 0) {
 			// No favorites among the current source — fall back to stock cycling.
 			return original.call(this, direction);
 		}
 
 		const current = this.model;
-		const currentIndex = favorites.findIndex((candidate) => modelKey(candidate.model) === modelKey(current));
+		const currentIndex = favorites.findIndex(
+			(candidate) => modelKey(candidate.model) === modelKey(current),
+		);
 
 		let nextIndex: number;
 		if (currentIndex === -1) {
@@ -107,10 +132,17 @@ export function applyCyclePatch(): boolean {
 				: this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = next.model;
 		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
-		this.settingsManager.setDefaultModelAndProvider(next.model.provider, next.model.id);
+		this.settingsManager.setDefaultModelAndProvider(
+			next.model.provider,
+			next.model.id,
+		);
 		this.setThinkingLevel(thinkingLevel);
 		await this._emitModelSelect(next.model, current, "cycle");
-		return { model: next.model, thinkingLevel: this.thinkingLevel, isScoped: scoped };
+		return {
+			model: next.model,
+			thinkingLevel: this.thinkingLevel,
+			isScoped: scoped,
+		};
 	};
 
 	return true;

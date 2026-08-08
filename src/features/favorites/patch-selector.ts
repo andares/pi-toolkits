@@ -21,9 +21,17 @@
  * upgraded internals), patches are skipped with a warning — the extension
  * keeps loading and ctrl+p falls back to stock behavior.
  */
-import { ModelSelectorComponent, rawKeyHint, type Theme } from "@earendil-works/pi-coding-agent";
+import {
+	ModelSelectorComponent,
+	rawKeyHint,
+	type Theme,
+} from "@earendil-works/pi-coding-agent";
 import { matchesKey, Spacer, Text } from "@earendil-works/pi-tui";
-import { FAVORITES_ONLY_KEY, FAVORITE_TOGGLE_KEY, styleFavorite } from "./constants.js";
+import {
+	FAVORITES_ONLY_KEY,
+	FAVORITE_TOGGLE_KEY,
+	styleFavorite,
+} from "./constants.js";
 import { getFavoritesStore } from "./store.js";
 
 /** Minimal structural views of the built-in internals we touch. */
@@ -72,7 +80,9 @@ interface SelectorPatchTarget {
 let themeProvider: () => Theme | undefined = () => undefined;
 
 /** Called by registerFavorites once the live theme proxy is available. */
-export function setSelectorThemeProvider(provider: () => Theme | undefined): void {
+export function setSelectorThemeProvider(
+	provider: () => Theme | undefined,
+): void {
 	themeProvider = provider;
 }
 
@@ -88,9 +98,14 @@ function buildHintText(state: SelectorPatchTarget): string {
 	const theme = getTheme();
 	if (!theme) return "";
 	const keys = `${rawKeyHint(FAVORITE_TOGGLE_KEY, "favorite")} · ${rawKeyHint(FAVORITES_ONLY_KEY, "only-favorites")}`;
-	const mode = state.__favoritesOnly ? theme.fg("success", " [ON]") : theme.fg("muted", " [OFF]");
+	const mode = state.__favoritesOnly
+		? theme.fg("success", " [ON]")
+		: theme.fg("muted", " [OFF]");
 	const count = getFavoritesStore().count();
-	const countText = theme.fg("dim", count > 0 ? ` · ${count} favorited` : " · none favorited");
+	const countText = theme.fg(
+		"dim",
+		count > 0 ? ` · ${count} favorited` : " · none favorited",
+	);
 	return theme.fg("muted", "Favorites: ") + keys + mode + countText;
 }
 
@@ -99,7 +114,8 @@ let patched = false;
 /** Apply the three selector patches. Idempotent; returns false if skipped. */
 export function applyModelSelectorPatches(): boolean {
 	if (patched) return true;
-	const proto = ModelSelectorComponent.prototype as unknown as SelectorPatchTarget;
+	const proto =
+		ModelSelectorComponent.prototype as unknown as SelectorPatchTarget;
 	if (
 		typeof proto.handleInput !== "function" ||
 		typeof proto.updateList !== "function" ||
@@ -117,7 +133,10 @@ export function applyModelSelectorPatches(): boolean {
 	const originalFilterModels = proto.filterModels;
 
 	// ── 1. Key interception (ctrl+f / ctrl+j) ─────────────────────────────
-	proto.handleInput = function (this: SelectorPatchTarget, keyData: string): void {
+	proto.handleInput = function (
+		this: SelectorPatchTarget,
+		keyData: string,
+	): void {
 		if (matchesKey(keyData, FAVORITE_TOGGLE_KEY)) {
 			this.handleFavoriteToggle();
 			return;
@@ -146,24 +165,36 @@ export function applyModelSelectorPatches(): boolean {
 		const maxVisible = 10;
 		const startIndex = Math.max(
 			0,
-			Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.filteredModels.length - maxVisible),
+			Math.min(
+				this.selectedIndex - Math.floor(maxVisible / 2),
+				this.filteredModels.length - maxVisible,
+			),
 		);
-		const endIndex = Math.min(startIndex + maxVisible, this.filteredModels.length);
+		const endIndex = Math.min(
+			startIndex + maxVisible,
+			this.filteredModels.length,
+		);
 		for (let i = startIndex; i < endIndex; i++) {
 			const item = this.filteredModels[i];
 			if (!item) continue;
 			const isSelected = i === this.selectedIndex;
-			const isCurrent = this.currentModel !== undefined && sameModel(item.model, this.currentModel);
+			const isCurrent =
+				this.currentModel !== undefined &&
+				sameModel(item.model, this.currentModel);
 			const isFavorite = getFavoritesStore().has(item.model);
 			let line: string;
 			if (isSelected) {
 				const prefix = theme.fg("accent", "→ ");
-				const modelText = isFavorite ? styleFavorite(item.id) : theme.fg("accent", item.id);
+				const modelText = isFavorite
+					? styleFavorite(item.id)
+					: theme.fg("accent", item.id);
 				const providerBadge = theme.fg("muted", `[${item.provider}]`);
 				const checkmark = isCurrent ? theme.fg("success", " ✓") : "";
 				line = `${prefix + modelText} ${providerBadge}${checkmark}`;
 			} else {
-				const modelText = isFavorite ? `  ${styleFavorite(item.id)}` : `  ${item.id}`;
+				const modelText = isFavorite
+					? `  ${styleFavorite(item.id)}`
+					: `  ${item.id}`;
 				const providerBadge = theme.fg("muted", `[${item.provider}]`);
 				const checkmark = isCurrent ? theme.fg("success", " ✓") : "";
 				line = `${modelText} ${providerBadge}${checkmark}`;
@@ -171,7 +202,10 @@ export function applyModelSelectorPatches(): boolean {
 			list.addChild(new Text(line, 0, 0));
 		}
 		if (startIndex > 0 || endIndex < this.filteredModels.length) {
-			const scrollInfo = theme.fg("muted", `  (${this.selectedIndex + 1}/${this.filteredModels.length})`);
+			const scrollInfo = theme.fg(
+				"muted",
+				`  (${this.selectedIndex + 1}/${this.filteredModels.length})`,
+			);
 			list.addChild(new Text(scrollInfo, 0, 0));
 		}
 		if (this.errorMessage) {
@@ -183,21 +217,41 @@ export function applyModelSelectorPatches(): boolean {
 		} else {
 			const selected = this.filteredModels[this.selectedIndex];
 			list.addChild(new Spacer(1));
-			list.addChild(new Text(theme.fg("muted", `  Model Name: ${selected.model.name}`), 0, 0));
+			list.addChild(
+				new Text(
+					theme.fg("muted", `  Model Name: ${selected.model.name}`),
+					0,
+					0,
+				),
+			);
 		}
 		if (this.refreshStatusMessage) {
 			list.addChild(new Spacer(1));
-			list.addChild(new Text(theme.fg(this.refreshStatusSuccess ? "success" : "muted", `  ${this.refreshStatusMessage}`), 0, 0));
+			list.addChild(
+				new Text(
+					theme.fg(
+						this.refreshStatusSuccess ? "success" : "muted",
+						`  ${this.refreshStatusMessage}`,
+					),
+					0,
+					0,
+				),
+			);
 		}
 	};
 
 	// ── 3. "Only favorites" filter ────────────────────────────────────────
 	// Swap activeModels for the favorites subset around the original call so
 	// the built-in fuzzy-filter + selection-index logic runs on the subset.
-	proto.filterModels = function (this: SelectorPatchTarget, query: string): void {
+	proto.filterModels = function (
+		this: SelectorPatchTarget,
+		query: string,
+	): void {
 		if (this.__favoritesOnly) {
 			const saved = this.activeModels;
-			this.activeModels = saved.filter((item) => getFavoritesStore().has(item.model));
+			this.activeModels = saved.filter((item) =>
+				getFavoritesStore().has(item.model),
+			);
 			try {
 				originalFilterModels.call(this, query);
 			} finally {
