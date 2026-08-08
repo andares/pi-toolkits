@@ -61,7 +61,10 @@ export class PromptStash {
 	 * `now` is injectable for deterministic tests.
 	 */
 	press(current: string, now = Date.now()): StashPressResult {
-		if (this.lastPressAt !== 0 && now - this.lastPressAt <= this.doublePressMs) {
+		if (
+			this.lastPressAt !== 0 &&
+			now - this.lastPressAt <= this.doublePressMs
+		) {
 			// Double press: keep the just-stashed prompt in the cache and clear
 			// the editor (discard the prompt that was momentarily swapped in).
 			this.lastPressAt = 0;
