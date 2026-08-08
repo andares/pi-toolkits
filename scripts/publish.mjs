@@ -55,7 +55,9 @@ if (!BUMPS.includes(arg)) {
 	process.exit(1);
 }
 if (process.argv.slice(2).filter((a) => a !== "--dry-run").length > 1) {
-	console.error(`${C.red}Exactly one of ${BUMPS.join("|")} is required.${C.reset}`);
+	console.error(
+		`${C.red}Exactly one of ${BUMPS.join("|")} is required.${C.reset}`,
+	);
 	process.exit(1);
 }
 
@@ -63,12 +65,16 @@ let pkg;
 try {
 	pkg = JSON.parse(readFileSync(PKG_PATH, "utf8"));
 } catch {
-	console.error(`${C.red}package.json is missing or not valid JSON: ${PKG_PATH}${C.reset}`);
+	console.error(
+		`${C.red}package.json is missing or not valid JSON: ${PKG_PATH}${C.reset}`,
+	);
 	process.exit(1);
 }
 const current = pkg.version;
 if (typeof current !== "string" || !/^\d+\.\d+\.\d+$/.test(current)) {
-	console.error(`${C.red}Unexpected package.json version: ${JSON.stringify(current)}${C.reset}`);
+	console.error(
+		`${C.red}Unexpected package.json version: ${JSON.stringify(current)}${C.reset}`,
+	);
 	process.exit(1);
 }
 
@@ -102,14 +108,16 @@ if (dryRun) {
 	console.log(`\n${C.dim}--dry-run -- nothing changed. Would run:${C.reset}`);
 	console.log(`  1. pnpm typecheck && pnpm test`);
 	console.log(`  2. bump package.json version → ${next}`);
-	console.log(`  3. git commit -m "chore: release v${next}" && git tag v${next}`);
+	console.log(
+		`  3. git commit -m "chore: release v${next}" && git tag v${next}`,
+	);
 	console.log(`  4. pnpm publish --no-git-checks`);
 	process.exit(0);
 }
 
 // Dirty-tree warning (non-blocking; publish uses --no-git-checks).
-const dirty = run(git, ["status", "--porcelain"], { stdio: "pipe" }).stdout
-	.toString()
+const dirty = run(git, ["status", "--porcelain"], { stdio: "pipe" })
+	.stdout.toString()
 	.trim();
 if (dirty) {
 	console.warn(
@@ -138,7 +146,9 @@ run(git, ["tag", `v${next}`]);
 
 // 4. Publish (prepublishOnly re-gates with typecheck + test).
 step("pnpm publish");
-const publish = run(pnpm, ["publish", "--no-git-checks"], { allowFailure: true });
+const publish = run(pnpm, ["publish", "--no-git-checks"], {
+	allowFailure: true,
+});
 if (publish.status !== 0) {
 	console.error(
 		`${C.red}Publish failed. The version bump is already committed + tagged as v${next}.` +
