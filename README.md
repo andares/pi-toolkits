@@ -57,6 +57,37 @@ Favorites persist globally in `<agent-dir>/pi-toolkits-favorites.json`
 > upgrades its internals and a patch can't apply, it logs a warning and
 > degrades gracefully.
 
+### stash — prompt stash
+
+One hotkey juggles the editor prompt and a single stash slot — handy when
+you want to set a prompt aside without losing it.
+
+- **`ctrl+alt+y`** — swap the current editor text with the stashed prompt
+  (press again to toggle back between the two)
+- **`ctrl+alt+y` twice quickly** — stash the current prompt **and clear the
+  editor**, ready for a new prompt; press once later to bring the stashed
+  prompt back
+
+With an empty stash, a single press stashes the current prompt and clears
+the editor. The stash is in-memory (not persisted — prompts may be
+sensitive), survives `/new` within the same process, and resets on `/reload`.
+The key is inert while a selector (`/model`, `/tree`, …) is open.
+
+**Why `ctrl+alt+y`** (researched across four compatibility levels):
+
+| Level | Status | Notes |
+| --- | --- | --- |
+| pi bindings | ✅ | no default `ctrl+alt+<letter>` binding; extension shortcuts dispatch first in the editor |
+| Linux terminal | ✅ | `alt` = ESC-prefix, so `ctrl+alt+y` = `ESC + ctrl+y`, distinguishable without kitty protocol |
+| Windows Terminal | ✅ | no default `ctrl+alt` binding |
+| Windows OS | ✅ | only `ctrl+alt+del` is system-reserved |
+
+Rejected: `ctrl+shift+<letter>` (terminal emulators grab copy/paste/tab on
+both Linux and Windows, and without kitty protocol it collapses to
+`ctrl+<letter>` — `ctrl+shift+m` would be Enter and submit the prompt);
+plain `ctrl+<letter>` (fully occupied by pi defaults or terminal control
+chars — only `ctrl+q` is free but it is the XON flow-control character).
+
 ## Install
 
 ```bash
@@ -97,8 +128,11 @@ src/
 ├── index.ts              # entry point: aggregates feature modules
 ├── lib/                  # shared infrastructure (tool-set snapshot/restore)
 └── features/             # feature modules — one directory per feature
-    └── ask/              # ask mode: command + state machine, bash sandbox,
-                          #           system prompt banner, tests
+    ├── ask/              # ask mode: command + state machine, bash sandbox,
+    │                     #           system prompt banner, tests
+    ├── favorites/        # model favorites: selector patches, cycle patch,
+    │                     #           persisted store, tests
+    └── stash/            # prompt stash: hotkey state machine + tests
 ```
 
 Adding a new feature = create `src/features/<name>/` exporting `registerXxx(pi)`
