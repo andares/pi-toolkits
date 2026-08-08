@@ -1,41 +1,101 @@
-# @andares/pi-toolkits
+<!-- markdownlint-disable MD033 -->
+<!-- Inline <a name> anchors are the only reliable TOC targets for CJK headers on GitHub. -->
+# ⚙️ @andares/pi-toolkits
 
-Integrated toolkit extension for [pi](https://github.com/earendil-works/pi-coding-agent) — a single npm package that grows new capabilities over time. Currently provides **ask mode**.
+> pi 编码代理的集成扩展工具包 — 一个包,持续生长新能力。
+> Integrated toolkit extension for [pi](https://github.com/earendil-works/pi-coding-agent) — one package, growing new capabilities over time.
 
-## Features
+[![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
+[![pi >= 0.84](https://img.shields.io/badge/pi-%3E%3D0.84.0-blueviolet)](https://github.com/earendil-works/pi)
+[![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-### ask — read-only Q&A mode
+一句话介绍:目前包含三个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`,后续持续追加。
+Currently ships three ready-to-use capabilities — **ask mode**, **model favorites** and **prompt stash** — with more to come.
 
-Toggle with `/ask` (press again to exit). While active:
+---
 
-- **`write`/`edit` hard-disabled** — removed from the active tool set; pi's runtime rejects calls to non-active tools, so file modification is genuinely impossible
-- **`bash` kept but sandboxed to read-only commands** — shell-quote tokenization with per-segment validation plus write-intent detection (`curl -o/-O`, `wget -O`, `dd of=`, `tee`, redirects); heuristic, not a security boundary
-- **System prompt banner** appended describing the current mode and its restrictions
-- **Gray `ask` footer status** while active
+## 📦 安装 Installation
 
-Exiting restores the exact tool set from before ask mode was entered.
+<a name="install"></a>
 
-### favorites — model favorites
+```bash
+# 从 npm 安装(推荐)· from npm
+pi install npm:@andares/pi-toolkits
 
-Mark your frequently-used models and make model cycling stick to them.
+# 本地开发安装 · local development
+pi install .
 
-**In the `/model` selector** (opened via `/model` or `ctrl+l`):
+# 单次会话加载,不安装 · one-off session, no install
+pi -e ./src/index.ts
+```
 
-- A hint row at the top shows the keys and the current filter state
-- `ctrl+f` toggles favorite on the currently selected model — favorited
-  models render in **bold bright yellow**
-- `ctrl+j` toggles the **only-favorites** filter (keeps working together with
-  the built-in search)
+安装后在任意 pi 会话中验证:
 
-**Model cycling:** once at least one favorite exists, `ctrl+p` /
-`ctrl+shift+p` cycle **only among favorited models** instead of all models.
-If the current model is not a favorite, `ctrl+p` jumps to the first favorite
-and `ctrl+shift+p` to the last. `ctrl+l` / `/model` stays available to pick
-any model. Set `"cycleOnlyFavorites": false` in the state file to restore
-full cycling.
+- `/ask` → footer 出现灰色 `ask` 状态,`write`/`edit` 被硬禁用
+- `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行
+- 输入框内按 `ctrl+alt+y` → 当前提示词被暂存并清空输入框
 
-Favorites persist globally in `<agent-dir>/pi-toolkits-favorites.json`
-(`~/.pi/agent` by default, alongside the auto-naming-session config):
+---
+
+## 📚 目录 Contents
+
+- [安装 Installation](#install)
+- [功能总览 Features at a glance](#features)
+  - [🛡️ ask — 只读咨询模式](#ask)
+  - [⭐ favorites — 模型收藏](#favorites)
+  - [📥 stash — 提示词暂存](#stash)
+- [开发 Development](#development)
+- [贡献 Contributing](#contributing)
+- [许可 License](#license)
+
+---
+
+## ✨ 功能总览 Features at a glance
+
+<a name="features"></a>
+
+| 功能 | 入口 | 一句话说明 |
+| --- | --- | --- |
+| 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit` 硬禁用,`bash` 只读沙箱 |
+| ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+F` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
+| 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
+
+---
+
+## 🛡️ ask — 只读咨询模式
+
+<a name="ask"></a>
+
+用 `/ask` 进入(再按一次退出)。适合只想要"问问题、读代码",绝不希望模型改动任何文件的场景。
+
+**进入后**:
+
+- **`write` / `edit` 硬禁用** —— 从活跃工具集中移除,pi 运行时对未激活工具的调用直接拒绝("Tool not found"),文件修改在机制上不可能发生
+- **`bash` 保留但只读沙箱** —— 基于 shell 分词 + 写盘意图检测(`curl -o/-O`、`wget -O`、`dd of=`、`tee`、重定向等一律拦截)。启发式,非安全边界
+- **系统提示词追加** —— 追加一段模式说明,模型会遵守只读约束行事
+- **灰色 `ask` footer 状态** —— 常驻提示当前处于只读模式
+
+**退出**:再按 `/ask`,完整恢复进入前的工具集快照。
+
+---
+
+## ⭐ favorites — 模型收藏
+
+<a name="favorites"></a>
+
+标记常用模型,让模型切换「粘」在收藏上。收藏**跨会话、跨项目全局持久化**。
+
+**在 `/model` 选择器内**(`/model` 或 `ctrl+l` 打开):
+
+- 顶部提示行显示按键与当前过滤状态
+- `ctrl+F` —— 对当前选中模型开/关收藏;收藏的模型文字显示为**加粗亮黄**
+- `ctrl+J` —— 开/关「仅显示收藏模型」过滤(可与内置搜索叠加使用)
+
+**模型循环**:只要存在 ≥1 个收藏,`ctrl+p` / `ctrl+shift+p` 就**只在收藏模型间循环**。当前模型不是收藏时,`ctrl+p` 跳到第一个收藏、`ctrl+shift+p` 跳到最后一个;收藏仅 1 个时停在原地(`Only one model available`)。`ctrl+l` / `/model` 始终可自由选择任意模型(含非收藏)。在状态文件中设 `"cycleOnlyFavorites": false` 可恢复全量循环。
+
+**状态文件**:`<agent-dir>/pi-toolkits-favorites.json`(默认 `~/.pi/agent/`,与 auto-naming-session 配置同目录):
 
 ```json
 {
@@ -44,84 +104,52 @@ Favorites persist globally in `<agent-dir>/pi-toolkits-favorites.json`
 }
 ```
 
-`/favorites` lists the current favorites and cycling mode.
+`/favorites` 命令列出当前收藏与循环模式。
 
-> **How it works / keybindings:** pi reserves `app.model.cycleForward`
-> (`ctrl+p`) and `cycleBackward` for built-ins, and extension shortcuts only
-> fire while the editor is focused — so the feature doesn't rebind any keys.
-> Instead it patches two built-in prototypes at runtime (version-guarded and
-> idempotent across `/reload`): `ModelSelectorComponent` (hint row, `ctrl+f`/
-> `ctrl+j`, styling, only-favorites filter — keys are consumed only inside
-> the selector, so `ctrl+f` cursor-right and `ctrl+j` newline keep working in
-> the editor) and `AgentSession.cycleModel` (favorites-only cycling). If pi
-> upgrades its internals and a patch can't apply, it logs a warning and
-> degrades gracefully.
+> **实现说明**:pi 的 `app.model.cycleForward`(`ctrl+p`)与 `cycleBackward` 是**保留键位**,扩展快捷键无法覆盖;且扩展快捷键只在编辑器聚焦时生效。因此本功能不重绑任何按键,而是在运行时 patch 两个内置原型(带版本守卫、`/reload` 幂等):`ModelSelectorComponent`(提示行、`ctrl+F`/`ctrl+J`、亮黄渲染、仅收藏过滤——按键仅在选择器内消费,编辑器里 `ctrl+f` 光标右移、`ctrl+j` 换行不受影响)与 `AgentSession.cycleModel`(收藏循环)。若 pi 升级导致 patch 无法应用,会 warn 并优雅降级,不影响其它功能。
 
-### stash — prompt stash
+---
 
-One hotkey juggles the editor prompt and a single stash slot — handy when
-you want to set a prompt aside without losing it.
+## 📥 stash — 提示词暂存
 
-- **`ctrl+alt+y`** — swap the current editor text with the stashed prompt
-  (press again to toggle back between the two)
-- **`ctrl+alt+y` twice quickly** — stash the current prompt **and clear the
-  editor**, ready for a new prompt; press once later to bring the stashed
-  prompt back
+<a name="stash"></a>
 
-With an empty stash, a single press stashes the current prompt and clears
-the editor. The stash is in-memory (not persisted — prompts may be
-sensitive), survives `/new` within the same process, and resets on `/reload`.
-The key is inert while a selector (`/model`, `/tree`, …) is open.
+一个热键 + 一个暂存槽,在「当前提示词」与「暂存提示词」之间腾挪,方便把一段提示词先放一边、空出输入框写新的,需要时再取回。
 
-**Why `ctrl+alt+y`** (researched across four compatibility levels):
+| 操作 | 效果 |
+| --- | --- |
+| 按一次 `ctrl+alt+y` | 当前提示词 → 入缓存;缓存内容 → 填入输入框(**交换**) |
+| 间隔再按 | 在两段提示词之间**来回切换** |
+| **400ms 内连按两次** | 当前提示词入缓存 + **清空输入框**(旧暂存被丢弃),直接开写新提示词;之后按一次取回 |
 
-| Level | Status | Notes |
+缓存为空时,单按一次即「暂存 + 清空」。缓存为**进程内内存、不落盘**(提示词可能含敏感内容);`/new` 切会话不清缓存,`/reload` 清空。选择器(`/model`、`/tree` 等)打开时按键不生效(焦点在组件,不在编辑器)。
+
+**为什么是 `ctrl+alt+y`**(四级兼容性调研结论):
+
+| 层面 | 状态 | 说明 |
 | --- | --- | --- |
-| pi bindings | ✅ | no default `ctrl+alt+<letter>` binding; extension shortcuts dispatch first in the editor |
-| Linux terminal | ✅ | `alt` = ESC-prefix, so `ctrl+alt+y` = `ESC + ctrl+y`, distinguishable without kitty protocol |
-| Windows Terminal | ✅ | no default `ctrl+alt` binding |
-| Windows OS | ✅ | only `ctrl+alt+del` is system-reserved |
+| pi 键位 | ✅ | 无默认 `ctrl+alt+字母` 绑定;扩展快捷键在编辑器内最先分发 |
+| Linux 终端 | ✅ | `alt` 以 ESC 前缀编码(`ctrl+alt+y` = `ESC + ctrl+y`),不依赖 kitty 协议即可区分 |
+| Windows Terminal | ✅ | 无默认 `ctrl+alt` 绑定 |
+| Windows 操作系统 | ✅ | 系统级仅保留 `ctrl+alt+del` |
 
-Rejected: `ctrl+shift+<letter>` (terminal emulators grab copy/paste/tab on
-both Linux and Windows, and without kitty protocol it collapses to
-`ctrl+<letter>` — `ctrl+shift+m` would be Enter and submit the prompt);
-plain `ctrl+<letter>` (fully occupied by pi defaults or terminal control
-chars — only `ctrl+q` is free but it is the XON flow-control character).
+**被排除的候选**:`ctrl+shift+字母` —— Linux 与 Windows 的终端 emulator 都占用复制/粘贴/标签页;且无 kitty 协议的终端上会坍缩成 `ctrl+字母`(`ctrl+shift+m` 即回车,会直接提交提示词,危险)。纯 `ctrl+字母` —— pi 几乎全部占用,唯一空闲的 `ctrl+q` 是 XON 流控字符,有历史包袱。
 
-## Install
+---
 
-```bash
-# local development
-pi install .
-# or one-off session
-pi -e ./src/index.ts
-```
+## 🛠️ 开发 Development
 
-## Development
+<a name="development"></a>
+
+**pnpm is the only supported toolchain** — never use `npm install` / `npm publish` in this repo.
 
 ```bash
-pnpm install      # install deps (pnpm is the only supported toolchain)
+pnpm install      # install deps
 pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest (bash sandbox boundary cases)
+pnpm test         # vitest (all feature unit tests)
 ```
 
-### Publishing
-
-One-command npm release with automatic version bump (pnpm-only — never `npm publish`):
-
-```bash
-pnpm release patch   # 0.1.2 → 0.1.3
-pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
-pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
-```
-
-Requires exactly one of `major | minor | patch`; a higher-level bump zeroes
-all lower levels. The script runs `pnpm typecheck && pnpm test`, bumps
-`package.json`, creates the git commit + `vX.Y.Z` tag, then `pnpm publish`
-(`prepublishOnly` re-gates the publish with the same checks). `--dry-run`
-previews the plan without changing anything.
-
-## Project structure
+**项目结构 · project structure**
 
 ```text
 src/
@@ -130,14 +158,43 @@ src/
 └── features/             # feature modules — one directory per feature
     ├── ask/              # ask mode: command + state machine, bash sandbox,
     │                     #           system prompt banner, tests
-    ├── favorites/        # model favorites: selector patches, cycle patch,
+    ├── favorites/        # model favorites: selector + cycle patches,
     │                     #           persisted store, tests
     └── stash/            # prompt stash: hotkey state machine + tests
 ```
 
-Adding a new feature = create `src/features/<name>/` exporting `registerXxx(pi)`
-and call it from `src/index.ts`. Existing modules stay untouched.
+**新增功能 · adding a feature**:create `src/features/<name>/` exporting `registerXxx(pi)` and call it from `src/index.ts`. Existing modules stay untouched. Each feature ships its own `*.test.ts` (vitest) — keep them deterministic (inject clocks/state, no real agent-dir writes).
 
-## License
+**发布 · publishing**(pnpm-only,one command):
 
-MIT
+```bash
+pnpm release patch   # 0.1.2 → 0.1.3
+pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
+pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
+pnpm release patch --dry-run   # preview without changing anything
+```
+
+`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:校验 → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag → `pnpm publish`(`prepublishOnly` 二次门禁)。
+
+---
+
+## 🤝 贡献 Contributing
+
+<a name="contributing"></a>
+
+PRs and issues welcome. A few conventions:
+
+- **pnpm only** — never `npm install` / `npm publish`; use `pnpm add` / `pnpm publish`
+- **Feature-module pattern** — one directory per feature (`src/features/<name>/`), export `registerXxx(pi)`, register in `src/index.ts`; shared infra goes in `src/lib/`
+- **Tests** — every feature ships vitest cases; keep them deterministic (injectable clocks/state), no writes to the real agent dir
+- **Built-in patches** (favorites) must stay **version-guarded and idempotent** — verify the target prototype members exist before patching, guard against double-apply, degrade with a `console.warn` instead of breaking the extension
+- **Keybindings** — before picking a new shortcut, check pi defaults + reserved keys, terminal control chars, and OS/terminal-emulator grabs; prefer `ctrl+alt+<letter>` for cross-platform safety
+- **Quality gate** — `pnpm typecheck && pnpm test` must pass before submitting
+
+---
+
+## 📄 License
+
+<a name="license"></a>
+
+MIT © 2026 Andares Cui. See [LICENSE](LICENSE).
