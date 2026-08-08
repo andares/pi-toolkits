@@ -37,7 +37,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "prepublishOnly": "pnpm typecheck && pnpm test"
+    "prepublishOnly": "pnpm typecheck && pnpm test",
+    "release": "node ./scripts/publish.mjs"
   },
   "pi": {
     "extensions": [

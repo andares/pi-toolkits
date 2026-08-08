@@ -74,6 +74,22 @@ pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest (bash sandbox boundary cases)
 ```
 
+### Publishing
+
+One-command npm release with automatic version bump (pnpm-only — never `npm publish`):
+
+```bash
+pnpm release patch   # 0.1.2 → 0.1.3
+pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
+pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
+```
+
+Requires exactly one of `major | minor | patch`; a higher-level bump zeroes
+all lower levels. The script runs `pnpm typecheck && pnpm test`, bumps
+`package.json`, creates the git commit + `vX.Y.Z` tag, then `pnpm publish`
+(`prepublishOnly` re-gates the publish with the same checks). `--dry-run`
+previews the plan without changing anything.
+
 ## Project structure
 
 ```text
