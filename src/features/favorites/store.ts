@@ -81,6 +81,7 @@ export class FavoritesStore {
 				}
 			}
 		} catch (error) {
+			// pi-lens-ignore: no-console-except-error,console-statement, — deliberate degradation log
 			console.warn(
 				"[pi-toolkits/favorites] Failed to load favorites file, starting empty:",
 				error instanceof Error ? error.message : String(error),
@@ -99,12 +100,15 @@ export class FavoritesStore {
 			}
 			const tmp = `${this.file}.tmp`;
 			const data: FavoritesSnapshot = {
-				favorites: [...this.favorites].sort(),
+				// Explicit comparator: keys are "provider/id" strings, sorted
+				// lexicographically for a deterministic state file.
+				favorites: [...this.favorites].sort((a, b) => a.localeCompare(b)),
 				config: this.config,
 			};
 			writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 			renameSync(tmp, this.file);
 		} catch (error) {
+			// pi-lens-ignore: no-console-except-error,console-statement, — deliberate degradation log
 			console.warn(
 				"[pi-toolkits/favorites] Failed to save favorites file:",
 				error instanceof Error ? error.message : String(error),
@@ -129,7 +133,7 @@ export class FavoritesStore {
 
 	list(): string[] {
 		this.ensureLoaded();
-		return [...this.favorites].sort();
+		return [...this.favorites].sort((a, b) => a.localeCompare(b));
 	}
 
 	/** Toggle favorite for a model. Returns true if it is now favorited. */

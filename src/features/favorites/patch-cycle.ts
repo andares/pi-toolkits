@@ -32,9 +32,12 @@ import { getFavoritesStore, modelKey } from "./store.js";
  * safe to use as the patched method's `this` type at runtime.
  */
 interface CycleSessionInternals {
-	_scopedModels: ReadonlyArray<{ model: Model<any>; thinkingLevel?: string }>;
-	_modelRuntime: { getAvailableSnapshot(): Model<any>[] };
-	model: Model<any>;
+// pi-lens-ignore: no-any-type, — pi's Model generic requires `any` (constraint is Api); pi itself uses Model<any> everywhere
+_scopedModels: ReadonlyArray<{ model: Model<any>; thinkingLevel?: string }>;
+// pi-lens-ignore: no-any-type, — same as above
+_modelRuntime: { getAvailableSnapshot(): Model<any>[] };
+// pi-lens-ignore: no-any-type, — same as above
+model: Model<any>;
 	agent: { state: { model: unknown } };
 	sessionManager: { appendModelChange(provider: string, id: string): void };
 	settingsManager: {
@@ -52,9 +55,30 @@ interface CycleSessionInternals {
 	thinkingLevel: ModelCycleResult["thinkingLevel"];
 }
 
-interface CycleCandidate {
+	interface CycleCandidate {
+	// pi-lens-ignore: no-any-type, — matches pi's Model<any> API
 	model: Model<any>;
 	thinkingLevel?: string;
+}
+
+/**
+ * Index of the next favorite to cycle to.
+ *
+ * When the current model is not a favorite (`currentIndex === -1`), forward
+ * jumps to the first favorite and backward to the last (user-confirmed
+ * behavior); otherwise standard wrap-around modulo arithmetic applies.
+ */
+function nextCycleIndex(
+	currentIndex: number,
+	direction: "forward" | "backward",
+	len: number,
+): number {
+	if (currentIndex === -1) {
+		return direction === "forward" ? 0 : len - 1;
+	}
+	return direction === "forward"
+		? (currentIndex + 1) % len
+		: (currentIndex - 1 + len) % len;
 }
 
 let patched = false;
@@ -69,6 +93,7 @@ export function applyCyclePatch(): boolean {
 		): Promise<ModelCycleResult | undefined>;
 	};
 	if (typeof proto.cycleModel !== "function") {
+		// pi-lens-ignore: no-console-except-error,console-statement, — intentional degradation log
 		console.warn(
 			"[pi-toolkits/favorites] AgentSession.cycleModel missing; cycle patch skipped.",
 		);
@@ -110,20 +135,11 @@ export function applyCyclePatch(): boolean {
 			(candidate) => modelKey(candidate.model) === modelKey(current),
 		);
 
-		let nextIndex: number;
-		if (currentIndex === -1) {
-			// Current model is not a favorite: forward → first favorite,
-			// backward → last favorite (user-confirmed behavior).
-			nextIndex = direction === "forward" ? 0 : favorites.length - 1;
-		} else if (favorites.length === 1) {
-			// Already on the only favorite — nothing to cycle to.
+		// Already on the only favorite — nothing to cycle to.
+		if (currentIndex !== -1 && favorites.length === 1) {
 			return undefined;
-		} else {
-			nextIndex =
-				direction === "forward"
-					? (currentIndex + 1) % favorites.length
-					: (currentIndex - 1 + favorites.length) % favorites.length;
 		}
+		const nextIndex = nextCycleIndex(currentIndex, direction, favorites.length);
 
 		const next = favorites[nextIndex];
 		const thinkingLevel =

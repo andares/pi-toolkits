@@ -86,16 +86,12 @@ export function setSelectorThemeProvider(
 	themeProvider = provider;
 }
 
-function getTheme(): Theme | undefined {
-	return themeProvider();
-}
-
 function sameModel(a: ModelRef, b: ModelRef): boolean {
 	return a.provider === b.provider && a.id === b.id;
 }
 
 function buildHintText(state: SelectorPatchTarget): string {
-	const theme = getTheme();
+	const theme = themeProvider();
 	if (!theme) return "";
 	const keys = `${rawKeyHint(FAVORITE_TOGGLE_KEY, "favorite")} · ${rawKeyHint(FAVORITES_ONLY_KEY, "only-favorites")}`;
 	const mode = state.__favoritesOnly
@@ -121,6 +117,7 @@ export function applyModelSelectorPatches(): boolean {
 		typeof proto.updateList !== "function" ||
 		typeof proto.filterModels !== "function"
 	) {
+		// pi-lens-ignore: no-console-except-error,console-statement, — deliberate degradation log
 		console.warn(
 			"[pi-toolkits/favorites] ModelSelectorComponent API changed; model selector patches skipped.",
 		);
@@ -153,7 +150,7 @@ export function applyModelSelectorPatches(): boolean {
 	// row, scroll indicator, empty/error states, refresh status) with one
 	// change: favorited model ids render in the favorite style.
 	proto.updateList = function (this: SelectorPatchTarget): void {
-		const theme = getTheme();
+		const theme = themeProvider();
 		if (!theme) {
 			// Degraded path (theme not captured yet / non-TUI): stock rendering.
 			originalUpdateList.call(this);
@@ -265,7 +262,7 @@ export function applyModelSelectorPatches(): boolean {
 	// ── helpers injected onto the prototype ───────────────────────────────
 	proto.ensureFavoritesHint = function (this: SelectorPatchTarget): void {
 		if (this.__favoritesHint) return;
-		const theme = getTheme();
+		const theme = themeProvider();
 		if (!theme) return;
 		const hint = new Text(buildHintText(this), 0, 0);
 		// children: [0]=top border, [1]=spacer, then provider/scope hint rows…

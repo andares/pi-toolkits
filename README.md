@@ -149,7 +149,7 @@ pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest (all feature unit tests)
 ```
 
-**项目结构 · project structure**
+### 项目结构 Project structure
 
 ```text
 src/
