@@ -32,12 +32,12 @@ import { getFavoritesStore, modelKey } from "./store.js";
  * safe to use as the patched method's `this` type at runtime.
  */
 interface CycleSessionInternals {
-// pi-lens-ignore: no-any-type, — pi's Model generic requires `any` (constraint is Api); pi itself uses Model<any> everywhere
-_scopedModels: ReadonlyArray<{ model: Model<any>; thinkingLevel?: string }>;
-// pi-lens-ignore: no-any-type, — same as above
-_modelRuntime: { getAvailableSnapshot(): Model<any>[] };
-// pi-lens-ignore: no-any-type, — same as above
-model: Model<any>;
+	// pi-lens-ignore: no-any-type, — pi's Model generic requires `any` (constraint is Api); pi itself uses Model<any> everywhere
+	_scopedModels: ReadonlyArray<{ model: Model<any>; thinkingLevel?: string }>;
+	// pi-lens-ignore: no-any-type, — same as above
+	_modelRuntime: { getAvailableSnapshot(): Model<any>[] };
+	// pi-lens-ignore: no-any-type, — same as above
+	model: Model<any>;
 	agent: { state: { model: unknown } };
 	sessionManager: { appendModelChange(provider: string, id: string): void };
 	settingsManager: {
@@ -55,7 +55,7 @@ model: Model<any>;
 	thinkingLevel: ModelCycleResult["thinkingLevel"];
 }
 
-	interface CycleCandidate {
+interface CycleCandidate {
 	// pi-lens-ignore: no-any-type, — matches pi's Model<any> API
 	model: Model<any>;
 	thinkingLevel?: string;
