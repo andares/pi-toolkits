@@ -9,8 +9,10 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAsk } from "./features/ask/index.js";
+import { registerFavorites } from "./features/favorites/index.js";
 
 export default function piToolkits(pi: ExtensionAPI): void {
 	registerAsk(pi);
+	registerFavorites(pi);
 	// registerXxx(pi); // future features
 }

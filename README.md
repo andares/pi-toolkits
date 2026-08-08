@@ -15,6 +15,48 @@ Toggle with `/ask` (press again to exit). While active:
 
 Exiting restores the exact tool set from before ask mode was entered.
 
+### favorites — model favorites
+
+Mark your frequently-used models and make model cycling stick to them.
+
+**In the `/model` selector** (opened via `/model` or `ctrl+l`):
+
+- A hint row at the top shows the keys and the current filter state
+- `ctrl+f` toggles favorite on the currently selected model — favorited
+  models render in **bold bright yellow**
+- `ctrl+j` toggles the **only-favorites** filter (keeps working together with
+  the built-in search)
+
+**Model cycling:** once at least one favorite exists, `ctrl+p` /
+`ctrl+shift+p` cycle **only among favorited models** instead of all models.
+If the current model is not a favorite, `ctrl+p` jumps to the first favorite
+and `ctrl+shift+p` to the last. `ctrl+l` / `/model` stays available to pick
+any model. Set `"cycleOnlyFavorites": false` in the state file to restore
+full cycling.
+
+Favorites persist globally in `<agent-dir>/pi-toolkits-favorites.json`
+(`~/.pi/agent` by default, alongside the auto-naming-session config):
+
+```json
+{
+  "favorites": ["anthropic/claude-sonnet-4"],
+  "config": { "cycleOnlyFavorites": true }
+}
+```
+
+`/favorites` lists the current favorites and cycling mode.
+
+> **How it works / keybindings:** pi reserves `app.model.cycleForward`
+> (`ctrl+p`) and `cycleBackward` for built-ins, and extension shortcuts only
+> fire while the editor is focused — so the feature doesn't rebind any keys.
+> Instead it patches two built-in prototypes at runtime (version-guarded and
+> idempotent across `/reload`): `ModelSelectorComponent` (hint row, `ctrl+f`/
+> `ctrl+j`, styling, only-favorites filter — keys are consumed only inside
+> the selector, so `ctrl+f` cursor-right and `ctrl+j` newline keep working in
+> the editor) and `AgentSession.cycleModel` (favorites-only cycling). If pi
+> upgrades its internals and a patch can't apply, it logs a warning and
+> degrades gracefully.
+
 ## Install
 
 ```bash
