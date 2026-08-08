@@ -127,19 +127,19 @@ AgentSession.prototype.cycleModel = async function (direction = "forward") {
 
 ## Steps
 
-- [ ] 1. `pnpm add @earendil-works/pi-tui@^0.84.0 && pnpm add -D @earendil-works/pi-ai@^0.84.0`;确认与 pi 运行时同实例(`getKeybindings` 单例测试)
-- [ ] 2. `store.ts`:收藏集合 + 配置(cycleOnlyFavorites 默认 true)+ JSON 持久化(load/save/has/toggle/count/subscribe),含损坏容错与原子写
-- [ ] 3. `constants.ts`:键位名、亮黄 ANSI、状态 key、文件名
-- [ ] 4. `patch-selector.ts`:三处 patch(handleInput 拦截 ctrl+F/ctrl+J、updateList 注入提示行+亮黄渲染、filterModels 收藏过滤),版本守卫 + 幂等标志
-- [ ] 5. `patch-cycle.ts`:`AgentSession.prototype.cycleModel` 收藏过滤(复刻应用逻辑,处理 scoped/available 两源、当前模型不在收藏时的首/尾跳转)
-- [ ] 6. `index.ts`:`registerFavorites(pi)` 编排(patch 顺序、`session_start` 捕获主题、`model_select` footer 状态、`/favorites` 命令)
-- [ ] 7. `src/index.ts` 注册;`pnpm typecheck` 通过;`pnpm test` 不回归
-- [ ] 8. README 更新;git commit
+- [x] 1. `pnpm add @earendil-works/pi-tui@^0.84.0 && pnpm add -D @earendil-works/pi-ai@^0.84.0`;确认与 pi 运行时同实例(`getKeybindings` 单例测试)
+- [x] 2. `store.ts`:收藏集合 + 配置(cycleOnlyFavorites 默认 true)+ JSON 持久化(load/save/has/toggle/count/subscribe),含损坏容错与原子写
+- [x] 3. `constants.ts`:键位名、亮黄 ANSI、状态 key、文件名
+- [x] 4. `patch-selector.ts`:三处 patch(handleInput 拦截 ctrl+F/ctrl+J、updateList 注入提示行+亮黄渲染、filterModels 收藏过滤),版本守卫 + 幂等标志
+- [x] 5. `patch-cycle.ts`:`AgentSession.prototype.cycleModel` 收藏过滤(复刻应用逻辑,处理 scoped/available 两源、当前模型不在收藏时的首/尾跳转)
+- [x] 6. `index.ts`:`registerFavorites(pi)` 编排(patch 顺序、`session_start` 捕获主题、`model_select` footer 状态、`/favorites` 命令)
+- [x] 7. `src/index.ts` 注册;`pnpm typecheck` 通过;`pnpm test` 不回归
+- [x] 8. README 更新;git commit
 
 ## Verification
 
-- [ ] `pnpm typecheck` 零错误;`pnpm test`(既有 ask 用例不回归)
-- [ ] 本地 `pi -p -e ./src/index.ts` 启动无报错、无 "Extension shortcut conflict" 类警告
+- [x] `pnpm typecheck` 零错误;`pnpm test`(既有 ask 用例不回归) — 59 用例全绿(43 ask + 16 新增 favorites)
+- [x] 本地 `pi -p -e ./src/index.ts` 启动无报错、无 "Extension shortcut conflict" 类警告 — 输出 LOADED_OK;`~/.pi/agent/pi-toolkits-favorites.json` 按预期落盘
 - [ ] 手动冒烟(TUI):
   - `/model` 打开 → 顶部出现提示行(ctrl+F / ctrl+J + 收藏数);`ctrl+l` 打开同样生效
   - ↑/↓ 选中某模型按 ctrl+F → 该行变**加粗亮黄**,提示行收藏数 +1,agent-dir JSON 落盘;再按一次取消
