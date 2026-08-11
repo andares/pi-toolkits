@@ -19,7 +19,9 @@
   → **npm 成功后**：`git push origin <当前分支> --tags`（尝试一次，失败仅警告
   ——可能此前已推过）+ 创建 GitHub Release `vX.Y.Z`（best-effort，不中止）
 - GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（fine-grained token，
-  Contents: write）；未设置 / 已存在（422 already_exists）/ 其他失败都只提示，
-  不影响 npm 已发布的结果，可稍后手动补建
+  Contents: write）；未设置时只提示。创建失败（403/422/网络等）后脚本会
+  自动 `GET /releases/tags/{tag}` 查询确认：200 = 已存在（并发/重试/手动
+  补建过）→ 视为成功跳过；404 = 真失败 → 提示可稍后手动补建，均不影响
+  npm 已发布的结果
 - `pnpm tag-current` 可独立使用：给当前版本打本地 tag（已存在跳过，不推送）
 - 发布失败回滚：`git tag -d vX.Y.Z && git reset --hard HEAD~1`

@@ -246,18 +246,36 @@ if (!process.env.GITHUB_TOKEN) {
 	);
 	const lines = rel.stdout.toString().trimEnd().split("\n");
 	const code = lines.pop()?.trim() ?? "";
-	const body = lines.join("\n");
 	if (rel.status === 0 && code === "201") {
 		console.log(`${C.green}GitHub Release v${next} 创建成功${C.reset}`);
-	} else if (code === "422" && body.includes("already_exists")) {
-		console.warn(
-			`${C.yellow}GitHub Release v${next} 已存在，跳过（不重复创建）${C.reset}`,
-		);
 	} else {
-		console.warn(
-			`${C.yellow}GitHub Release 创建失败（HTTP ${code || "?"}）。` +
-				`npm 已发布 v${next}，可稍后手动创建。${C.reset}`,
+		// POST 失败后查询确认——release 可能已存在（并发/重试/手动补建），
+		// 幂等处理：查询返回 200 即视为成功，不再重复创建。
+		const chk = run(
+			curl,
+			[
+				"-sS",
+				"-o",
+				"/dev/null",
+				"-w",
+				"%{http_code}",
+				"-H",
+				`Authorization: Bearer ${process.env.GITHUB_TOKEN}`,
+				`https://api.github.com/repos/${ghRepo}/releases/tags/v${next}`,
+			],
+			{ allowFailure: true, stdio: "pipe" },
 		);
+		const chkCode = chk.stdout.toString().trim();
+		if (chkCode === "200") {
+			console.warn(
+				`${C.yellow}POST 返回 HTTP ${code || "?"}，但查询确认 Release v${next} 已存在，跳过（不重复创建）${C.reset}`,
+			);
+		} else {
+			console.warn(
+				`${C.yellow}GitHub Release 创建失败（POST HTTP ${code || "?"}，按 tag 查询 ${chkCode || "?"}）。` +
+					`npm 已发布 v${next}，可稍后手动创建。${C.reset}`,
+			);
+		}
 	}
 }
 
