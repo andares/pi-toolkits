@@ -38,7 +38,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "prepublishOnly": "pnpm typecheck && pnpm test",
-    "release": "node ./scripts/publish.mjs"
+    "release": "node ./scripts/publish.mjs",
+    "tag-current": "node ./scripts/tag-current.mjs"
   },
   "pi": {
     "extensions": [
