@@ -11,8 +11,8 @@
 [![pi >= 0.84](https://img.shields.io/badge/pi-%3E%3D0.84.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含三个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`,后续持续追加。
-Currently ships three ready-to-use capabilities — **ask mode**, **model favorites** and **prompt stash** — with more to come.
+一句话介绍:目前包含四个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`,后续持续追加。
+Currently ships four ready-to-use capabilities — **ask mode**, **model favorites**, **prompt stash** and **third-party code review** — with more to come.
 
 ---
 
@@ -36,6 +36,7 @@ pi -e ./src/index.ts
 - `/ask` → footer 出现灰色 `ask` 状态,`write`/`edit` 被硬禁用
 - `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行
 - 输入框内按 `ctrl+alt+y` → 当前提示词被暂存并清空输入框
+- 完成一个开发任务后输入 `third-review` → 切换到评审模型执行查+修
 
 ---
 
@@ -46,6 +47,7 @@ pi -e ./src/index.ts
   - [🛡️ ask — 只读咨询模式](#ask)
   - [⭐ favorites — 模型收藏](#favorites)
   - [📥 stash — 提示词暂存](#stash)
+  - [🔎 review — 第三方代码评审](#review)
 - [开发 Development](#development)
 - [贡献 Contributing](#contributing)
 - [许可 License](#license)
@@ -61,6 +63,7 @@ pi -e ./src/index.ts
 | 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit` 硬禁用,`bash` 只读沙箱 |
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+F` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
+| 🔎 **review** 第三方代码评审 | `third-review` / `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 
 ---
 
@@ -137,6 +140,31 @@ pi -e ./src/index.ts
 
 ---
 
+## 🔎 review — 第三方代码评审
+
+<a name="review"></a>
+
+开发任务完成后,输入 `third-review`(或 `third review`、`/third-review`)召唤**另一个模型**以第三方身份,对刚完成的代码做「查 + 修」:评审模型拥有**完整工具权限**,确认的问题直接改,不是只读审计。评审回合留在当前会话记录里,评审完成后**会话保持评审模型**(不自动切回)。
+
+**评审提示词重点检查三点**(逐项给出结论):
+
+1. **本轮需求实现** —— 需求是否已完整、正确地实现,与需求描述是否一致
+2. **是否有遗漏** —— 功能点、边界情况、异常处理、兼容性、测试等
+3. **是否有错误** —— 逻辑错误、潜在 bug、类型/编译错误、安全与性能隐患等
+
+**评审模型配置**(`<agent-dir>/pi-toolkits-review.json`,默认 `~/.pi/agent/`):
+
+```json
+{ "model": "anthropic/claude-sonnet-4" }
+```
+
+- `/review-model` —— 查看/更换评审模型:弹出模型列表(标题显示当前配置),选中即写入;取消则不修改配置
+- **未配置 / 配置的模型已不可用**(如在 pi 的 models.json 里删掉了该模型)→ 提示「评审模型不存在」,弹出**可用模型选择列表**(与 `/model` 同源);选中后**写回配置并立即执行**
+- 任务仍在进行中(agent 未空闲)时触发 → 提示等待,不执行;同一时间只允许一个评审
+- footer 出现灰色 `review` 状态 = 已配置评审模型
+
+---
+
 ## 🛠️ 开发 Development
 
 <a name="development"></a>
@@ -160,6 +188,8 @@ src/
     │                     #           system prompt banner, tests
     ├── favorites/        # model favorites: selector + cycle patches,
     │                     #           persisted store, tests
+    ├── review/           # third-party review: input/command triggers,
+    │                     #           review-model config store, prompt, tests
     └── stash/            # prompt stash: hotkey state machine + tests
 ```
 
