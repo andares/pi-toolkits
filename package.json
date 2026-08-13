@@ -1,6 +1,6 @@
 {
   "name": "@andares/pi-toolkits",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Integrated toolkit extension for pi — currently provides ask mode (read-only Q&A); more features to come",
   "type": "module",
   "license": "MIT",
