@@ -6,10 +6,9 @@
  * (full tool access — this is check AND fix, not a read-only audit), runs a
  * review turn, and the session then stays on that model (no auto-restore).
  *
- * Trigger paths (both share createReviewRunner()):
- *  - bare message: typing exactly "third-review" / "third review" in the
- *    input box (pi.on("input") interception, swallowed with "handled")
- *  - slash command: /third-review
+ * Trigger: the /third-review slash command. (Bare-message keyword matching
+ * was deliberately removed — a plain "third-review" message goes to the
+ * model as ordinary text, so an accidental send can never start a review.)
  *
  * Review-model config lives in `<agent-dir>/pi-toolkits-review.json`
  * ("provider/id", see store.ts). When no model is configured, or the
@@ -28,7 +27,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import { REVIEW_STATUS_KEY } from "./constants.js";
-import { REVIEW_PROMPT, isReviewTrigger } from "./prompt.js";
+import { REVIEW_PROMPT } from "./prompt.js";
 import { getReviewStore, modelKey, type ReviewStore } from "./store.js";
 
 /** Resolve the configured review model against the available model list. */
@@ -154,33 +153,9 @@ export function createReviewRunner(
 export function registerReview(pi: ExtensionAPI): void {
 	const runReview = createReviewRunner(pi);
 
-	// Bare-message trigger: "third-review" / "third review" in the input box.
-	// Extension-injected messages are ignored so the runner's own prompts
-	// never re-trigger this path.
-	pi.on("input", (event, ctx) => {
-		if (event.source === "extension") {
-			return { action: "continue" };
-		}
-		if (isReviewTrigger(event.text)) {
-			// Fire-and-forget: the runner uses the live ctx proxy, so it is safe
-			// after this handler returns. A session switch mid-dialog can make
-			// the context assert-inactive; swallow that instead of leaking an
-			// unhandled rejection (a fresh extension instance owns the new
-			// session anyway).
-			void runReview(ctx).catch((error) => {
-				// pi-lens-ignore: no-console-except-error,console-statement, — deliberate degradation log
-				console.warn(
-					"[pi-toolkits/review] third-review aborted:",
-					error instanceof Error ? error.message : String(error),
-				);
-			});
-			return { action: "handled" };
-		}
-		return { action: "continue" };
-	});
-
-	// Slash-command trigger (pi resolves commands before the input event, so
-	// the two paths never double-fire).
+	// Slash-command trigger — the only entry point (bare-message keyword
+	// matching was removed to avoid accidental triggers). The handler awaits
+	// the runner, which may block on the model picker and the review turn.
 	pi.registerCommand("third-review", {
 		description:
 			"Summon the configured review model to review the just-completed work (check + fix)",

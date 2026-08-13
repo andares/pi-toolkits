@@ -32,7 +32,7 @@
 
 ### REVIEW_PROMPT(待用户确认)
 
-```
+```text
 请以第三方代码评审的身份，对本次会话中刚完成的开发任务进行 Review。
 
 本轮需求、开发过程和代码改动都在当前会话上下文中，请结合上下文，并用 read/grep 等工具实际检查仓库代码，不要凭空猜测。
@@ -50,7 +50,7 @@
 
 ### 模块 `src/features/review/`
 
-```
+```text
 src/features/review/
 ├── index.ts      # registerReview(pi): runReview 核心 + input 拦截 + /third-review 命令 + /review-model 命令
 ├── store.ts      # ReviewStore: 配置持久化(agent-dir JSON,原子写,共享实例 + test hook)
@@ -99,3 +99,4 @@ src/features/review/
 - 不恢复模型;footer 显示灰色 `review`(已配置时);`/review-model` 命令查看/更换配置(始终弹选择列表,标题显示当前配置,取消不改)
 - **复查修正**:① `pickReviewModel` 原用 `ctx.mode !== "tui"` 拒绝选择,会误伤 RPC 模式(官方 `hasUI` 在 TUI/RPC 均为 true)——改为 `!ctx.hasUI` 守卫;② `/review-model` 原已配置时仅 notify 且文案误导("可随时更换"实际无法更换)——改为始终弹选择列表支持更换,取消保留旧配置;③ 取消文案从"未配置评审模型"改为"配置未变更"
 - 验证:`pnpm typecheck` ✅、`pnpm test` 93/93 ✅(review 26 例)、lens 诊断无问题(knip 的 unused-file 为接线前的过期缓存误报)
+- **迭代修改(用户要求)**:① 去掉聊天发词识别(`third-review` / `third review` 输入拦截),只保留 `/third-review` 斜杠命令触发,避免误发——删除 `TRIGGER_WORDS` / `isReviewTrigger` / `pi.on("input")` 拦截及对应测试,README 同步改为仅指令触发;② 提示词新增「范围强约束」段:Review 仅限当前本轮修改内容、避免扩大范围,本轮改动内确认的问题才直接修复,范围外问题只记录不修改

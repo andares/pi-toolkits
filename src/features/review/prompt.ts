@@ -8,19 +8,9 @@
  * under review.
  *
  * The three focus points the user asked for (本轮需求实现 / 是否有遗漏 /
- * 是否有错误) are spelled out verbatim in the prompt.
+ * 是否有错误) are spelled out verbatim in the prompt, together with a hard
+ * scope constraint: the review must stay within this round's changes.
  */
-
-/** Trigger words for the bare-message form of the third-review command. */
-export const TRIGGER_WORDS: ReadonlySet<string> = new Set([
-	"third-review",
-	"third review",
-]);
-
-/** Whether the input text is exactly a third-review trigger (case/space-insensitive). */
-export function isReviewTrigger(text: string): boolean {
-	return TRIGGER_WORDS.has(text.trim().toLowerCase());
-}
 
 export const REVIEW_PROMPT = `请以第三方代码评审的身份，对本次会话中刚完成的开发任务进行 Review。
 
@@ -30,6 +20,10 @@ export const REVIEW_PROMPT = `请以第三方代码评审的身份，对本次�
 1. 本轮需求实现：本轮需求是否已完整、正确地实现？实现与需求描述是否一致？
 2. 是否有遗漏：需求中是否有遗漏的功能点、边界情况、异常处理、兼容性、测试等？
 3. 是否有错误：代码中是否存在逻辑错误、潜在 bug、类型/编译错误、安全与性能隐患等？
+
+范围强约束：
+- 本次 Review 仅限当前本轮修改内容（本轮需求对应的代码改动），避免扩大范围；
+- 本轮改动范围内确认的问题才直接修复；范围外的问题（历史遗留、无关代码）只记录提示，不要动手修改。
 
 要求：
 - 对确认的问题直接修复（write/edit），并简要说明改了什么、为什么改；

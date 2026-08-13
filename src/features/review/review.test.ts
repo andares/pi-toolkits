@@ -2,7 +2,6 @@
  * review feature — unit tests.
  *
  * Covers the logic behind the third-review command:
- *  - trigger words (isReviewTrigger): exact bare-message match only
  *  - store: set/get persistence round-trip + corrupted-file fallback
  *  - modelKey / resolveConfiguredModel: provider/id resolution, incl. ids
  *    that themselves contain "/" (e.g. openrouter/openai/gpt-5)
@@ -37,7 +36,7 @@ import {
 	pickReviewModel,
 	resolveConfiguredModel,
 } from "./index.js";
-import { REVIEW_PROMPT, isReviewTrigger } from "./prompt.js";
+import { REVIEW_PROMPT } from "./prompt.js";
 import {
 	ReviewStore,
 	getReviewStore,
@@ -120,26 +119,6 @@ function fakePi(switched = true) {
 	const pi = { setModel, sendUserMessage } as unknown as ExtensionAPI;
 	return { pi, setModel, sendUserMessage };
 }
-
-// ─── trigger words ─────────────────────────────────────────────
-
-describe("isReviewTrigger", () => {
-	it("matches the bare trigger words case/space-insensitively", () => {
-		expect(isReviewTrigger("third-review")).toBe(true);
-		expect(isReviewTrigger("  Third-Review  ")).toBe(true);
-		expect(isReviewTrigger("third review")).toBe(true);
-		expect(isReviewTrigger("THIRD REVIEW")).toBe(true);
-	});
-
-	it("rejects non-trigger text (no prefix/suffix matching)", () => {
-		expect(isReviewTrigger("third-review now")).toBe(false);
-		expect(isReviewTrigger("third_review")).toBe(false);
-		expect(isReviewTrigger("thirdreview")).toBe(false);
-		expect(isReviewTrigger("/third-review")).toBe(false);
-		expect(isReviewTrigger("")).toBe(false);
-		expect(isReviewTrigger("review the code please")).toBe(false);
-	});
-});
 
 // ─── model key & resolution ────────────────────────────────────
 
