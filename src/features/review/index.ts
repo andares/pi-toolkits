@@ -11,11 +11,14 @@
  * model as ordinary text, so an accidental send can never start a review.)
  *
  * Review-model config lives in `<agent-dir>/pi-toolkits-review.json`
- * ("provider/id", see store.ts). When no model is configured, or the
- * configured model is gone/unavailable (e.g. deleted from pi's models.json),
- * the user is told the review model doesn't exist and is shown the available
- * model list (ctx.ui.select, same getAvailable() source as /model); the pick
- * is written back to the config and the review runs immediately.
+ * ("provider/id", see store.ts) and doubles as the picker default. Every
+ * /third-review run opens the model picker (ctx.ui.select, same
+ * getAvailable() source as /model) with the configured model as the FIRST
+ * row — one Enter accepts it and starts the review. Picking a different
+ * model persists it immediately (disk + in-memory) as the new default for
+ * next time; cancelling aborts the review without changing anything. When
+ * the configured model is gone/unavailable (e.g. deleted from pi's
+ * models.json) the user is warned and the picker opens on the plain list.
  *
  * Guards: never fires while the agent is streaming (the review needs the
  * just-finished work as context) and never runs two reviews concurrently.
@@ -39,8 +42,11 @@ import { getReviewStore, type ReviewStore } from "./store.js";
  * Let the user pick a review model from the available list and persist the
  * choice. Returns the picked model, or undefined when cancelled/unavailable.
  *
- * The picker title shows the current config so /review-model doubles as a
- * view-and-change entry point; cancelling leaves the config untouched.
+ * The configured model is placed FIRST: the select dialog always highlights
+ * its first row, so one Enter accepts the current default. Picking any other
+ * model persists it (disk + in-memory) as the new default. The title shows
+ * the current config, so /review-model doubles as a view-and-change entry
+ * point; cancelling leaves the config untouched.
  */
 export async function pickReviewModel(
 	ctx: ExtensionContext,
@@ -64,11 +70,24 @@ export async function pickReviewModel(
 		return undefined;
 	}
 	const configured = store.getModel();
+	const configuredModel = resolveConfiguredModel(ctx, configured);
+	// Configured model first → highlighted by default (Enter accepts it);
+	// the rest keep the registry order.
+	const ordered: AvailableModel[] = configuredModel
+		? [
+				configuredModel,
+				...available.filter(
+					(m) => modelKey(m) !== modelKey(configuredModel),
+				),
+			]
+		: available;
 	// Same display source as the /model selector: name + [provider]/id.
-	const options = available.map((m: AvailableModel) => `${m.name} (${m.provider}/${m.id})`);
+	const options = ordered.map(
+		(m: AvailableModel) => `${m.name} (${m.provider}/${m.id})`,
+	);
 	const choice = await ctx.ui.select(
 		configured
-			? `选择评审模型 (当前: ${configured})`
+			? `选择评审模型 (当前: ${configured}，回车使用)`
 			: "选择评审模型 (third-review)",
 		options,
 	);
@@ -76,9 +95,17 @@ export async function pickReviewModel(
 		ctx.ui.notify("third-review: 已取消，评审模型配置未变更。", "info");
 		return undefined;
 	}
-	const model = available[options.indexOf(choice)];
+	const model = ordered[options.indexOf(choice)];
 	if (!model) return undefined;
-	store.setModel(modelKey(model));
+	const key = modelKey(model);
+	if (key !== configured) {
+		// Persist immediately (disk + in-memory + footer) — next run defaults here.
+		store.setModel(key);
+		ctx.ui.notify(
+			`third-review: 评审模型已保存为「${model.name}」，下次默认使用。`,
+			"info",
+		);
+	}
 	return model;
 }
 
@@ -118,8 +145,20 @@ export function createReviewRunner(
 						: "third-review: 尚未配置评审模型，请选择。",
 					"warning",
 				);
+			}
+			if (ctx.hasUI) {
+				// Always show the picker: the configured model is the first row
+				// (one Enter accepts it); picking another persists it as default.
 				model = await pickReviewModel(ctx, store);
 				if (!model) return;
+			} else if (!model) {
+				// No dialogs (json/print/headless): the configured-model path keeps
+				// working; without one, point at the config file.
+				ctx.ui.notify(
+					"third-review: 当前环境不支持模型选择对话框，请编辑 <agent-dir>/pi-toolkits-review.json 手动配置。",
+					"error",
+				);
+				return;
 			}
 			const switched = await pi.setModel(model);
 			if (!switched) {

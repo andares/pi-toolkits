@@ -285,17 +285,48 @@ describe("pickReviewModel", () => {
 		expect(store.getModel()).toBe("anthropic/claude-opus-4");
 	});
 
-	it("shows the current config in the picker title", async () => {
+	it("puts the configured model first (Enter accepts it) and keeps config on cancel", async () => {
 		const store = new ReviewStore(freshStoreFile());
-		store.setModel("anthropic/claude-sonnet-4");
+		store.setModel("anthropic/claude-opus-4");
 		const { ctx, select } = fakeCtx({ selectResult: undefined });
 		await pickReviewModel(ctx, store);
 		expect(select).toHaveBeenCalledWith(
-			"选择评审模型 (当前: anthropic/claude-sonnet-4)",
-			expect.any(Array),
+			"选择评审模型 (当前: anthropic/claude-opus-4，回车使用)",
+			[
+				"Claude Opus 4 (anthropic/claude-opus-4)",
+				"Claude Sonnet 4 (anthropic/claude-sonnet-4)",
+				"GPT-5 (openrouter/openai/gpt-5)",
+			],
 		);
 		// Cancelling a change keeps the existing config.
-		expect(store.getModel()).toBe("anthropic/claude-sonnet-4");
+		expect(store.getModel()).toBe("anthropic/claude-opus-4");
+	});
+
+	it("re-picking the configured model does not rewrite the store", async () => {
+		const store = new ReviewStore(freshStoreFile());
+		store.setModel("anthropic/claude-opus-4");
+		const spy = vi.spyOn(store, "setModel");
+		const { ctx } = fakeCtx({
+			selectResult: "Claude Opus 4 (anthropic/claude-opus-4)",
+		});
+		const picked = await pickReviewModel(ctx, store);
+		expect(picked).toBe(MODELS[1]);
+		expect(spy).not.toHaveBeenCalled();
+	});
+
+	it("persists and confirms when a different model is picked", async () => {
+		const store = new ReviewStore(freshStoreFile());
+		store.setModel("anthropic/claude-opus-4");
+		const { ctx, notify } = fakeCtx({
+			selectResult: "GPT-5 (openrouter/openai/gpt-5)",
+		});
+		const picked = await pickReviewModel(ctx, store);
+		expect(picked).toBe(MODELS[2]);
+		expect(store.getModel()).toBe("openrouter/openai/gpt-5");
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining("已保存为"),
+			"info",
+		);
 	});
 });
 
@@ -314,17 +345,31 @@ describe("createReviewRunner", () => {
 		expect(pi.sendUserMessage).not.toHaveBeenCalled();
 	});
 
-	it("switches to the configured model and sends the review prompt", async () => {
+	it("shows the picker and runs on the configured model when accepted", async () => {
 		getReviewStore().setModel("anthropic/claude-sonnet-4");
 		const { pi, setModel, sendUserMessage } = fakePi();
-		const { ctx, notify } = fakeCtx();
+		const { ctx, notify, select } = fakeCtx({
+			selectResult: "Claude Sonnet 4 (anthropic/claude-sonnet-4)",
+		});
 		await createReviewRunner(pi)(ctx);
+		// The picker is always shown, even with a configured model.
+		expect(select).toHaveBeenCalledTimes(1);
 		expect(setModel).toHaveBeenCalledWith(MODELS[0]);
 		expect(sendUserMessage).toHaveBeenCalledWith(REVIEW_PROMPT);
 		expect(notify).toHaveBeenCalledWith(
 			expect.stringContaining("已切换到评审模型"),
 			"info",
 		);
+	});
+
+	it("runs with the configured model without dialogs when the UI cannot pick", async () => {
+		getReviewStore().setModel("anthropic/claude-sonnet-4");
+		const { pi, setModel, sendUserMessage } = fakePi();
+		const { ctx, select } = fakeCtx({ hasUI: false });
+		await createReviewRunner(pi)(ctx);
+		expect(select).not.toHaveBeenCalled();
+		expect(setModel).toHaveBeenCalledWith(MODELS[0]);
+		expect(sendUserMessage).toHaveBeenCalledWith(REVIEW_PROMPT);
 	});
 
 	it("picks, persists and runs when no model is configured", async () => {
@@ -373,7 +418,9 @@ describe("createReviewRunner", () => {
 	it("reports and aborts when switching to the review model fails", async () => {
 		getReviewStore().setModel("anthropic/claude-sonnet-4");
 		const { pi, setModel, sendUserMessage } = fakePi(false); // setModel → false
-		const { ctx, notify } = fakeCtx();
+		const { ctx, notify } = fakeCtx({
+			selectResult: "Claude Sonnet 4 (anthropic/claude-sonnet-4)",
+		});
 		await createReviewRunner(pi)(ctx);
 		expect(setModel).toHaveBeenCalledWith(MODELS[0]);
 		expect(sendUserMessage).not.toHaveBeenCalled();
