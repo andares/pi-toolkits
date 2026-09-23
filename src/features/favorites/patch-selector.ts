@@ -191,11 +191,8 @@ export function applyModelSelectorPatches(): boolean {
 				: "";
 			const cursor = isSelected ? theme.fg("accent", "→ ") : "  ";
 			const currentMarker = isCurrent ? theme.fg("accent", "✓ ") : "  ";
-			const modelText = isFavorite
-				? styleFavorite(item.id)
-				: isSelected
-					? theme.fg("accent", item.id)
-					: item.id;
+			const baseText = isSelected ? theme.fg("accent", item.id) : item.id;
+			const modelText = isFavorite ? styleFavorite(item.id) : baseText;
 			const providerBadge = theme.fg("muted", `[${item.provider}]`);
 			const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${defaultBadge}`;
 			list.addChild(new Text(line, 0, 0));

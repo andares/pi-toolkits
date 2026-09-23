@@ -146,14 +146,11 @@ export function applyCyclePatch(): boolean {
 					.getAvailableSnapshot()
 					.map((model) => `${model.provider}\0${model.id}`),
 			);
-			candidates = this._scopedModels
-				.filter(
-					(sm) => availableIds.has(`${sm.model.provider}\0${sm.model.id}`),
-			)
-				.map((sm) => ({
-					model: sm.model,
-					thinkingLevel: sm.thinkingLevel,
-				}));
+			candidates = this._scopedModels.flatMap((sm) =>
+				availableIds.has(`${sm.model.provider}\0${sm.model.id}`)
+					? [{ model: sm.model, thinkingLevel: sm.thinkingLevel }]
+					: [],
+			);
 		} else {
 			candidates = this._modelRuntime
 				.getAvailableSnapshot()

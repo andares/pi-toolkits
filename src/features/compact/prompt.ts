@@ -161,9 +161,11 @@ export function computeFileLists(fileOps: FileOpsLike): {
 	modifiedFiles: string[];
 } {
 	const modified = new Set([...fileOps.edited, ...fileOps.written]);
+	// pi-lens-ignore: no-sort-without-comparator, — 逐字对齐 pi 0.87.1 的裸 .sort()：文件路径按码元序排序（加 locale 比较器反而会改变顺序）
 	const readOnly = [...fileOps.read]
 		.filter((f) => !modified.has(f))
 		.sort();
+	// pi-lens-ignore: no-sort-without-comparator, — 同上（pi 0.87.1 computeFileLists 原文）
 	const modifiedFiles = [...modified].sort();
 	return { readFiles: readOnly, modifiedFiles };
 }
