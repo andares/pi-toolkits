@@ -1,14 +1,18 @@
 /**
- * review feature — persisted review-model config store.
+ * compact-model feature — persisted compact-model config store.
  *
- * State lives in `<agent-dir>/pi-toolkits-review.json` (agent-dir from
- * getAgentDir(), same convention as the favorites store). The file holds a
+ * State lives in `<agent-dir>/pi-toolkits-compact.json` (agent-dir from
+ * getAgentDir(), same convention as the review store). The file holds a
  * single model key:
  *
- *   { "model": "anthropic/claude-sonnet-4" }
+ *   { "model": "google/gemini-2.5-flash" }
  *
- * Robustness mirrors the favorites store: corrupted/unreadable files fall
- * back to "no model configured" with a console.warn; writes are atomic
+ * Unset = feature disabled: every compaction (manual /compact, auto-compact
+ * threshold, overflow recovery) uses pi's default behavior with the current
+ * session model, zero overhead.
+ *
+ * Robustness mirrors the review store: corrupted/unreadable files fall back
+ * to "no model configured" with a console.warn; writes are atomic
  * (tmp + rename) and never throw.
  */
 import {
@@ -20,15 +24,15 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { REVIEW_FILE } from "./constants.js";
+import { COMPACT_FILE } from "./constants.js";
 
-export class ReviewStore {
+export class CompactStore {
 	private model: string | undefined;
 	private readonly file: string;
 	private loaded = false;
 	private readonly listeners = new Set<() => void>();
 
-	constructor(file: string = join(getAgentDir(), REVIEW_FILE)) {
+	constructor(file: string = join(getAgentDir(), COMPACT_FILE)) {
 		this.file = file;
 	}
 
@@ -49,7 +53,7 @@ export class ReviewStore {
 		} catch (error) {
 			// pi-lens-ignore: no-console-except-error,console-statement, — deliberate degradation log
 			console.warn(
-				"[pi-toolkits/review] Failed to load review config, starting unset:",
+				"[pi-toolkits/compact] Failed to load compact-model config, starting unset:",
 				error instanceof Error ? error.message : String(error),
 			);
 			this.model = undefined;
@@ -73,19 +77,19 @@ export class ReviewStore {
 		} catch (error) {
 			// pi-lens-ignore: no-console-except-error,console-statement, — deliberate degradation log
 			console.warn(
-				"[pi-toolkits/review] Failed to save review config:",
+				"[pi-toolkits/compact] Failed to save compact-model config:",
 				error instanceof Error ? error.message : String(error),
 			);
 		}
 	}
 
-	/** The configured review model key ("provider/id"), or undefined. */
+	/** The configured compact model key ("provider/id"), or undefined. */
 	getModel(): string | undefined {
 		this.ensureLoaded();
 		return this.model;
 	}
 
-	/** Set (or clear with undefined) the review model key and persist. */
+	/** Set (or clear with undefined) the compact model key and persist. */
 	setModel(key: string | undefined): void {
 		this.ensureLoaded();
 		this.model = key;
@@ -105,28 +109,29 @@ export class ReviewStore {
 			try {
 				listener();
 			} catch {
-				// A broken listener must not break review config handling.
+				// A broken listener must not break compact config handling.
 			}
 		}
 	}
 }
 
 /**
- * Process-wide store shared by the runner and commands.
+ * Process-wide store shared by the session_before_compact handler and the
+ * /compact-model command.
  *
- * Accessed via getReviewStore() (lazy) so tests can swap in an isolated
- * store via setSharedReviewStore().
+ * Accessed via getCompactStore() (lazy) so tests can swap in an isolated
+ * store via setSharedCompactStore().
  */
-let sharedStore: ReviewStore | undefined;
+let sharedStore: CompactStore | undefined;
 
-export function getReviewStore(): ReviewStore {
+export function getCompactStore(): CompactStore {
 	if (!sharedStore) {
-		sharedStore = new ReviewStore();
+		sharedStore = new CompactStore();
 	}
 	return sharedStore;
 }
 
 /** Test hook — replace the shared store (e.g. with one backed by a temp file). */
-export function setSharedReviewStore(store: ReviewStore): void {
+export function setSharedCompactStore(store: CompactStore): void {
 	sharedStore = store;
 }

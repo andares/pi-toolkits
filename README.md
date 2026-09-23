@@ -8,11 +8,13 @@
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
-[![pi >= 0.84](https://img.shields.io/badge/pi-%3E%3D0.84.0-blueviolet)](https://github.com/earendil-works/pi)
+[![pi >= 0.87](https://img.shields.io/badge/pi-%3E%3D0.87.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含四个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`,后续持续追加。
-Currently ships four ready-to-use capabilities — **ask mode**, **model favorites**, **prompt stash** and **third-party code review** — with more to come.
+一句话介绍:目前包含五个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`,后续持续追加。
+Currently ships five ready-to-use capabilities — **ask mode**, **model favorites**, **prompt stash**, **third-party code review** and a **dedicated compaction model** — with more to come.
+
+**版本要求 · Requirements**:pi ≥ 0.87.0(以 0.87.x 内建压缩行为为基准开发与验证;favorites 的两处运行时 patch 已对齐 0.87 的选择器布局与 `cycleModel` 语义)。
 
 ---
 
@@ -37,6 +39,7 @@ pi -e ./src/index.ts
 - `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行
 - 输入框内按 `ctrl+alt+y` → 当前提示词被暂存并清空输入框
 - 完成一个开发任务后输入 `/third-review` → 切换到评审模型执行查+修
+- `/compact-model` 选一个便宜快模型 → 之后 `/compact` 与自动压缩的总结都由它执行(footer 出现灰色 `compact` 状态)
 
 ---
 
@@ -48,6 +51,7 @@ pi -e ./src/index.ts
   - [⭐ favorites — 模型收藏](#favorites)
   - [📥 stash — 提示词暂存](#stash)
   - [🔎 review — 第三方代码评审](#review)
+  - [🗜️ compact — 独立压缩模型](#compact)
 - [开发 Development](#development)
 - [贡献 Contributing](#contributing)
 - [许可 License](#license)
@@ -64,6 +68,7 @@ pi -e ./src/index.ts
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+F` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
+| 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 
 ---
 
@@ -169,9 +174,48 @@ pi -e ./src/index.ts
 
 ---
 
-## 🛠️ 开发 Development
+## 🗜️ compact — 独立压缩模型
 
-<a name="development"></a>
+<a name="compact"></a>
+
+pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文总结——主模型往往贵且慢,而压缩总结是典型的「便宜快模型就能干好」的任务。本功能配置一个独立模型接管**全部三种压缩触发**的总结:
+
+| 触发 | 接管后 |
+| --- | --- |
+| 手动 `/compact [instructions]` | 压缩模型总结,自定义 focus 照常注入 |
+| auto-compact 阈值触发 | 压缩模型总结 |
+| context overflow 恢复 | 压缩模型总结,重试行为不变 |
+
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 0.87.1 内建实现,只换执行模型):
+
+- **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
+- **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
+- **输出预算** —— 与内建同公式(历史段 0.8×、切分前缀段 0.5× `reserveTokens`,再按模型输出上限收敛)
+- **文件清单尾部** —— `<read-files>` / `<modified-files>` 标签照常拼在摘要尾部,details 同形状维护
+- **用量统计** —— 压缩模型的 token/cost 计入 session 统计
+- **可取消** —— 压缩进行中 `Esc` 干净取消(信号透传到底层调用)
+
+**配置**(`<agent-dir>/pi-toolkits-compact.json`,默认 `~/.pi/agent/`):
+
+```json
+{ "model": "google/gemini-2.5-flash" }
+```
+
+- `/compact-model` —— 查看/更换/清除:弹出可用模型列表(标题显示当前配置,首项「✕ 清除配置」),选中即写入;取消则不修改
+- 未配置 = 功能未启用,全部走 pi 默认,零开销;footer 出现灰色 `compact` 状态 = 已配置
+
+**无损回落**(本功能永远不会把压缩「做挂」):
+
+| 情形 | 行为 |
+| --- | --- |
+| 未配置 | 直接回落 pi 默认压缩 |
+| 配置的模型不可用(如从 models.json 删除) | warning 提示 + 回落 |
+| 总结失败 / 摘要为空 / 命中 token 上限 | 提示 + 回落 pi 默认压缩 |
+| 用户取消(`Esc`) | 干净取消,无错误刷屏 |
+
+> **实现说明**:接管点是官方的 `session_before_compact` 扩展事件(三种触发都会先经过);返回压缩结果即完全接管,返回 `undefined` 即回落内建。auto-compact 路径绝不弹任何对话框(handler 内只 notify)。`/tree` 分支总结(`session_before_tree`)是另一个事件,本期不接管,留作后续迭代。
+
+---
 
 **pnpm is the only supported toolchain** — never use `npm install` / `npm publish` in this repo.
 
@@ -212,6 +256,53 @@ pnpm release patch --dry-run   # preview without changing anything
 
 ---
 
+## 🛠️ 开发 Development
+
+<a name="development"></a>
+
+**pnpm is the only supported toolchain** — never use `npm install` / `npm publish` in this repo.
+
+```bash
+pnpm install      # install deps
+pnpm typecheck    # tsc --noEmit
+pnpm test         # vitest (all feature unit tests)
+```
+
+### 项目结构 Project structure
+
+```text
+src/
+├── index.ts              # entry point: aggregates feature modules
+├── lib/                  # shared infrastructure (tool-set snapshot/restore,
+│                         # model-key resolution shared by review & compact)
+└── features/             # feature modules — one directory per feature
+    ├── ask/              # ask mode: command + state machine, bash sandbox,
+    │                     #           system prompt banner, tests
+    ├── compact/          # dedicated compaction model: session_before_compact
+    │                     #           takeover + /compact-model, store, prompts,
+    │                     #           tests
+    ├── favorites/        # model favorites: selector + cycle patches,
+    │                     #           persisted store, tests
+    ├── review/           # third-party review: input/command triggers,
+    │                     #           review-model config store, prompt, tests
+    └── stash/            # prompt stash: hotkey state machine + tests
+```
+
+**新增功能 · adding a feature**:create `src/features/<name>/` exporting `registerXxx(pi)` and call it from `src/index.ts`. Existing modules stay untouched. Each feature ships its own `*.test.ts` (vitest) — keep them deterministic (inject clocks/state, no real agent-dir writes).
+
+**发布 · publishing**(pnpm-only,one command):
+
+```bash
+pnpm release patch   # 0.1.2 → 0.1.3
+pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
+pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
+pnpm release patch --dry-run   # preview without changing anything
+```
+
+`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:校验 → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag → `pnpm publish`(`prepublishOnly` 二次门禁)。
+
+---
+
 ## 🤝 贡献 Contributing
 
 <a name="contributing"></a>
@@ -222,6 +313,7 @@ PRs and issues welcome. A few conventions:
 - **Feature-module pattern** — one directory per feature (`src/features/<name>/`), export `registerXxx(pi)`, register in `src/index.ts`; shared infra goes in `src/lib/`
 - **Tests** — every feature ships vitest cases; keep them deterministic (injectable clocks/state), no writes to the real agent dir
 - **Built-in patches** (favorites) must stay **version-guarded and idempotent** — verify the target prototype members exist before patching, guard against double-apply, degrade with a `console.warn` instead of breaking the extension
+- **Built-in prompt sync** (compact) — the summarization prompts in `src/features/compact/prompt.ts` are copied verbatim from pi's built-in compaction; when upgrading the pi dependency, diff `dist/core/compaction/compaction.js` (and `utils.js`) and update the strings + assembly helpers to match, keeping takeover output byte-compatible with stock
 - **Keybindings** — before picking a new shortcut, check pi defaults + reserved keys, terminal control chars, and OS/terminal-emulator grabs; prefer `ctrl+alt+<letter>` for cross-platform safety
 - **Quality gate** — `pnpm typecheck && pnpm test` must pass before submitting
 

@@ -23,27 +23,17 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	SessionStartEvent,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import {
+	modelKey,
+	resolveConfiguredModel,
+	type AvailableModel,
+} from "../../lib/model-config.js";
 import { REVIEW_STATUS_KEY } from "./constants.js";
 import { REVIEW_PROMPT } from "./prompt.js";
-import { getReviewStore, modelKey, type ReviewStore } from "./store.js";
-
-/** Resolve the configured review model against the available model list. */
-export function resolveConfiguredModel(
-	ctx: ExtensionContext,
-	key: string | undefined,
-): Model<Api> | undefined {
-	if (!key) return undefined;
-	const slash = key.indexOf("/");
-	if (slash <= 0 || slash === key.length - 1) return undefined;
-	const provider = key.slice(0, slash);
-	const id = key.slice(slash + 1);
-	return ctx.modelRegistry
-		.getAvailable()
-		.find((m) => m.provider === provider && m.id === id);
-}
+import { getReviewStore, type ReviewStore } from "./store.js";
 
 /**
  * Let the user pick a review model from the available list and persist the
@@ -55,7 +45,7 @@ export function resolveConfiguredModel(
 export async function pickReviewModel(
 	ctx: ExtensionContext,
 	store: ReviewStore,
-): Promise<Model<Api> | undefined> {
+): Promise<AvailableModel | undefined> {
 	// Dialog-capable UI exists in TUI and RPC modes (hasUI); json/print and
 	// headless contexts have no dialogs, so fall back to a manual-config hint.
 	if (!ctx.hasUI) {
@@ -75,7 +65,7 @@ export async function pickReviewModel(
 	}
 	const configured = store.getModel();
 	// Same display source as the /model selector: name + [provider]/id.
-	const options = available.map((m) => `${m.name} (${m.provider}/${m.id})`);
+	const options = available.map((m: AvailableModel) => `${m.name} (${m.provider}/${m.id})`);
 	const choice = await ctx.ui.select(
 		configured
 			? `选择评审模型 (当前: ${configured})`
@@ -159,7 +149,7 @@ export function registerReview(pi: ExtensionAPI): void {
 	pi.registerCommand("third-review", {
 		description:
 			"Summon the configured review model to review the just-completed work (check + fix)",
-		handler: async (_args, ctx) => {
+		handler: async (_args: string, ctx: ExtensionContext) => {
 			await runReview(ctx);
 		},
 	});
@@ -170,7 +160,7 @@ export function registerReview(pi: ExtensionAPI): void {
 	pi.registerCommand("review-model", {
 		description:
 			"Set or change the review model used by third-review (picker shows the current one)",
-		handler: async (_args, ctx) => {
+		handler: async (_args: string, ctx: ExtensionContext) => {
 			await pickReviewModel(ctx, getReviewStore());
 		},
 	});
@@ -188,7 +178,7 @@ export function registerReview(pi: ExtensionAPI): void {
 		);
 	};
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", (_event: SessionStartEvent, ctx: ExtensionContext) => {
 		latestCtx = ctx;
 		try {
 			const t = ctx.ui.theme;

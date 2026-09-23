@@ -7,14 +7,16 @@
  * one favorite exists, cycling is restricted to favorited models:
  *
  *  - candidates come from the same source stock cycling would use (scoped
- *    models if any, else the available-model snapshot), filtered to favorites
+ *    models if any — filtered to currently available ones like stock —
+ *    else the available-model snapshot), filtered to favorites
  *  - if the current model is not a favorite: forward jumps to the first
  *    favorite, backward to the last (user-confirmed)
  *  - with exactly one favorite, already on it → undefined (stock "only one
  *    model available" feedback); otherwise jump to it
- *  - the apply logic mirrors _cycleAvailableModel (state swap, session +
- *    settings persistence, thinking-level re-clamp, model_select emit with
- *    source "cycle")
+ *  - the apply logic mirrors pi 0.87's _cycleScopedModel/_cycleAvailableModel
+ *    (state swap, session persistence, default-model persistence only when
+ *    `options.persist` is set, thinking-level re-clamp, model_select emit
+ *    with source "cycle")
  *
  * Version guard: missing cycleModel → warn and skip; the patch is idempotent
  * across /reload.
@@ -23,8 +25,16 @@ import {
 	AgentSession,
 	type ModelCycleResult,
 } from "@earendil-works/pi-coding-agent";
-import type { Model } from "@earendil-works/pi-ai";
 import { getFavoritesStore, modelKey } from "./store.js";
+
+/**
+ * pi's `Model<any>` — the exact type of `ModelCycleResult.model` in
+ * pi-coding-agent 0.87. Derived here instead of importing `Model` from
+ * @earendil-works/pi-ai, whose 0.87 index.d.ts re-exports it via an
+ * extensioned `"./types.ts"` specifier that not every TS resolver substitutes
+ * to `types.d.ts` (tsc 5.9 bundler does; other tsserver builds don't).
+ */
+type AnyModel = NonNullable<ModelCycleResult>["model"];
 
 /**
  * Structural view of the AgentSession internals the patch touches.
@@ -33,16 +43,21 @@ import { getFavoritesStore, modelKey } from "./store.js";
  */
 interface CycleSessionInternals {
 	// pi-lens-ignore: no-any-type, — pi's Model generic requires `any` (constraint is Api); pi itself uses Model<any> everywhere
-	_scopedModels: ReadonlyArray<{ model: Model<any>; thinkingLevel?: string }>;
+	_scopedModels: ReadonlyArray<{ model: AnyModel; thinkingLevel?: string }>;
 	// pi-lens-ignore: no-any-type, — same as above
-	_modelRuntime: { getAvailableSnapshot(): Model<any>[] };
+	_modelRuntime: { getAvailableSnapshot(): AnyModel[] };
 	// pi-lens-ignore: no-any-type, — same as above
-	model: Model<any>;
+	model: AnyModel;
 	agent: { state: { model: unknown } };
 	sessionManager: { appendModelChange(provider: string, id: string): void };
 	settingsManager: {
 		setDefaultModelAndProvider(provider: string, id: string): void;
 	};
+	/**
+	 * pi 0.87: keeps a persisted default usable when cycling inside a
+	 * non-empty --models scope.
+	 */
+	_addPersistedDefaultToNonEmptyScope(model: unknown): void;
 	setThinkingLevel(level: unknown): void;
 	_getThinkingLevelForModelSwitch(
 		explicitLevel?: string,
@@ -56,8 +71,7 @@ interface CycleSessionInternals {
 }
 
 interface CycleCandidate {
-	// pi-lens-ignore: no-any-type, — matches pi's Model<any> API
-	model: Model<any>;
+	model: AnyModel;
 	thinkingLevel?: string;
 }
 
@@ -81,15 +95,24 @@ function nextCycleIndex(
 		: (currentIndex - 1 + len) % len;
 }
 
+/** Options accepted by pi 0.87's cycleModel (persist gates default-model persistence). */
+interface CycleOptions {
+	persist?: boolean;
+}
+
 let patched = false;
 
 /** Restrict ctrl+p cycling to favorites. Idempotent; returns false if skipped. */
 export function applyCyclePatch(): boolean {
 	if (patched) return true;
+	// SAFETY: AgentSession's members are TS-private (compile-time only), so a
+	// structural view of the runtime prototype is safe to cast to; guarded by
+	// the typeof check below before any patching happens.
 	const proto = AgentSession.prototype as unknown as {
 		cycleModel(
 			this: CycleSessionInternals,
 			direction?: "forward" | "backward",
+			options?: CycleOptions,
 		): Promise<ModelCycleResult | undefined>;
 	};
 	if (typeof proto.cycleModel !== "function") {
@@ -105,23 +128,37 @@ export function applyCyclePatch(): boolean {
 	proto.cycleModel = async function (
 		this: CycleSessionInternals,
 		direction: "forward" | "backward" = "forward",
+		options: CycleOptions = {},
 	): Promise<ModelCycleResult | undefined> {
 		if (
 			!getFavoritesStore().getConfig().cycleOnlyFavorites ||
 			!getFavoritesStore().hasAny()
 		) {
-			return original.call(this, direction);
+			return original.call(this, direction, options);
 		}
 
+		// Same source and availability filtering as pi 0.87's stock cycling.
 		const scoped = this._scopedModels.length > 0;
-		const candidates: CycleCandidate[] = scoped
-			? this._scopedModels.map((sm) => ({
+		let candidates: CycleCandidate[];
+		if (scoped) {
+			const availableIds = new Set(
+				this._modelRuntime
+					.getAvailableSnapshot()
+					.map((model) => `${model.provider}\0${model.id}`),
+			);
+			candidates = this._scopedModels
+				.filter(
+					(sm) => availableIds.has(`${sm.model.provider}\0${sm.model.id}`),
+			)
+				.map((sm) => ({
 					model: sm.model,
 					thinkingLevel: sm.thinkingLevel,
-				}))
-			: this._modelRuntime
-					.getAvailableSnapshot()
-					.map((model) => ({ model, thinkingLevel: undefined }));
+				}));
+		} else {
+			candidates = this._modelRuntime
+				.getAvailableSnapshot()
+				.map((model) => ({ model, thinkingLevel: undefined }));
+		}
 		const favorites = candidates.filter((candidate) =>
 			getFavoritesStore().has(candidate.model),
 		);
@@ -148,10 +185,14 @@ export function applyCyclePatch(): boolean {
 				: this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = next.model;
 		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
-		this.settingsManager.setDefaultModelAndProvider(
-			next.model.provider,
-			next.model.id,
-		);
+		// pi 0.87: only persist the default model when the caller asked for it.
+		if (options.persist) {
+			this.settingsManager.setDefaultModelAndProvider(
+				next.model.provider,
+				next.model.id,
+			);
+			this._addPersistedDefaultToNonEmptyScope(next.model);
+		}
 		this.setThinkingLevel(thinkingLevel);
 		await this._emitModelSelect(next.model, current, "cycle");
 		return {

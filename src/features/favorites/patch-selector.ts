@@ -58,6 +58,8 @@ interface SelectorPatchTarget {
 	handleInput(keyData: string): void;
 	updateList(): void;
 	filterModels(query: string): void;
+	/** pi 0.87: default-model badge source. */
+	isDefaultModel(model: ModelRef): boolean;
 	listContainer: ListContainerLike;
 	searchInput: SearchInputLike;
 	filteredModels: ModelItem[];
@@ -110,6 +112,9 @@ let patched = false;
 /** Apply the three selector patches. Idempotent; returns false if skipped. */
 export function applyModelSelectorPatches(): boolean {
 	if (patched) return true;
+	// SAFETY: ModelSelectorComponent's members are TS-private (compile-time
+	// only); the structural view matches pi 0.87's prototype shape and every
+	// touched method is existence-checked below before any patching happens.
 	const proto =
 		ModelSelectorComponent.prototype as unknown as SelectorPatchTarget;
 	if (
@@ -146,9 +151,10 @@ export function applyModelSelectorPatches(): boolean {
 	};
 
 	// ── 2. List rendering: hint row + bold bright yellow favorites ────────
-	// Replicates the built-in updateList layout (current-model check, selected
-	// row, scroll indicator, empty/error states, refresh status) with one
-	// change: favorited model ids render in the favorite style.
+	// Replicates the built-in updateList layout (pi 0.87: fixed-width cursor
+	// and ✓ current-marker columns, provider badge, `· default` badge, scroll
+	// indicator, empty/error states, refresh status, Model Name footer) with
+	// one change: favorited model ids render in the favorite style.
 	proto.updateList = function (this: SelectorPatchTarget): void {
 		const theme = themeProvider();
 		if (!theme) {
@@ -178,24 +184,20 @@ export function applyModelSelectorPatches(): boolean {
 			const isCurrent =
 				this.currentModel !== undefined &&
 				sameModel(item.model, this.currentModel);
+			const isDefault = this.isDefaultModel(item.model);
 			const isFavorite = getFavoritesStore().has(item.model);
-			let line: string;
-			if (isSelected) {
-				const prefix = theme.fg("accent", "→ ");
-				const modelText = isFavorite
-					? styleFavorite(item.id)
-					: theme.fg("accent", item.id);
-				const providerBadge = theme.fg("muted", `[${item.provider}]`);
-				const checkmark = isCurrent ? theme.fg("success", " ✓") : "";
-				line = `${prefix + modelText} ${providerBadge}${checkmark}`;
-			} else {
-				const modelText = isFavorite
-					? `  ${styleFavorite(item.id)}`
-					: `  ${item.id}`;
-				const providerBadge = theme.fg("muted", `[${item.provider}]`);
-				const checkmark = isCurrent ? theme.fg("success", " ✓") : "";
-				line = `${modelText} ${providerBadge}${checkmark}`;
-			}
+			const defaultBadge = isDefault
+				? theme.fg("muted", " · default")
+				: "";
+			const cursor = isSelected ? theme.fg("accent", "→ ") : "  ";
+			const currentMarker = isCurrent ? theme.fg("accent", "✓ ") : "  ";
+			const modelText = isFavorite
+				? styleFavorite(item.id)
+				: isSelected
+					? theme.fg("accent", item.id)
+					: item.id;
+			const providerBadge = theme.fg("muted", `[${item.provider}]`);
+			const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${defaultBadge}`;
 			list.addChild(new Text(line, 0, 0));
 		}
 		if (startIndex > 0 || endIndex < this.filteredModels.length) {

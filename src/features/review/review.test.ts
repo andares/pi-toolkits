@@ -34,13 +34,15 @@ import {
 import {
 	createReviewRunner,
 	pickReviewModel,
-	resolveConfiguredModel,
 } from "./index.js";
+import {
+	modelKey,
+	resolveConfiguredModel,
+} from "../../lib/model-config.js";
 import { REVIEW_PROMPT } from "./prompt.js";
 import {
 	ReviewStore,
 	getReviewStore,
-	modelKey,
 	setSharedReviewStore,
 } from "./store.js";
 

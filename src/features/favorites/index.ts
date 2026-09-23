@@ -27,6 +27,8 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	ModelSelectEvent,
+	SessionStartEvent,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { FAVORITES_STATUS_KEY } from "./constants.js";
@@ -68,13 +70,13 @@ export function registerFavorites(pi: ExtensionAPI): void {
 	// selector. setStatus is idempotent and re-synced on every session_start.
 	let latestCtx: ExtensionContext | undefined;
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", (_event: SessionStartEvent, ctx: ExtensionContext) => {
 		latestCtx = ctx;
 		captureTheme(ctx);
 		updateFooterStatus(ctx);
 	});
 
-	pi.on("model_select", (_event, ctx) => {
+	pi.on("model_select", (_event: ModelSelectEvent, ctx: ExtensionContext) => {
 		captureTheme(ctx);
 		updateFooterStatus(ctx);
 	});
@@ -90,7 +92,7 @@ export function registerFavorites(pi: ExtensionAPI): void {
 
 	pi.registerCommand("favorites", {
 		description: "List favorited models (add/remove with ctrl+F in /model)",
-		handler: async (_args, ctx) => {
+		handler: async (_args: string, ctx: ExtensionContext) => {
 			captureTheme(ctx);
 			const list = getFavoritesStore().list();
 			if (list.length === 0) {
