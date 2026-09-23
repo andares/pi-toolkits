@@ -85,12 +85,15 @@ export async function pickReviewModel(
 	const options = ordered.map(
 		(m: AvailableModel) => `${m.name} (${m.provider}/${m.id})`,
 	);
-	const choice = await ctx.ui.select(
-		configured
-			? `选择评审模型 (当前: ${configured}，回车使用)`
-			: "选择评审模型 (third-review)",
-		options,
-	);
+	// Title reflects what Enter actually accepts: the configured model when it
+	// is available, a clear "unavailable" marker otherwise.
+	let title = "选择评审模型 (third-review)";
+	if (configuredModel) {
+		title = `选择评审模型 (当前: ${configured}，回车使用)`;
+	} else if (configured) {
+		title = `选择评审模型 (当前: ${configured} 不可用)`;
+	}
+	const choice = await ctx.ui.select(title, options);
 	if (choice === undefined) {
 		ctx.ui.notify("third-review: 已取消，评审模型配置未变更。", "info");
 		return undefined;

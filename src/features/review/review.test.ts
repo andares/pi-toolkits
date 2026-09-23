@@ -403,6 +403,12 @@ describe("createReviewRunner", () => {
 		expect(setModel).toHaveBeenCalledWith(MODELS[0]);
 		expect(sendUserMessage).toHaveBeenCalledWith(REVIEW_PROMPT);
 		expect(select).toHaveBeenCalledTimes(1);
+		// The title marks the configured model as unavailable (Enter picks the
+		// first available row, not the configured one).
+		expect(select).toHaveBeenCalledWith(
+			"选择评审模型 (当前: anthropic/claude-opus-4-5 不可用)",
+			expect.any(Array),
+		);
 	});
 
 	it("aborts when the user cancels the model pick", async () => {
