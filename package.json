@@ -1,7 +1,7 @@
 {
   "name": "@andares/pi-toolkits",
-  "version": "0.3.1",
-  "description": "Integrated toolkit extension for pi — currently provides ask mode (read-only Q&A); more features to come",
+  "version": "0.4.0",
+  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), model favorites, prompt stash, third-party code review, and a dedicated compaction model",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -19,6 +19,11 @@
     "pi-extension",
     "ask-mode",
     "readonly",
+    "model-favorites",
+    "prompt-stash",
+    "code-review",
+    "compaction",
+    "compact-model",
     "toolkit"
   ],
   "peerDependencies": {
@@ -26,11 +31,12 @@
   },
   "dependencies": {
     "@dreki-gg/pi-command-sandbox": "^0.4.3",
-    "@earendil-works/pi-tui": "^0.84.0"
+    "@earendil-works/pi-tui": "^0.87.1"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.84.0",
-    "@earendil-works/pi-coding-agent": "^0.84.0",
+    "@earendil-works/pi-ai": "^0.87.1",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@types/node": "^26.6.2",
     "typescript": "^5.6.0",
     "vitest": "^4.1.10"
   },
