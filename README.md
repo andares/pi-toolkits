@@ -161,14 +161,19 @@ pi -e ./src/index.ts
 
 **范围强约束** —— 评审仅限**当前本轮修改内容**,避免扩大范围;本轮改动范围内确认的问题才直接修复,范围外的历史遗留/无关问题只记录提示、不动手改。
 
-**评审模型配置**(`<agent-dir>/pi-toolkits-review.json`,默认 `~/.pi/agent/`):
+**评审模型选择**(每次 `/third-review` 都会弹出选择界面):
+
+- `/third-review` → 弹出模型列表(与 `/model` 同源):**第一项 = 当前配置的模型**(默认高亮),直接**回车**即用它开始评审;也可移动到其他模型
+- **换选其他模型** → 立即写回配置(**落盘 + 内存**),**下次默认使用该模型**;标题实时显示当前配置
+- **取消**(Esc)→ 不执行评审,配置不变
+- 配置持久化于 `<agent-dir>/pi-toolkits-review.json`(默认 `~/.pi/agent/`):
 
 ```json
 { "model": "anthropic/claude-sonnet-4" }
 ```
 
-- `/review-model` —— 查看/更换评审模型:弹出模型列表(标题显示当前配置),选中即写入;取消则不修改配置
-- **未配置 / 配置的模型已不可用**(如在 pi 的 models.json 里删掉了该模型)→ 提示「评审模型不存在」,弹出**可用模型选择列表**(与 `/model` 同源);选中后**写回配置并立即执行**
+- `/review-model` —— 单独的配置入口:弹出同一列表(不改会话模型,只更新默认配置)
+- **未配置 / 配置的模型已不可用**(如在 pi 的 models.json 里删掉了该模型)→ 提示后照常弹出列表(此时无默认项)
 - 任务仍在进行中(agent 未空闲)时触发 → 提示等待,不执行;同一时间只允许一个评审
 - footer 出现灰色 `review` 状态 = 已配置评审模型
 
@@ -217,45 +222,6 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 
 ---
 
-**pnpm is the only supported toolchain** — never use `npm install` / `npm publish` in this repo.
-
-```bash
-pnpm install      # install deps
-pnpm typecheck    # tsc --noEmit
-pnpm test         # vitest (all feature unit tests)
-```
-
-### 项目结构 Project structure
-
-```text
-src/
-├── index.ts              # entry point: aggregates feature modules
-├── lib/                  # shared infrastructure (tool-set snapshot/restore)
-└── features/             # feature modules — one directory per feature
-    ├── ask/              # ask mode: command + state machine, bash sandbox,
-    │                     #           system prompt banner, tests
-    ├── favorites/        # model favorites: selector + cycle patches,
-    │                     #           persisted store, tests
-    ├── review/           # third-party review: input/command triggers,
-    │                     #           review-model config store, prompt, tests
-    └── stash/            # prompt stash: hotkey state machine + tests
-```
-
-**新增功能 · adding a feature**:create `src/features/<name>/` exporting `registerXxx(pi)` and call it from `src/index.ts`. Existing modules stay untouched. Each feature ships its own `*.test.ts` (vitest) — keep them deterministic (inject clocks/state, no real agent-dir writes).
-
-**发布 · publishing**(pnpm-only,one command):
-
-```bash
-pnpm release patch   # 0.1.2 → 0.1.3
-pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
-pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
-pnpm release patch --dry-run   # preview without changing anything
-```
-
-`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:校验 → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag → `pnpm publish`(`prepublishOnly` 二次门禁)。
-
----
-
 ## 🛠️ 开发 Development
 
 <a name="development"></a>
@@ -299,7 +265,7 @@ pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
 pnpm release patch --dry-run   # preview without changing anything
 ```
 
-`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:校验 → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag → `pnpm publish`(`prepublishOnly` 二次门禁)。
+`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:**工作区必须干净(有未提交变更直接中止,保证 tag 内容 == 发布内容)** → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag(自检 tag==HEAD 且工作区干净) → `pnpm publish`(`prepublishOnly` 二次门禁) → 只推当前分支 + 当前 tag 并校验远端哈希一致(远端 tag 不一致则跳过 Release 创建)。
 
 ---
 
