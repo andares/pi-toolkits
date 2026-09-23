@@ -10,22 +10,25 @@
  * zeroes every lower level.
  *
  * Flow:
- *   validate arg → warn on dirty git tree (non-blocking) → typecheck + test
+ *   validate arg → 工作区必须干净（有未提交变更直接中止）→ typecheck + test
  *   → bump package.json → git commit `chore: release vX.Y.Z` + tag `vX.Y.Z`
  *     (tag via scripts/tag-current.mjs — skips if already exists)
+ *     → 自检：tag == HEAD 且工作区干净（否则中止）
  *   → `pnpm publish` (pnpm-only repo — never `npm publish`). `prepublishOnly`
  *     re-runs typecheck + test as the publish gate.
- *   → npm 成功后（失败即中止）：git push origin <branch> --tags（尝试一次，
- *     失败仅警告——可能此前已推过）+ 用 GITHUB_TOKEN 创建 GitHub Release
- *     v{next}（best-effort：未设 token / 已存在 / 失败都只提示、不中止）。
+ *   → npm 成功后（失败即中止）：git push origin <branch> + 只推当前 tag
+ *     refs/tags/vX.Y.Z（不再 --tags），随后校验远端分支/tag 哈希与本地一致；
+ *     远端 tag 不一致 → 跳过 Release 创建并给出修复命令。
+ *   → 用 GITHUB_TOKEN 创建 GitHub Release v{next}（仅在远端 tag 校验通过后；
+ *     best-effort：未设 token / 已存在 / 失败都只提示、不中止）。
  *
  * `--dry-run` prints the plan (version + steps) and exits without changing
  * anything.
  *
  * Notes:
- *  - Git commit + tag are part of the release. `pnpm publish` is called with
- *    `--no-git-checks` so unrelated uncommitted work in the tree doesn't
- *    block the publish (the version-bump commit is staged explicitly).
+ *  - 干净检查是硬性前置：release 提交只含版本号，未提交内容会进 npm 包
+ *    （pnpm 从工作区打包）却不进 tag —— v0.4.0 事故即由此产生。
+ *    `pnpm publish` 仍用 `--no-git-checks`，但此时工作区已保证干净。
  *  - The published tarball ships only `src` (package.json "files"); this
  *    script and `plans/` are never published.
  *  - GitHub Release 需要 fine-grained token（Contents: write），存于
@@ -126,6 +129,16 @@ function tagExists(tag) {
 	);
 }
 
+/** Run a git command and return trimmed stdout (fatal on failure). */
+function gitOut(args) {
+	return run(git, args, { stdio: "pipe" }).stdout.toString().trim();
+}
+
+/** Run a git command tolerating failure (network checks, push). */
+function gitTry(args) {
+	return run(git, args, { stdio: "pipe", allowFailure: true });
+}
+
 const branch =
 	run(git, ["branch", "--show-current"], {
 		stdio: "pipe",
@@ -134,8 +147,15 @@ const branch =
 		.toString()
 		.trim() || "master";
 
+// Working-tree state: informational for --dry-run, a hard gate for the real
+// run (see below).
+const dirty = run(git, ["status", "--porcelain"], { stdio: "pipe" })
+	.stdout.toString()
+	.trim();
+
 if (dryRun) {
 	console.log(`\n${C.dim}--dry-run -- nothing changed. Would run:${C.reset}`);
+	console.log(`  0. 工作区必须干净（有未提交变更则直接中止）`);
 	console.log(`  1. pnpm typecheck && pnpm test`);
 	console.log(`  2. bump package.json version → ${next}`);
 	if (tagExists(`v${next}`)) {
@@ -147,27 +167,38 @@ if (dryRun) {
 			`  3. git commit -m "chore: release v${next}" + tag-current（git tag v${next}）`,
 		);
 	}
+	console.log(`  3b. 自检：tag == HEAD 且工作区干净`);
 	console.log(`  4. pnpm publish --no-git-checks`);
 	console.log(
-		`  5. git push origin ${branch} --tags + GitHub Release v${next}` +
-			(process.env.GITHUB_TOKEN
-				? ""
-				: `（未设置 GITHUB_TOKEN → 仅 push，Release 跳过）`),
+		`  5. git push origin ${branch} + refs/tags/v${next}（只推当前 tag）+ 校验远端哈希` +
+			(process.env.GITHUB_TOKEN ? "" : "（未设置 GITHUB_TOKEN → Release 跳过）"),
 	);
+	if (dirty) {
+		console.log(
+			`\n${C.yellow}注意：当前工作区有未提交变更——实际执行会在第 0 步直接中止（先提交再发版）：${C.reset}\n` +
+				dirty
+					.split("\n")
+					.map((l) => `  ${l}`)
+					.join("\n"),
+		);
+	}
 	process.exit(0);
 }
 
-// Dirty-tree warning (non-blocking; publish uses --no-git-checks).
-const dirty = run(git, ["status", "--porcelain"], { stdio: "pipe" })
-	.stdout.toString()
-	.trim();
+// Hard gate — release 提交只含版本号：有未提交内容时，pnpm 会把它打进
+// npm 包却不进 tag，tag 就不再是「实际发布内容」的快照（v0.4.0 事故）。
 if (dirty) {
-	console.warn(
-		`${C.yellow}Warning: uncommitted changes present:\n${dirty
-			.split("\n")
-			.map((l) => `  ${l}`)
-			.join("\n")}${C.reset}`,
+	console.error(
+		`${C.red}${C.bold}Aborting: uncommitted changes present.${C.reset}\n` +
+			dirty
+				.split("\n")
+				.map((l) => `  ${l}`)
+				.join("\n") +
+			`\n${C.red}Commit your work first (scratch files: add to .gitignore), then re-run.` +
+			`\n  The release commit only bumps the version — uncommitted work would be published` +
+			` to npm but absent from tag v${next}.${C.reset}`,
 	);
+	process.exit(1);
 }
 
 // 1. Checks gate — abort before anything is changed if they fail.
@@ -187,6 +218,32 @@ run(git, ["add", "package.json"]);
 run(git, ["commit", "-m", `chore: release v${next}`]);
 run(process.execPath, [join(ROOT, "scripts", "tag-current.mjs")]);
 
+// 3b. 自检：tag 必须指向 HEAD 且工作区干净 —— 保证「将要发布的 tarball
+// （从工作区打包）== tag 内容」。任何不一致都在 publish 之前中止。
+const headHash = gitOut(["rev-parse", "HEAD"]);
+const tagHash = gitOut(["rev-parse", `v${next}`]);
+if (tagHash !== headHash) {
+	console.error(
+		`${C.red}Aborting: tag v${next} (${tagHash.slice(0, 7)}) does not point at HEAD (${headHash.slice(0, 7)}).` +
+			`\n  Re-point it with: git tag -f v${next}   (or bump to a new version)${C.reset}`,
+	);
+	process.exit(1);
+}
+const dirtyAfterTag = gitOut(["status", "--porcelain"]);
+if (dirtyAfterTag) {
+	console.error(
+		`${C.red}Aborting: working tree is dirty after commit+tag — the published content would NOT match tag v${next}:${C.reset}\n` +
+			dirtyAfterTag
+				.split("\n")
+				.map((l) => `  ${l}`)
+				.join("\n"),
+	);
+	process.exit(1);
+}
+console.log(
+	`${C.green}tag v${next} == HEAD (${headHash.slice(0, 7)}), working tree clean${C.reset}`,
+);
+
 // 4. Publish (prepublishOnly re-gates with typecheck + test).
 step("pnpm publish");
 const publish = run(pnpm, ["publish", "--no-git-checks"], {
@@ -200,24 +257,58 @@ if (publish.status !== 0) {
 	process.exit(publish.status ?? 1);
 }
 
-// 5. GitHub：push 分支 + tags（尝试一次，失败仅警告——可能此前已推过；
-// 确保 tag 在远端存在后再建 Release，否则 API 会自动建 tag 指向默认分支
-// 的 HEAD，可能不是 release commit）。然后创建 GitHub Release v${next}
-// （best-effort：未设 token / 已存在 / 失败都只提示，不中止）。
-step("git push + GitHub Release");
-const push = run(git, ["push", "origin", branch, "--tags"], {
-	allowFailure: true,
-});
-if (push.status !== 0) {
+// 5. GitHub：只推当前分支 + 当前 tag（不再 --tags —— 历史 tag 分歧会整条
+// 拒绝推送且掩盖当前 tag 的真实状态），随后校验远端哈希；仅当远端 tag 与
+// 本地一致时才创建 Release（否则 Release 会指向错误内容）。
+step("git push + 校验 + GitHub Release");
+const pushBranch = gitTry(["push", "origin", branch]);
+if (pushBranch.status !== 0) {
 	console.warn(
-		`${C.yellow}git push 失败（可能此前已推过，可忽略）。` +
-			`若远端还没有 tag v${next}，Release 将无法指向 release commit。${C.reset}`,
+		`${C.yellow}git push origin ${branch} 失败（可能已推过或非快进）— 请手动检查。${C.reset}`,
+	);
+}
+const pushTag = gitTry(["push", "origin", `refs/tags/v${next}`]);
+if (pushTag.status !== 0) {
+	console.warn(
+		`${C.yellow}git push refs/tags/v${next} 失败（远端同名 tag 可能已存在且指向其它提交）。` +
+			`\n  如需覆盖：git push origin refs/tags/v${next} --force${C.reset}`,
+	);
+}
+const remoteTag =
+	gitTry(["ls-remote", "origin", `refs/tags/v${next}`])
+		.stdout.toString()
+		.trim()
+		.split(/\s+/)[0] ?? "";
+const remoteBranch =
+	gitTry(["ls-remote", "origin", `refs/heads/${branch}`])
+		.stdout.toString()
+		.trim()
+		.split(/\s+/)[0] ?? "";
+if (remoteBranch !== headHash) {
+	console.warn(
+		`${C.yellow}远端 ${branch} (${remoteBranch.slice(0, 7) || "?"}) 与本地 (${headHash.slice(0, 7)}) 不一致 — push 可能未成功。${C.reset}`,
+	);
+}
+const tagVerified = remoteTag === tagHash;
+if (tagVerified) {
+	console.log(
+		`${C.green}远端 tag v${next} 校验通过 → ${tagHash.slice(0, 7)}${C.reset}`,
+	);
+} else {
+	console.warn(
+		`${C.red}远端 tag v${next} (${remoteTag.slice(0, 7) || "不存在"}) 与本地 (${tagHash.slice(0, 7)}) 不一致。` +
+			`\n  修复：git push origin refs/tags/v${next} --force${C.reset}`,
 	);
 }
 if (!process.env.GITHUB_TOKEN) {
 	console.warn(
 		`${C.yellow}未设置 GITHUB_TOKEN — 跳过 GitHub Release 创建。` +
 			`npm 已发布 v${next}，可稍后手动创建 release。${C.reset}`,
+	);
+} else if (!tagVerified) {
+	console.warn(
+		`${C.yellow}远端 tag 校验未通过 — 跳过 GitHub Release 创建（避免 Release 指向错误内容）。` +
+			`修好 tag 后重跑本脚本（幂等）或手动创建。${C.reset}`,
 	);
 } else {
 	const rel = run(
@@ -246,8 +337,19 @@ if (!process.env.GITHUB_TOKEN) {
 	);
 	const lines = rel.stdout.toString().trimEnd().split("\n");
 	const code = lines.pop()?.trim() ?? "";
-	if (rel.status === 0 && code === "201") {
-		console.log(`${C.green}GitHub Release v${next} 创建成功${C.reset}`);
+	const body = lines.join("\n").replace(/\s+/g, "");
+	if (
+		rel.status === 0 &&
+		code === "201" &&
+		body.includes(`"tag_name":"v${next}"`)
+	) {
+		console.log(
+			`${C.green}GitHub Release v${next} 创建成功（tag → ${tagHash.slice(0, 7)}）${C.reset}`,
+		);
+	} else if (rel.status === 0 && code === "201") {
+		console.warn(
+			`${C.yellow}Release 创建成功但响应未确认 tag_name=v${next} — 请手动核对。${C.reset}`,
+		);
 	} else {
 		// POST 失败后查询确认——release 可能已存在（并发/重试/手动补建），
 		// 幂等处理：查询返回 200 即视为成功，不再重复创建。
@@ -281,6 +383,6 @@ if (!process.env.GITHUB_TOKEN) {
 
 console.log(
 	`\n${C.green}${C.bold}✅ Published v${current} → v${next}${C.reset}` +
-		`\n${C.dim}Tag: v${next} · commit: chore: release v${next} · npm` +
-		` · GitHub Release${C.reset}`,
+		`\n${C.dim}Tag: v${next} (${tagHash.slice(0, 7)})` +
+		` · npm${tagVerified ? " · GitHub Release" : ""}${C.reset}`,
 );
