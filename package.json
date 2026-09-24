@@ -1,6 +1,6 @@
 {
   "name": "@andares/pi-toolkits",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), model favorites, prompt stash, third-party code review, and a dedicated compaction model",
   "type": "module",
   "license": "MIT",
