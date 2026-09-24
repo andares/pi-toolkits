@@ -204,13 +204,15 @@ describe("ReviewStore", () => {
 
 	it("falls back to unset on a corrupted file", () => {
 		const file = freshStoreFile();
+		writeFileSync(file, "{ not json", "utf8");
+		// Suppress the designed degradation log; the spy asserts it fired.
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			writeFileSync(file, "{ not json", "utf8");
-		} catch {
-			// A failed write still leaves the store to hit the read-error path.
+			expect(new ReviewStore(file).getModel()).toBeUndefined();
+			expect(warn).toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
 		}
-		const store = new ReviewStore(file);
-		expect(store.getModel()).toBeUndefined();
 	});
 
 	it("ignores a stored value without a slash", () => {

@@ -23,7 +23,15 @@ import {
 	ModelSelectorComponent,
 	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { afterAll, beforeEach, beforeAll, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	beforeEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import {
 	FavoritesStore,
 	getFavoritesStore,
@@ -102,14 +110,17 @@ describe("FavoritesStore", () => {
 	it("falls back to empty + defaults on a corrupted file", () => {
 		const file = freshStoreFile();
 		// Intentionally write invalid JSON — the READ side must tolerate it.
+		writeFileSync(file, "{ not json", "utf8");
+		// Suppress the designed degradation log; the spy asserts it fired.
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		try {
-			writeFileSync(file, "{ not json", "utf8");
-		} catch {
-			// A failed write still leaves the store to hit the read-error path.
+			const store = new FavoritesStore(file);
+			expect(store.count()).toBe(0);
+			expect(store.getConfig().cycleOnlyFavorites).toBe(true);
+			expect(warn).toHaveBeenCalled();
+		} finally {
+			warn.mockRestore();
 		}
-		const store = new FavoritesStore(file);
-		expect(store.count()).toBe(0);
-		expect(store.getConfig().cycleOnlyFavorites).toBe(true);
 	});
 
 	it("loads cycleOnlyFavorites config from disk", () => {
