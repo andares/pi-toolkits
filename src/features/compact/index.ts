@@ -18,7 +18,8 @@
  *    compaction worse than stock.
  *
  * Config lives in `<agent-dir>/pi-toolkits-compact.json` ("provider/id",
- * see store.ts). /compact-model views/changes/clears it; auto-compact paths
+ * see store.ts). /compact-model opens the /model-style picker (configured
+ * model preselected; picking persists); auto-compact paths
  * never open dialogs (handler only uses notify).
  */
 import type {
@@ -40,6 +41,7 @@ import {
 	resolveConfiguredModel,
 	type AvailableModel,
 } from "../../lib/model-config.js";
+import { openModelPicker } from "../../lib/model-picker.js";
 import { COMPACT_STATUS_KEY } from "./constants.js";
 import {
 	buildHistoryPromptText,
@@ -263,45 +265,29 @@ export async function pickCompactModel(
 		);
 		return undefined;
 	}
-	const available = ctx.modelRegistry.getAvailable();
-	if (available.length === 0) {
-		ctx.ui.notify(
-			"compact-model: 当前没有可用模型，请先在 pi 中配置模型。",
-			"error",
-		);
-		return undefined;
-	}
 	const configured = store.getModel();
-	const clearLabel = "✕ 清除配置（用 pi 默认压缩）";
-	const options = [
-		clearLabel,
-		...available.map(
-			(m: AvailableModel) => `${m.name} (${m.provider}/${m.id})`,
-		),
-	];
-	const choice = await ctx.ui.select(
-		configured
-			? `选择压缩模型 (当前: ${configured})`
-			: "选择压缩模型 (compact-model)",
-		options,
-	);
-	if (choice === undefined) {
-		ctx.ui.notify("compact-model: 已取消，压缩模型配置未变更。", "info");
-		return undefined;
-	}
-	if (choice === clearLabel) {
-		store.setModel(undefined);
+	const configuredModel = resolveConfiguredModel(ctx, configured);
+	if (!configuredModel && configured) {
 		ctx.ui.notify(
-			"compact-model: 已清除配置，压缩恢复 pi 默认（当前会话模型）。",
+			`compact-model: 配置的压缩模型 ${configured} 不存在或不可用，请重新选择。`,
+			"warning",
+		);
+	}
+	const model = await openModelPicker(ctx, configuredModel);
+	if (!model) {
+		ctx.ui.notify(
+			"compact-model: 已取消，压缩模型配置未变更。清除配置请编辑 <agent-dir>/pi-toolkits-compact.json（把 model 置为 null）。",
 			"info",
 		);
 		return undefined;
 	}
-	const model = available[options.indexOf(choice) - 1];
-	if (!model) return undefined;
-	store.setModel(modelKey(model));
+	const key = modelKey(model);
+	if (key !== configured) {
+		// Persist immediately (disk + in-memory + footer) — next compaction uses it.
+		store.setModel(key);
+	}
 	ctx.ui.notify(
-		`compact-model: 已设置压缩模型「${model.name}」，后续压缩总结将由它执行。`,
+		`compact-model: 压缩模型已设置为「${model.name}」，后续压缩总结将由它执行。`,
 		"info",
 	);
 	return model;

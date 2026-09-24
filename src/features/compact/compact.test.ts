@@ -133,12 +133,12 @@ interface CtxOverrides {
 		options: { maxTokens?: number; signal?: AbortSignal },
 	) => Promise<AssistantMessageLike>;
 	hasUI?: boolean;
-	selectResult?: string | undefined;
+	customResult?: AvailableModel | undefined;
 }
 
 function fakeCtx(overrides: CtxOverrides = {}) {
 	const notify = vi.fn();
-	const select = vi.fn(async () => overrides.selectResult);
+	const custom = vi.fn(async () => overrides.customResult);
 	const setStatus = vi.fn();
 	const complete =
 		overrides.complete ??
@@ -153,9 +153,9 @@ function fakeCtx(overrides: CtxOverrides = {}) {
 			getAvailable: () => overrides.models ?? MODELS,
 			complete,
 		},
-		ui: { notify, select, setStatus },
+		ui: { notify, custom, setStatus },
 	} as unknown as ExtensionContext;
-	return { ctx, notify, select, setStatus, complete };
+	return { ctx, notify, custom, setStatus, complete };
 }
 
 function fakePi() {
@@ -279,10 +279,10 @@ describe("CompactStore", () => {
 
 describe("pickCompactModel", () => {
 	it("notifies and returns when there is no dialog UI", async () => {
-		const { ctx, notify, select } = fakeCtx({ hasUI: false });
+		const { ctx, notify, custom } = fakeCtx({ hasUI: false });
 		const model = await pickCompactModel(ctx, getCompactStore());
 		expect(model).toBeUndefined();
-		expect(select).not.toHaveBeenCalled();
+		expect(custom).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith(
 			expect.stringContaining("pi-toolkits-compact.json"),
 			"error",
@@ -298,24 +298,20 @@ describe("pickCompactModel", () => {
 		);
 	});
 
-	it("clears config when the clear option is chosen", async () => {
+	it("hints how to clear the config when cancelled", async () => {
 		getCompactStore().setModel("google/gemini-2.5-flash");
-		const { ctx, notify } = fakeCtx({
-			selectResult: "✕ 清除配置（用 pi 默认压缩）",
-		});
+		const { ctx, notify } = fakeCtx({ customResult: undefined });
 		const model = await pickCompactModel(ctx, getCompactStore());
 		expect(model).toBeUndefined();
-		expect(getCompactStore().getModel()).toBeUndefined();
+		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("已清除"),
+			expect.stringContaining("置为 null"),
 			"info",
 		);
 	});
 
 	it("persists the picked model", async () => {
-		const { ctx } = fakeCtx({
-			selectResult: "Gemini 2.5 Flash (google/gemini-2.5-flash)",
-		});
+		const { ctx } = fakeCtx({ customResult: MODELS[0] });
 		const model = await pickCompactModel(ctx, getCompactStore());
 		expect(modelKey(model!)).toBe("google/gemini-2.5-flash");
 		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
@@ -323,13 +319,24 @@ describe("pickCompactModel", () => {
 
 	it("keeps config on cancel", async () => {
 		getCompactStore().setModel("google/gemini-2.5-flash");
-		const { ctx, notify } = fakeCtx({ selectResult: undefined });
+		const { ctx, notify } = fakeCtx({ customResult: undefined });
 		await pickCompactModel(ctx, getCompactStore());
 		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
 		expect(notify).toHaveBeenCalledWith(
 			expect.stringContaining("已取消"),
 			"info",
 		);
+	});
+
+	it("warns when the configured model is unavailable", async () => {
+		getCompactStore().setModel("google/nonexistent");
+		const { ctx, notify } = fakeCtx({ customResult: MODELS[0] });
+		await pickCompactModel(ctx, getCompactStore());
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining("不存在或不可用"),
+			"warning",
+		);
+		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
 	});
 });
 
