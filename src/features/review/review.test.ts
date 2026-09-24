@@ -100,10 +100,12 @@ function fakeCtx(
 		mode?: string;
 		hasUI?: boolean;
 		customResult?: AvailableModel | undefined;
+		selectResult?: string | undefined;
 	} = {},
 ) {
 	const notify = vi.fn();
 	const custom = vi.fn(async () => overrides.customResult);
+	const select = vi.fn(async () => overrides.selectResult);
 	const ctx = {
 		mode: overrides.mode ?? "tui",
 		hasUI: overrides.hasUI ?? true,
@@ -111,9 +113,9 @@ function fakeCtx(
 		modelRegistry: {
 			getAvailable: () => overrides.models ?? MODELS,
 		} as unknown as ModelRegistry,
-		ui: { notify, custom },
+		ui: { notify, custom, select },
 	} as unknown as ExtensionContext;
-	return { ctx, notify, custom };
+	return { ctx, notify, custom, select };
 }
 
 function fakePi(switched = true) {
@@ -268,15 +270,17 @@ describe("pickReviewModel", () => {
 		);
 	});
 
-	it("works in rpc mode (dialogs are available there)", async () => {
+	it("works in rpc mode via the host selector", async () => {
 		const store = new ReviewStore(freshStoreFile());
-		const { ctx, custom } = fakeCtx({
+		const { ctx, custom, select } = fakeCtx({
 			mode: "rpc",
-			customResult: MODELS[1],
+			selectResult: "Claude Opus 4 (anthropic/claude-opus-4)",
 		});
 		const picked = await pickReviewModel(ctx, store);
 		expect(picked).toBe(MODELS[1]);
-		expect(custom).toHaveBeenCalledTimes(1);
+		// rpc cannot host custom components — the host renders select instead.
+		expect(custom).not.toHaveBeenCalled();
+		expect(select).toHaveBeenCalledTimes(1);
 		expect(store.getModel()).toBe("anthropic/claude-opus-4");
 	});
 

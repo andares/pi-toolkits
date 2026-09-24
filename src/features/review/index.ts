@@ -70,7 +70,9 @@ export async function pickReviewModel(
 			"warning",
 		);
 	}
-	const model = await openModelPicker(ctx, configuredModel);
+	const model = await openModelPicker(ctx, configuredModel, {
+		selectTitle: "选择评审模型（首项为当前默认，回车使用）",
+	});
 	if (!model) {
 		ctx.ui.notify("third-review: 已取消，评审模型配置未变更。", "info");
 		return undefined;
@@ -160,7 +162,7 @@ export function registerReview(pi: ExtensionAPI): void {
 	// the runner, which may block on the model picker and the review turn.
 	pi.registerCommand("third-review", {
 		description:
-			"Summon the configured review model to review the just-completed work (check + fix)",
+			"Pick the review model (defaults to the configured one) and review the just-completed work (check + fix)",
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			await runReview(ctx);
 		},

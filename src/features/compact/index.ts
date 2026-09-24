@@ -251,8 +251,8 @@ async function runCompactModelCompaction(
 }
 
 /**
- * Let the user pick a compact model (or clear the config) and persist the
- * choice. Mirrors review's pickReviewModel, plus a leading clear option.
+ * Let the user pick a compact model with the /model-style picker and persist
+ * the choice. Mirrors review's pickReviewModel.
  */
 export async function pickCompactModel(
 	ctx: ExtensionContext,
@@ -273,7 +273,9 @@ export async function pickCompactModel(
 			"warning",
 		);
 	}
-	const model = await openModelPicker(ctx, configuredModel);
+	const model = await openModelPicker(ctx, configuredModel, {
+		selectTitle: "选择压缩模型（首项为当前默认，回车使用）",
+	});
 	if (!model) {
 		ctx.ui.notify(
 			"compact-model: 已取消，压缩模型配置未变更。清除配置请编辑 <agent-dir>/pi-toolkits-compact.json（把 model 置为 null）。",
@@ -316,10 +318,10 @@ export function registerCompact(pi: ExtensionAPI): void {
 		},
 	);
 
-	// Config entry point: view, change, or clear the compact model.
+	// Config entry point: view and change the compact model.
 	pi.registerCommand("compact-model", {
 		description:
-			"Set, change, or clear the dedicated model used for /compact summaries",
+			"Set or change the dedicated model used for /compact summaries",
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			await pickCompactModel(ctx, getCompactStore());
 		},

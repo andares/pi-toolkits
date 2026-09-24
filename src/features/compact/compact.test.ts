@@ -133,12 +133,15 @@ interface CtxOverrides {
 		options: { maxTokens?: number; signal?: AbortSignal },
 	) => Promise<AssistantMessageLike>;
 	hasUI?: boolean;
+	mode?: string;
 	customResult?: AvailableModel | undefined;
+	selectResult?: string | undefined;
 }
 
 function fakeCtx(overrides: CtxOverrides = {}) {
 	const notify = vi.fn();
 	const custom = vi.fn(async () => overrides.customResult);
+	const select = vi.fn(async () => overrides.selectResult);
 	const setStatus = vi.fn();
 	const complete =
 		overrides.complete ??
@@ -146,16 +149,16 @@ function fakeCtx(overrides: CtxOverrides = {}) {
 			CtxOverrides["complete"]
 		>);
 	const ctx = {
-		mode: "tui",
+		mode: overrides.mode ?? "tui",
 		hasUI: overrides.hasUI ?? true,
 		isIdle: () => true,
 		modelRegistry: {
 			getAvailable: () => overrides.models ?? MODELS,
 			complete,
 		},
-		ui: { notify, custom, setStatus },
+		ui: { notify, custom, select, setStatus },
 	} as unknown as ExtensionContext;
-	return { ctx, notify, custom, setStatus, complete };
+	return { ctx, notify, custom, select, setStatus, complete };
 }
 
 function fakePi() {
@@ -337,6 +340,19 @@ describe("pickCompactModel", () => {
 			"warning",
 		);
 		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
+	});
+
+	it("works in rpc mode via the host selector", async () => {
+		const { ctx, custom, select } = fakeCtx({
+			mode: "rpc",
+			selectResult: "Gemini 2.5 Flash (google/gemini-2.5-flash)",
+		});
+		const model = await pickCompactModel(ctx, getCompactStore());
+		// rpc cannot host custom components — the host renders select instead.
+		expect(custom).not.toHaveBeenCalled();
+		expect(select).toHaveBeenCalledTimes(1);
+		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
+		expect(modelKey(model!)).toBe("google/gemini-2.5-flash");
 	});
 });
 

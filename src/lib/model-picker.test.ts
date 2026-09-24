@@ -82,8 +82,10 @@ function fakeCtx(models: AvailableModel[] = MODELS) {
 			);
 		});
 	});
+	const select = vi.fn(async () => undefined as string | undefined);
 	const ctx = {
 		hasUI: true,
+		mode: "tui",
 		model: undefined,
 		modelRegistry: {
 			getAvailable: () => models,
@@ -92,9 +94,9 @@ function fakeCtx(models: AvailableModel[] = MODELS) {
 			getError: () => undefined,
 			refresh: async () => ({ aborted: false, errors: new Map() }),
 		},
-		ui: { notify, custom },
+		ui: { notify, custom, select },
 	} as unknown as ExtensionContext;
-	return { ctx, notify, custom };
+	return { ctx, notify, custom, select };
 }
 
 describe("openModelPicker", () => {
@@ -159,5 +161,31 @@ describe("openModelPicker", () => {
 		});
 		selector.onCancel();
 		await promise;
+	});
+
+	it("falls back to the host selector in rpc mode (default first)", async () => {
+		const { ctx, custom, select } = fakeCtx();
+		(ctx as { mode: string }).mode = "rpc";
+		select.mockResolvedValue("Claude Sonnet 4 (anthropic/claude-sonnet-4)");
+		const picked = await openModelPicker(ctx, MODELS[1]);
+		expect(custom).not.toHaveBeenCalled();
+		expect(select).toHaveBeenCalledWith(
+			"选择模型（首项为当前默认，回车使用）",
+			[
+				"Claude Sonnet 4 (anthropic/claude-sonnet-4)",
+				"Gemini 2.5 Flash (google/gemini-2.5-flash)",
+			],
+		);
+		expect(picked).toBe(MODELS[1]);
+	});
+
+	it("uses the provided select title in rpc mode and treats cancel as undefined", async () => {
+		const { ctx, select } = fakeCtx();
+		(ctx as { mode: string }).mode = "rpc";
+		select.mockResolvedValue(undefined);
+		expect(
+			await openModelPicker(ctx, MODELS[0], { selectTitle: "选择评审模型" }),
+		).toBeUndefined();
+		expect(select).toHaveBeenCalledWith("选择评审模型", expect.any(Array));
 	});
 });
