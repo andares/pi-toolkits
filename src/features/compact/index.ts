@@ -10,8 +10,9 @@
  *    emits for ALL three trigger reasons (manual / threshold / overflow)
  *    before running its own compaction
  *  - prompts, message assembly, split-turn handling, output budgets, and the
- *    summary file-list tail are verbatim pi 0.87.1 built-in behavior — only
- *    the executing model differs
+ *    summary file-list tail are verbatim pi built-in behavior (copied from
+ *    0.87.1, verified unchanged through 1.0.2) — only the executing model
+ *    differs
  *  - lossless fallback: unset config, unavailable model, empty/failed
  *    summary, or user abort → return undefined and pi's default compaction
  *    (session model) runs untouched. The extension can never make
@@ -115,8 +116,8 @@ async function completeSummary(
 }
 
 /**
- * pi's output-budget formula (0.87.1 compaction.js): a fraction of
- * reserveTokens clamped by the model's own output cap.
+ * pi's output-budget formula (compaction.js, 0.87.1 → 1.0.2 unchanged): a
+ * fraction of reserveTokens clamped by the model's own output cap.
  */
 function summarizationBudget(
 	fraction: number,
@@ -131,11 +132,12 @@ function summarizationBudget(
 
 /**
  * Run the full compaction summarization with the configured model,
- * replicating pi 0.87.1's compact(): history summary (first-connection or
- * iterative-update prompt, custom focus appended), plus a separate
- * turn-prefix checkpoint when the cut point splits a turn, merged into one
- * summary with the file-list tail. Returns undefined on any failure after
- * notifying (pi default compaction then takes over).
+ * replicating pi's compact() (0.87.1, verified unchanged through 1.0.2):
+ * history summary (first-connection or iterative-update prompt, custom
+ * focus appended), plus a separate turn-prefix checkpoint when the cut point
+ * splits a turn, merged into one summary with the file-list tail. Returns
+ * undefined on any failure after notifying (pi default compaction then takes
+ * over).
  */
 async function runCompactModelCompaction(
 	ctx: ExtensionContext,

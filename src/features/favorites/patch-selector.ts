@@ -19,7 +19,10 @@
  *
  * Version guard: if the prototype no longer has the expected methods (pi
  * upgraded internals), patches are skipped with a warning — the extension
- * keeps loading and ctrl+p falls back to stock behavior.
+ * keeps loading and ctrl+p falls back to stock behavior. The prototype
+ * shape touched here (handleInput/updateList/filterModels and the instance
+ * fields below) is byte-identical across every published version in
+ * pi 0.86.0 → 1.0.2.
  */
 import {
 	ModelSelectorComponent,
@@ -113,8 +116,9 @@ let patched = false;
 export function applyModelSelectorPatches(): boolean {
 	if (patched) return true;
 	// SAFETY: ModelSelectorComponent's members are TS-private (compile-time
-	// only); the structural view matches pi 0.87's prototype shape and every
-	// touched method is existence-checked below before any patching happens.
+	// only); the structural view matches pi 0.86–1.0's prototype shape
+	// (byte-identical across that span) and every touched method is
+	// existence-checked below before any patching happens.
 	const proto =
 		ModelSelectorComponent.prototype as unknown as SelectorPatchTarget;
 	if (
@@ -151,7 +155,7 @@ export function applyModelSelectorPatches(): boolean {
 	};
 
 	// ── 2. List rendering: hint row + bold bright yellow favorites ────────
-	// Replicates the built-in updateList layout (pi 0.87: fixed-width cursor
+	// Replicates the built-in updateList layout (pi 0.86–1.0: fixed-width cursor
 	// and ✓ current-marker columns, provider badge, `· default` badge, scroll
 	// indicator, empty/error states, refresh status, Model Name footer) with
 	// one change: favorited model ids render in the favorite style.

@@ -8,13 +8,13 @@
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
-[![pi >= 0.87](https://img.shields.io/badge/pi-%3E%3D0.87.0-blueviolet)](https://github.com/earendil-works/pi)
+[![pi >= 0.86](https://img.shields.io/badge/pi-%3E%3D0.86.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
 一句话介绍:目前包含五个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`,后续持续追加。
 Currently ships five ready-to-use capabilities — **ask mode**, **model favorites**, **prompt stash**, **third-party code review** and a **dedicated compaction model** — with more to come.
 
-**版本要求 · Requirements**:pi ≥ 0.87.0(以 0.87.x 内建压缩行为为基准开发与验证;favorites 的两处运行时 patch 已对齐 0.87 的选择器布局与 `cycleModel` 语义)。
+**版本要求 · Requirements**:pi `>=0.86.0 <2.0.0`(覆盖最近 4 个中版本线 0.86.x / 0.87.x / 0.99.x / 1.0.x —— 0.88–0.98 从未发布。区间内全部 10 个已发布版本逐版本比对宿主 dist:用到的扩展 API 无差异,favorites 两处运行时 patch 目标 `ModelSelectorComponent` / `AgentSession.cycleModel` 字节级一致;并在 0.86.0、0.86.1、0.87.1、0.99.2、1.0.2 上逐一通过 typecheck + 全量测试,在真实 pi 1.0.2 上冒烟加载无警告)。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
 
 ---
 
@@ -191,7 +191,7 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | auto-compact 阈值触发 | 压缩模型总结 |
 | context overflow 恢复 | 压缩模型总结,重试行为不变 |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 0.87.1 内建实现,只换执行模型):
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,0.87.1 起字节级不变、已核对至 1.0.2,只换执行模型):
 
 - **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
 - **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
