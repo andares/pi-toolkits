@@ -1,8 +1,9 @@
 <!-- markdownlint-disable MD033 -->
-<!-- Inline <a name> anchors are the only reliable TOC targets for CJK headers on GitHub. -->
+<!-- Inline <a name> anchors keep the TOC targets stable and identical across README.md and README.zh-CN.md. -->
 # ⚙️ @andares/pi-toolkits
 
-> pi 编码代理的集成扩展工具包 — 一个包,持续生长新能力。
+**English** · [中文](README.zh-CN.md)
+
 > Integrated toolkit extension for [pi](https://github.com/earendil-works/pi-coding-agent) — one package, growing new capabilities over time.
 
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
@@ -11,101 +12,100 @@
 [![pi >= 0.86](https://img.shields.io/badge/pi-%3E%3D0.86.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含五个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`,后续持续追加。
-Currently ships five ready-to-use capabilities — **ask mode**, **model favorites**, **prompt stash**, **third-party code review** and a **dedicated compaction model** — with more to come.
+In a nutshell: six ready-to-use capabilities — **read-only consult mode** `ask`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model` and **session startup automation** `autostart` — with more to come.
 
-**版本要求 · Requirements**:pi `>=0.86.0 <2.0.0`(覆盖最近 4 个中版本线 0.86.x / 0.87.x / 0.99.x / 1.0.x —— 0.88–0.98 从未发布。区间内全部 10 个已发布版本逐版本比对宿主 dist:用到的扩展 API 无差异,favorites 两处运行时 patch 目标 `ModelSelectorComponent` / `AgentSession.cycleModel` 字节级一致;并在 0.86.0、0.86.1、0.87.1、0.99.2、1.0.2 上逐一通过 typecheck + 全量测试,在真实 pi 1.0.2 上冒烟加载无警告)。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
+**Requirements**: pi `>=0.86.0 <2.0.0` (covering the four most recently released minor lines — 0.86.x / 0.87.x / 0.99.x / 1.0.x; 0.88–0.98 were never released). Every one of the 10 published versions inside that range was compared against the host `dist`: no differences in the extension APIs we use, and the two runtime patch targets used by favorites — `ModelSelectorComponent` / `AgentSession.cycleModel` — are byte-identical. `typecheck` plus the full test suite pass on each of 0.86.0, 0.86.1, 0.87.1, 0.99.2 and 1.0.2, and smoke-loading on real pi 1.0.2 produces no warnings. Note: pi ≥ 0.99 hosts require `@earendil-works/pi-tui` to be declared in `peerDependencies` as `"*"` (provided by the host); this package declares it as required.
 
 ---
 
-## 📦 安装 Installation
+## 📦 Installation
 
 <a name="install"></a>
 
 ```bash
-# 从 npm 安装(推荐)· from npm
+# from npm (recommended)
 pi install npm:@andares/pi-toolkits
 
-# 本地开发安装 · local development
+# local development install
 pi install .
 
-# 单次会话加载,不安装 · one-off session, no install
+# one-off session load, no install
 pi -e ./src/index.ts
 ```
 
-安装后在任意 pi 会话中验证:
+After installing, verify in any pi session:
 
-- `/ask` → footer 出现灰色 `ask` 状态,`write`/`edit` 被硬禁用
-- `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行
-- 输入框内按 `ctrl+alt+y` → 当前提示词被暂存并清空输入框
-- 完成一个开发任务后输入 `/third-review` → 切换到评审模型执行查+修
-- `/compact-model` 选一个便宜快模型 → 之后 `/compact` 与自动压缩的总结都由它执行(footer 出现灰色 `compact` 状态)
-
----
-
-## 📚 目录 Contents
-
-- [安装 Installation](#install)
-- [功能总览 Features at a glance](#features)
-  - [🛡️ ask — 只读咨询模式](#ask)
-  - [⭐ favorites — 模型收藏](#favorites)
-  - [📥 stash — 提示词暂存](#stash)
-  - [🔎 review — 第三方代码评审](#review)
-  - [🗜️ compact — 独立压缩模型](#compact)
-  - [🚀 autostart — 会话启动自动化](#autostart)
-- [开发 Development](#development)
-- [贡献 Contributing](#contributing)
-- [许可 License](#license)
+- `/ask` → a grey `ask` status appears in the footer, `write`/`edit` are hard-disabled
+- `/model` (or `ctrl+l`) → a favorites hint line appears at the top of the selector
+- press `ctrl+alt+y` in the input box → the current prompt is stashed and the input box is cleared
+- after finishing a development task, type `/third-review` → switches to the review model and runs check + fix
+- `/compact-model`, pick a cheap fast model → from then on both `/compact` and auto-compaction summarize with it (a grey `compact` status appears in the footer)
 
 ---
 
-## ✨ 功能总览 Features at a glance
+## 📚 Contents
+
+- [Installation](#install)
+- [Features at a glance](#features)
+  - [🛡️ ask — read-only consult mode](#ask)
+  - [⭐ favorites — model favorites](#favorites)
+  - [📥 stash — prompt stash](#stash)
+  - [🔎 review — third-party code review](#review)
+  - [🗜️ compact — dedicated compaction model](#compact)
+  - [🚀 autostart — session startup automation](#autostart)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## ✨ Features at a glance
 
 <a name="features"></a>
 
-| 功能 | 入口 | 一句话说明 |
+| Feature | Entry point | One-line description |
 | --- | --- | --- |
-| 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit` 硬禁用,`bash` 只读沙箱 |
-| ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+F` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
-| 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
-| 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
-| 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
-| 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
+| 🛡️ **ask** read-only consult mode | `/ask` | enter read-only Q&A mode: `write`/`edit` hard-disabled, `bash` runs in a read-only sandbox |
+| ⭐ **favorites** model favorites | `ctrl+F` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
+| 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
+| 🔎 **review** third-party code review | `/third-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
+| 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
+| 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 
 ---
 
-## 🛡️ ask — 只读咨询模式
+## 🛡️ ask — read-only consult mode
 
 <a name="ask"></a>
 
-用 `/ask` 进入(再按一次退出)。适合只想要"问问题、读代码",绝不希望模型改动任何文件的场景。
+Enter with `/ask` (press it again to exit). Meant for the case where you only want to "ask questions and read code", and absolutely never want the model to modify any file.
 
-**进入后**:
+**While active**:
 
-- **`write` / `edit` 硬禁用** —— 从活跃工具集中移除,pi 运行时对未激活工具的调用直接拒绝("Tool not found"),文件修改在机制上不可能发生
-- **`bash` 保留但只读沙箱** —— 基于 shell 分词 + 写盘意图检测(`curl -o/-O`、`wget -O`、`dd of=`、`tee`、重定向等一律拦截)。启发式,非安全边界
-- **系统提示词追加** —— 追加一段模式说明,模型会遵守只读约束行事
-- **灰色 `ask` footer 状态** —— 常驻提示当前处于只读模式
+- **`write` / `edit` hard-disabled** — removed from the active tool set; pi rejects calls to inactive tools outright ("Tool not found"), so file modification becomes mechanically impossible
+- **`bash` kept, but sandboxed to read-only** — based on shell tokenization plus write-intent detection (blocks `curl -o/-O`, `wget -O`, `dd of=`, `tee`, redirections, and the like). Heuristic, not a security boundary
+- **System prompt appendix** — a mode description is appended so the model behaves along the read-only constraint
+- **Grey `ask` footer status** — a permanent reminder that read-only mode is on
 
-**退出**:再按 `/ask`,完整恢复进入前的工具集快照。
+**Exit**: press `/ask` again; the tool-set snapshot taken on entry is fully restored.
 
 ---
 
-## ⭐ favorites — 模型收藏
+## ⭐ favorites — model favorites
 
 <a name="favorites"></a>
 
-标记常用模型,让模型切换「粘」在收藏上。收藏**跨会话、跨项目全局持久化**。
+Mark the models you use often so that model switching "sticks" to them. Favorites are **persisted globally, across sessions and projects**.
 
-**在 `/model` 选择器内**(`/model` 或 `ctrl+l` 打开):
+**Inside the `/model` selector** (open it with `/model` or `ctrl+l`):
 
-- 顶部提示行显示按键与当前过滤状态
-- `ctrl+F` —— 对当前选中模型开/关收藏;收藏的模型文字显示为**加粗亮黄**
-- `ctrl+J` —— 开/关「仅显示收藏模型」过滤(可与内置搜索叠加使用)
+- The top hint line shows the keys and the current filter state
+- `ctrl+F` — toggle the favorite flag on the currently selected model; favorite models are rendered in **bold bright yellow**
+- `ctrl+J` — toggle the "show only favorite models" filter (composable with the built-in search)
 
-**模型循环**:只要存在 ≥1 个收藏,`ctrl+p` / `ctrl+shift+p` 就**只在收藏模型间循环**。当前模型不是收藏时,`ctrl+p` 跳到第一个收藏、`ctrl+shift+p` 跳到最后一个;收藏仅 1 个时停在原地(`Only one model available`)。`ctrl+l` / `/model` 始终可自由选择任意模型(含非收藏)。在状态文件中设 `"cycleOnlyFavorites": false` 可恢复全量循环。
+**Model cycling**: as long as ≥1 favorite exists, `ctrl+p` / `ctrl+shift+p` cycle **only among favorite models**. When the current model is not a favorite, `ctrl+p` jumps to the first favorite and `ctrl+shift+p` to the last; with exactly one favorite it stays put (`Only one model available`). `ctrl+l` / `/model` always allow picking any model freely, favorites or not. Set `"cycleOnlyFavorites": false` in the state file to restore full cycling.
 
-**状态文件**:`<agent-dir>/pi-toolkits-favorites.json`(默认 `~/.pi/agent/`,与 auto-naming-session 配置同目录):
+**State file**: `<agent-dir>/pi-toolkits-favorites.json` (defaults to `~/.pi/agent/`, the same directory as the auto-naming-session config):
 
 ```json
 {
@@ -114,123 +114,123 @@ pi -e ./src/index.ts
 }
 ```
 
-`/favorites` 命令列出当前收藏与循环模式。
+The `/favorites` command lists the current favorites and the cycling mode.
 
-> **实现说明**:pi 的 `app.model.cycleForward`(`ctrl+p`)与 `cycleBackward` 是**保留键位**,扩展快捷键无法覆盖;且扩展快捷键只在编辑器聚焦时生效。因此本功能不重绑任何按键,而是在运行时 patch 两个内置原型(带版本守卫、`/reload` 幂等):`ModelSelectorComponent`(提示行、`ctrl+F`/`ctrl+J`、亮黄渲染、仅收藏过滤——按键仅在选择器内消费,编辑器里 `ctrl+f` 光标右移、`ctrl+j` 换行不受影响)与 `AgentSession.cycleModel`(收藏循环)。若 pi 升级导致 patch 无法应用,会 warn 并优雅降级,不影响其它功能。
+> **Implementation notes**: pi's `app.model.cycleForward` (`ctrl+p`) and `cycleBackward` are **reserved keybindings** that extension shortcuts cannot override; extension shortcuts also only fire while the editor is focused. This feature therefore rebinds nothing; instead it patches two built-in prototypes at runtime (version-guarded, idempotent under `/reload`): `ModelSelectorComponent` (hint line, `ctrl+F`/`ctrl+J`, bright-yellow rendering, favorites-only filter — the keys are consumed only inside the selector, so in the editor `ctrl+f` still moves the cursor right and `ctrl+j` still inserts a newline) and `AgentSession.cycleModel` (favorites-only cycling). If a pi upgrade makes the patch inapplicable, it warns and degrades gracefully without affecting the other features.
 
 ---
 
-## 📥 stash — 提示词暂存
+## 📥 stash — prompt stash
 
 <a name="stash"></a>
 
-一个热键 + 一个暂存槽,在「当前提示词」与「暂存提示词」之间腾挪,方便把一段提示词先放一边、空出输入框写新的,需要时再取回。
+One hotkey plus one stash slot, shuffling between "the prompt I am writing" and "the prompt I stashed": park a prompt to one side, free the input box for a new one, and take the old one back when you need it.
 
-| 操作 | 效果 |
+| Action | Effect |
 | --- | --- |
-| 按一次 `ctrl+alt+y` | 当前提示词 → 入缓存;缓存内容 → 填入输入框(**交换**) |
-| 间隔再按 | 在两段提示词之间**来回切换** |
-| **400ms 内连按两次** | 当前提示词入缓存 + **清空输入框**(旧暂存被丢弃),直接开写新提示词;之后按一次取回 |
+| Press `ctrl+alt+y` once | current prompt → stash; stashed content → input box (**swap**) |
+| Press again after a while | **toggle back and forth** between the two prompts |
+| Press twice **within 400ms** | current prompt goes to the stash + **input box is cleared** (the old stash is discarded), so you can start writing the new prompt right away; later press once to take it back |
 
-缓存为空时,单按一次即「暂存 + 清空」。缓存为**进程内内存、不落盘**(提示词可能含敏感内容);`/new` 切会话不清缓存,`/reload` 清空。选择器(`/model`、`/tree` 等)打开时按键不生效(焦点在组件,不在编辑器)。
+When the stash is empty, a single press means "stash + clear". The stash is **in-process memory and never written to disk** (prompts may contain sensitive content); `/new` switches sessions without clearing the stash, `/reload` clears it. While a selector (`/model`, `/tree`, …) is open the key does nothing (focus is on the component, not the editor).
 
-**为什么是 `ctrl+alt+y`**(四级兼容性调研结论):
+**Why `ctrl+alt+y`** (the conclusion of a four-layer compatibility survey):
 
-| 层面 | 状态 | 说明 |
+| Layer | Status | Notes |
 | --- | --- | --- |
-| pi 键位 | ✅ | 无默认 `ctrl+alt+字母` 绑定;扩展快捷键在编辑器内最先分发 |
-| Linux 终端 | ✅ | `alt` 以 ESC 前缀编码(`ctrl+alt+y` = `ESC + ctrl+y`),不依赖 kitty 协议即可区分 |
-| Windows Terminal | ✅ | 无默认 `ctrl+alt` 绑定 |
-| Windows 操作系统 | ✅ | 系统级仅保留 `ctrl+alt+del` |
+| pi keybindings | ✅ | no default `ctrl+alt+<letter>` binding; extension shortcuts are dispatched first inside the editor |
+| Linux terminals | ✅ | `alt` is encoded as an ESC prefix (`ctrl+alt+y` = `ESC + ctrl+y`), distinguishable without the kitty protocol |
+| Windows Terminal | ✅ | no default `ctrl+alt` binding |
+| Windows OS | ✅ | only `ctrl+alt+del` is reserved system-wide |
 
-**被排除的候选**:`ctrl+shift+字母` —— Linux 与 Windows 的终端 emulator 都占用复制/粘贴/标签页;且无 kitty 协议的终端上会坍缩成 `ctrl+字母`(`ctrl+shift+m` 即回车,会直接提交提示词,危险)。纯 `ctrl+字母` —— pi 几乎全部占用,唯一空闲的 `ctrl+q` 是 XON 流控字符,有历史包袱。
+**Rejected candidates**: `ctrl+shift+<letter>` — terminal emulators on both Linux and Windows grab copy/paste/tabs; and on terminals without the kitty protocol it collapses into `ctrl+<letter>` (`ctrl+shift+m` is Enter, which would submit the prompt immediately — dangerous). Plain `ctrl+<letter>` — pi occupies almost all of them, and the only free one, `ctrl+q`, is the XON flow-control character, with historical baggage.
 
 ---
 
-## 🔎 review — 第三方代码评审
+## 🔎 review — third-party code review
 
 <a name="review"></a>
 
-开发任务完成后,输入 `/third-review` 指令召唤**另一个模型**以第三方身份,对刚完成的代码做「查 + 修」:评审模型拥有**完整工具权限**,确认的问题直接改,不是只读审计。评审回合留在当前会话记录里,评审完成后**会话保持评审模型**(不自动切回)。
+After a development task is done, type the `/third-review` command to summon **a different model** as a third party to "check + fix" the code just written: the review model has **full tool permissions**, and confirmed problems are edited in place — this is not a read-only audit. The review turn stays in the current session transcript, and after the review **the session keeps the review model** (it does not switch back automatically).
 
-> **仅指令触发**:只有 `/third-review` 能发起评审。聊天中直接输入 `third-review` 不会触发(作为普通消息发给模型),避免误发。
+> **Command-triggered only**: only `/third-review` starts a review. Typing `third-review` as chat text does not trigger it (that is sent to the model as an ordinary message), which avoids accidental launches.
 
-**评审提示词重点检查三点**(逐项给出结论):
+**The review prompt focuses on three checks** (each gets an explicit verdict):
 
-1. **本轮需求实现** —— 需求是否已完整、正确地实现,与需求描述是否一致
-2. **是否有遗漏** —— 功能点、边界情况、异常处理、兼容性、测试等
-3. **是否有错误** —— 逻辑错误、潜在 bug、类型/编译错误、安全与性能隐患等
+1. **Is this round's requirement implemented** — is the requirement fully and correctly implemented, consistent with the requirement description
+2. **Is anything missing** — feature points, edge cases, error handling, compatibility, tests, etc.
+3. **Is anything wrong** — logic errors, potential bugs, type/compile errors, security and performance hazards, etc.
 
-**范围强约束** —— 评审仅限**当前本轮修改内容**,避免扩大范围;本轮改动范围内确认的问题才直接修复,范围外的历史遗留/无关问题只记录提示、不动手改。
+**Strict scope constraint** — the review is limited to **the changes made in the current round**, to avoid scope creep; only problems confirmed inside this round's changes are fixed directly, while pre-existing or unrelated issues outside that range are only recorded as notes and left untouched.
 
-**评审模型选择**(每次 `/third-review` 都会弹出选择界面):
+**Choosing the review model** (every `/third-review` opens a picker):
 
-- `/third-review` → 弹出 **`/model` 同款选择器**(限高滚动 + 模糊搜索):**默认选中当前配置的模型**(✓ 标记),直接**回车**即用它开始评审
-- **换选其他模型** → 立即写回配置(**落盘 + 内存**),**下次默认使用该模型**
-- **取消**(Esc)→ 不执行评审,配置不变
-- 配置持久化于 `<agent-dir>/pi-toolkits-review.json`(默认 `~/.pi/agent/`):
+- `/third-review` → opens the **same selector as `/model`** (height-limited scrolling + fuzzy search): **the currently configured model is selected by default** (✓ marker), so pressing **Enter** starts the review with it
+- **Pick another model** → written back to the config immediately (**both on disk and in memory**), and **that model becomes the default next time**
+- **Cancel** (Esc) → no review is run, the config is unchanged
+- The config is persisted in `<agent-dir>/pi-toolkits-review.json` (defaults to `~/.pi/agent/`):
 
 ```json
 { "model": "anthropic/claude-sonnet-4" }
 ```
 
-- `/review-model` —— 单独的配置入口:弹出同一列表(不改会话模型,只更新默认配置)
-- **未配置 / 配置的模型已不可用**(如在 pi 的 models.json 里删掉了该模型)→ 提示后照常弹出列表(此时无默认项)
-- 任务仍在进行中(agent 未空闲)时触发 → 提示等待,不执行;同一时间只允许一个评审
-- footer 出现灰色 `review` 状态 = 已配置评审模型
+- `/review-model` — a separate config entry point: opens the same list (without changing the session model, only updating the default config)
+- **Unconfigured / the configured model is no longer available** (e.g. it was deleted from pi's models.json) → a notice is shown and the list opens as usual (with no default entry in that case)
+- Triggered while a task is still in progress (the agent is not idle) → you are told to wait and nothing runs; only one review may be active at a time
+- A grey `review` status in the footer means a review model is configured
 
 ---
 
-## 🗜️ compact — 独立压缩模型
+## 🗜️ compact — dedicated compaction model
 
 <a name="compact"></a>
 
-pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文总结——主模型往往贵且慢,而压缩总结是典型的「便宜快模型就能干好」的任务。本功能配置一个独立模型接管**全部三种压缩触发**的总结:
+pi's `/compact` and auto-compact summarize the context **with the current session model** by default — the main model is usually expensive and slow, while compaction summarization is a textbook "a cheap fast model does this well" job. This feature configures a dedicated model to take over summarization for **all three compaction triggers**:
 
-| 触发 | 接管后 |
+| Trigger | After takeover |
 | --- | --- |
-| 手动 `/compact [instructions]` | 压缩模型总结,自定义 focus 照常注入 |
-| auto-compact 阈值触发 | 压缩模型总结 |
-| context overflow 恢复 | 压缩模型总结,重试行为不变 |
+| Manual `/compact [instructions]` | summarized by the compaction model, custom focus is injected as usual |
+| auto-compact threshold reached | summarized by the compaction model |
+| context overflow recovery | summarized by the compaction model, retry behavior unchanged |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,0.87.1 起字节级不变、已核对至 1.0.2,只换执行模型):
+**Parts that are identical to pi's built-in behavior after takeover** (the built-in implementation is mirrored verbatim — byte-identical since 0.87.1, verified up to 1.0.2 — and only the executing model changes):
 
-- **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
-- **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
-- **输出预算** —— 与内建同公式(历史段 0.8×、切分前缀段 0.5× `reserveTokens`,再按模型输出上限收敛)
-- **文件清单尾部** —— `<read-files>` / `<modified-files>` 标签照常拼在摘要尾部,details 同形状维护
-- **用量统计** —— 压缩模型的 token/cost 计入 session 统计
-- **可取消** —— 压缩进行中 `Esc` 干净取消(信号透传到底层调用)
+- **Summary format** — the structured Goal / Progress / Key Decisions checkpoint; when a summary already exists, the iterative-update prompt is used so information carries over instead of being lost
+- **Split behavior** — the `keepRecentTokens` retention policy, and `firstKeptEntryId` / `tokensBefore` passed back unchanged
+- **Output budget** — the same formula as the built-in (history segment 0.8×, split-prefix segment 0.5× of `reserveTokens`, then capped by the model's max output)
+- **File-list tail** — `<read-files>` / `<modified-files>` tags are appended to the summary as usual, with details maintained in the same shape
+- **Usage accounting** — the compaction model's tokens/cost are counted in the session statistics
+- **Cancellable** — `Esc` during compaction cancels cleanly (the signal is passed through to the underlying call)
 
-**配置**(`<agent-dir>/pi-toolkits-compact.json`,默认 `~/.pi/agent/`):
+**Configuration** (`<agent-dir>/pi-toolkits-compact.json`, defaults to `~/.pi/agent/`):
 
 ```json
 { "model": "google/gemini-2.5-flash" }
 ```
 
-- `/compact-model` —— 查看/更换:`/model` 同款选择器(限高滚动 + 模糊搜索),**默认选中当前配置的模型**,回车即确认;换选即写入;取消则不变(清除配置:编辑 `pi-toolkits-compact.json` 把 `model` 置为 `null`)
-- 未配置 = 功能未启用,全部走 pi 默认,零开销;footer 出现灰色 `compact` 状态 = 已配置
+- `/compact-model` — view/replace: the **same selector as `/model`** (height-limited scrolling + fuzzy search), with **the currently configured model selected by default**; Enter confirms, picking another model writes it, cancelling leaves it unchanged (to clear the config: edit `pi-toolkits-compact.json` and set `model` to `null`)
+- Unconfigured = feature disabled, everything goes through pi's default at zero overhead; a grey `compact` status in the footer means it is configured
 
-**无损回落**(本功能永远不会把压缩「做挂」):
+**Lossless fallback** (this feature can never "break" compaction):
 
-| 情形 | 行为 |
+| Situation | Behavior |
 | --- | --- |
-| 未配置 | 直接回落 pi 默认压缩 |
-| 配置的模型不可用(如从 models.json 删除) | warning 提示 + 回落 |
-| 总结失败 / 摘要为空 / 命中 token 上限 | 提示 + 回落 pi 默认压缩 |
-| 用户取消(`Esc`) | 干净取消,无错误刷屏 |
+| Not configured | falls straight back to pi's default compaction |
+| Configured model unavailable (e.g. deleted from models.json) | warning + fallback |
+| Summarization failed / empty summary / token limit hit | notice + fallback to pi's default compaction |
+| User cancelled (`Esc`) | clean cancel, no error spam |
 
-> **实现说明**:接管点是官方的 `session_before_compact` 扩展事件(三种触发都会先经过);返回压缩结果即完全接管,返回 `undefined` 即回落内建。auto-compact 路径绝不弹任何对话框(handler 内只 notify)。`/tree` 分支总结(`session_before_tree`)是另一个事件,本期不接管,留作后续迭代。
+> **Implementation notes**: the takeover point is the official `session_before_compact` extension event (all three triggers pass through it); returning a compaction result takes over completely, returning `undefined` falls back to the built-in. The auto-compact path never shows any dialog (the handler only calls `notify`). `/tree` branch summarization (`session_before_tree`) is a different event and is not taken over in this iteration — it is left for later.
 
 ---
 
-## 🚀 autostart — 会话启动自动化
+## 🚀 autostart — session startup automation
 
 <a name="autostart"></a>
 
-多仓库项目的第一步:在项目内声明「开新会话时要自动执行的斜杠命令」,首批用例是 `/add-dir` 挂载兄弟仓库——新会话无需手动重放。
+A first step for multi-repo projects: declare inside the project which slash commands should run automatically "when a new session starts" — the first use case being `/add-dir` mounting sibling repositories, so a new session does not have to replay them by hand.
 
-**配置**(`<项目根>/.pi/autostart.toml`,随项目进 git;`.pi/` 是 pi 的项目级配置惯例,先例 `.pi/mcp.json`):
+**Configuration** (`<project root>/.pi/autostart.toml`, committed with the project; `.pi/` is pi's project-level config convention, following `.pi/mcp.json`):
 
 ```toml
 version = 1
@@ -242,29 +242,29 @@ run = [
 ]
 ```
 
-无文件 = 功能未启用,零开销、静默跳过。
+No file = feature disabled, zero overhead, silently skipped.
 
-**执行时机**:
+**When it runs**:
 
-| session_start reason | 是否重放 | 原因 |
+| session_start reason | Replayed | Why |
 | --- | --- | --- |
-| `startup` / `new` | ✅ | 新会话,按声明重放 |
-| `fork` | ✅ | 分支点可能早于配置出现 |
-| `resume` | ❌ | 恢复的分支已携带当时的挂载状态,重放反而会冲突 |
-| `reload` | ❌ | 扩展重建,重放会重复副作用 |
+| `startup` / `new` | ✅ | a new session, replay as declared |
+| `fork` | ✅ | the branch point may predate the config's appearance |
+| `resume` | ❌ | the restored branch already carries the mount state from its time, replaying would conflict |
+| `reload` | ❌ | extensions are rebuilt, replaying would duplicate side effects |
 
-**安全门**(按序):
+**Safety gates** (in order):
 
-1. **project trust** —— 未信任目录不自动执行任何命令(warning 提示);配置解析失败同样不执行(error 提示)
-2. **命令预校验** —— 只执行「扩展注册的命令」;未注册的命令名**跳过并警告**,绝不发给模型(sendUserMessage 对未处理的 `/x` 会当作普通消息发给 LLM,这是必须预校验的原因)
+1. **project trust** — no command runs automatically in an untrusted directory (a warning is shown); a config parse failure likewise prevents execution (an error is shown)
+2. **Command pre-validation** — only commands **registered by extensions** are executed; an unregistered command name is **skipped with a warning** and never sent to the model (for an unhandled `/x`, `sendUserMessage` treats the text as an ordinary message and sends it to the LLM — this is exactly why pre-validation is mandatory)
 
-**关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
+**Key constraint: extension commands only**. Commands registered via `registerCommand` such as `/add-dir` (pi-add-dir) and `/cd` (pi-cd) work; built-in commands (`/compact`, `/reload`, `/resume`, …) are dispatched in the TUI layer and cannot be triggered from the extension layer; skill commands (`/skill:name`) are an expansion mechanism rather than an execution mechanism. The target extension you depend on (e.g. pi-add-dir) must be installed first.
 
-> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,已对照 pi 0.86–1.0.4 源码核实,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+> **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; verified against pi 0.86–1.0.4 sources, see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
 
 ---
 
-## 🛠️ 开发 Development
+## 🛠️ Development
 
 <a name="development"></a>
 
@@ -276,7 +276,7 @@ pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest (all feature unit tests)
 ```
 
-### 项目结构 Project structure
+### Project structure
 
 ```text
 src/
@@ -286,6 +286,8 @@ src/
 └── features/             # feature modules — one directory per feature
     ├── ask/              # ask mode: command + state machine, bash sandbox,
     │                     #           system prompt banner, tests
+    ├── autostart/        # session startup automation: autostart.toml parsing,
+    │                     #           command pre-validation + replay, tests
     ├── compact/          # dedicated compaction model: session_before_compact
     │                     #           takeover + /compact-model, store, prompts,
     │                     #           tests
@@ -296,9 +298,9 @@ src/
     └── stash/            # prompt stash: hotkey state machine + tests
 ```
 
-**新增功能 · adding a feature**:create `src/features/<name>/` exporting `registerXxx(pi)` and call it from `src/index.ts`. Existing modules stay untouched. Each feature ships its own `*.test.ts` (vitest) — keep them deterministic (inject clocks/state, no real agent-dir writes).
+**Adding a feature**: create `src/features/<name>/` exporting `registerXxx(pi)` and call it from `src/index.ts`. Existing modules stay untouched. Each feature ships its own `*.test.ts` (vitest) — keep them deterministic (inject clocks/state, no real agent-dir writes).
 
-**发布 · publishing**(pnpm-only,one command):
+**Publishing** (pnpm-only, one command):
 
 ```bash
 pnpm release patch   # 0.1.2 → 0.1.3
@@ -307,11 +309,11 @@ pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
 pnpm release patch --dry-run   # preview without changing anything
 ```
 
-`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:**工作区必须干净(有未提交变更直接中止,保证 tag 内容 == 发布内容)** → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag(自检 tag==HEAD 且工作区干净) → `pnpm publish`(`prepublishOnly` 二次门禁) → 只推当前分支 + 当前 tag 并校验远端哈希一致(远端 tag 不一致则跳过 Release 创建)。
+`release` requires exactly one of `major | minor | patch`; incrementing a higher level zeroes the lower ones. The chain is: **the working tree must be clean (any uncommitted change aborts before anything happens, guaranteeing tag content == published content)** → `typecheck + test` gate → version bump → git commit + `vX.Y.Z` tag (self-check that tag == HEAD and the tree is clean) → `pnpm publish` (with `prepublishOnly` as a second gate) → push only the current branch + the current tag and verify the remote hashes match (if the remote tag differs, GitHub Release creation is skipped).
 
 ---
 
-## 🤝 贡献 Contributing
+## 🤝 Contributing
 
 <a name="contributing"></a>
 
