@@ -75,3 +75,67 @@
 - 发布失败回滚：`git tag -d vX.Y.Z && git reset --hard HEAD~1`
 - 需要覆盖远端 tag（如本地 tag 已重指）时：
   `git push origin refs/tags/vX.Y.Z --force`
+
+## Feature: autostart（已实现，待随下个版本发布）
+
+2026-10-07 立项。会话启动自动化：项目内配置文件声明启动时要执行的斜杠命令，
+首批用例是 /add-dir 持久化（多仓库工作区的第一步）。决策均已崔总确认：
+
+- **扩展名**：`autostart`（生态 auto- 前缀惯例：auto-compact、auto-naming-session）
+- **配置位置**：`<项目根>/.pi/autostart.toml`（随项目进 git；.pi/ 目录是官方项目级配置惯例，先例 .pi/mcp.json）
+- **执行时机**：仅 `session_start.reason ∈ {startup, new, fork}`；resume 不重放（会话分支已恢复 add-dir 状态）
+
+### 配置 schema
+
+```toml
+# .pi/autostart.toml
+version = 1
+
+[session]
+# 按序执行的扩展命令（仅扩展命令，见约束）
+run = [
+  "/add-dir ../shop-frontend",
+  "/add-dir ../shop-api",
+]
+```
+
+解析器选 `smol-toml`（零依赖、~10KB、TOML 1.0、活跃维护），
+加入 dependencies（先例：@dreki-gg/pi-command-sandbox）。
+
+### 已验证的技术事实（pi 1.0.4 源码，agent-session.js）
+
+1. `sendUserMessage("/cmd args")` 走 `prompt()` → `_tryExecuteExtensionCommand()`
+   （~L1522）：**扩展命令被立即执行，不发给模型**，streaming 中也可执行
+2. **只能支持扩展命令**（/add-dir、/cd、/skill:xxx 等 registerCommand 注册的）；
+   内置命令（/compact、/reload、/resume）走 TUI 层，扩展层触发不了；
+   skill 命令是展开机制非执行机制——此约束必须写进 README
+3. `SessionStartEvent.reason`: `"startup" | "reload" | "new" | "resume" | "fork"`
+   （types.d.ts L555-561）——时机过滤的依据
+4. `ctx.isProjectTrusted()` 可用——未信任目录不自动执行命令（安全默认，
+   与 permission-system 的 project scope gating 同哲学）
+5. pi-add-dir 自带 Already added 幂等检查，重复重放不会翻车
+
+### 执行流程
+
+```text
+session_start(reason 过滤)
+  → 读 <cwd>/.pi/autostart.toml（无文件静默跳过）
+  → ctx.isProjectTrusted() 校验
+  → 逐条命令：预校验命令名存在于注册表 → pi.sendUserMessage(cmd)
+  → 结果 notify / 错误日志
+```
+
+### 关键风险（M1 必验）
+
+- **命令不存在时文本会作为普通消息发给模型**（跑偏风险）——必须预校验命令名；
+  预校验 API 待查（注册表枚举接口，M1 第一件事）
+- `sendUserMessage` 的 "/cmd" 触发语义在 0.86/0.87 是否成立：
+  按宿主兼容纪律跑三步验证（tarball diff L1522 附近逻辑 + 矩阵 typecheck/test + 真实冒烟）
+- 与 pi-add-dir 的 session_start 顺序：命令执行时 pi-add-dir 必已完成注册
+  （扩展加载先于全部 session_start）预期无问题，冒烟确认
+
+### 实施落位
+
+- `src/features/autostart/index.ts`，与 ask/compact/favorites/review/stash 同构
+- `src/index.ts` 注册；package.json keywords 加 autostart
+- 未来新 section（[session].env、[model] 等）按需扩展，不预设

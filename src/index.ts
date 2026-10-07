@@ -10,9 +10,11 @@
  *  - stash — prompt stash (ctrl+alt+y swap / double-press stash-and-clear)
  *  - review — third-party code review with a configured review model (third-review)
  *  - compact — dedicated compact model for /compact + auto-compact summaries
+ *  - autostart — replay project-declared slash commands at session start (/add-dir persistence)
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAsk } from "./features/ask/index.js";
+import { registerAutostart } from "./features/autostart/index.js";
 import { registerCompact } from "./features/compact/index.js";
 import { registerFavorites } from "./features/favorites/index.js";
 import { registerReview } from "./features/review/index.js";
@@ -20,6 +22,7 @@ import { registerStash } from "./features/stash/index.js";
 
 export default function piToolkits(pi: ExtensionAPI): void {
 	registerAsk(pi);
+	registerAutostart(pi);
 	registerCompact(pi);
 	registerFavorites(pi);
 	registerReview(pi);

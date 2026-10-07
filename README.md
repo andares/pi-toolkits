@@ -52,6 +52,7 @@ pi -e ./src/index.ts
   - [📥 stash — 提示词暂存](#stash)
   - [🔎 review — 第三方代码评审](#review)
   - [🗜️ compact — 独立压缩模型](#compact)
+  - [🚀 autostart — 会话启动自动化](#autostart)
 - [开发 Development](#development)
 - [贡献 Contributing](#contributing)
 - [许可 License](#license)
@@ -69,6 +70,7 @@ pi -e ./src/index.ts
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
+| 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 
 ---
 
@@ -219,6 +221,46 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | 用户取消(`Esc`) | 干净取消,无错误刷屏 |
 
 > **实现说明**:接管点是官方的 `session_before_compact` 扩展事件(三种触发都会先经过);返回压缩结果即完全接管,返回 `undefined` 即回落内建。auto-compact 路径绝不弹任何对话框(handler 内只 notify)。`/tree` 分支总结(`session_before_tree`)是另一个事件,本期不接管,留作后续迭代。
+
+---
+
+## 🚀 autostart — 会话启动自动化
+
+<a name="autostart"></a>
+
+多仓库项目的第一步:在项目内声明「开新会话时要自动执行的斜杠命令」,首批用例是 `/add-dir` 挂载兄弟仓库——新会话无需手动重放。
+
+**配置**(`<项目根>/.pi/autostart.toml`,随项目进 git;`.pi/` 是 pi 的项目级配置惯例,先例 `.pi/mcp.json`):
+
+```toml
+version = 1
+
+[command]
+run = [
+  "/add-dir ../shop-frontend",
+  "/add-dir ../shop-api",
+]
+```
+
+无文件 = 功能未启用,零开销、静默跳过。
+
+**执行时机**:
+
+| session_start reason | 是否重放 | 原因 |
+| --- | --- | --- |
+| `startup` / `new` | ✅ | 新会话,按声明重放 |
+| `fork` | ✅ | 分支点可能早于配置出现 |
+| `resume` | ❌ | 恢复的分支已携带当时的挂载状态,重放反而会冲突 |
+| `reload` | ❌ | 扩展重建,重放会重复副作用 |
+
+**安全门**(按序):
+
+1. **project trust** —— 未信任目录不自动执行任何命令(warning 提示);配置解析失败同样不执行(error 提示)
+2. **命令预校验** —— 只执行「扩展注册的命令」;未注册的命令名**跳过并警告**,绝不发给模型(sendUserMessage 对未处理的 `/x` 会当作普通消息发给 LLM,这是必须预校验的原因)
+
+**关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
+
+> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,已对照 pi 0.86–1.0.4 源码核实,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
 
 ---
 
