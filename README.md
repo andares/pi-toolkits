@@ -36,7 +36,7 @@ pi -e ./src/index.ts
 After installing, verify in any pi session:
 
 - `/ask` → a grey `ask` status appears in the footer, `write`/`edit` are hard-disabled
-- `/model` (or `ctrl+l`) → a favorites hint line appears at the top of the selector
+- `/model` (or `ctrl+l`) → a favorites hint line appears at the top of the selector; `ctrl+A` on the selected model → it turns bold bright yellow and the favorites counter goes up (this step is also the real-machine keypress check — see Keybindings)
 - press `ctrl+alt+y` in the input box → the current prompt is stashed and the input box is cleared
 - after finishing a development task, type `/third-review` → switches to the review model and runs check + fix
 - `/compact-model`, pick a cheap fast model → from then on both `/compact` and auto-compaction summarize with it (a grey `compact` status appears in the footer)

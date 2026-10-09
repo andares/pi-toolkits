@@ -36,7 +36,7 @@ pi -e ./src/index.ts
 安装后在任意 pi 会话中验证:
 
 - `/ask` → footer 出现灰色 `ask` 状态,`write`/`edit` 被硬禁用
-- `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行
+- `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行;对选中模型按 `ctrl+A` → 文字变**加粗亮黄**、收藏计数 +1(这一步同时就是真机按键检查,见「键位」约定)
 - 输入框内按 `ctrl+alt+y` → 当前提示词被暂存并清空输入框
 - 完成一个开发任务后输入 `/third-review` → 切换到评审模型执行查+修
 - `/compact-model` 选一个便宜快模型 → 之后 `/compact` 与自动压缩的总结都由它执行(footer 出现灰色 `compact` 状态)
