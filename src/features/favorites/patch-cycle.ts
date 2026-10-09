@@ -14,7 +14,7 @@
  *  - with exactly one favorite, already on it → undefined (stock "only one
  *    model available" feedback); otherwise jump to it
  *  - the apply logic mirrors pi's _cycleScopedModel/_cycleAvailableModel
- *    (byte-identical across every published version in 0.86.0 → 1.0.2:
+ *    (byte-identical across every published version in 0.87.0 → 1.1.0:
  *    state swap, session persistence, default-model persistence only when
  *    `options.persist` is set, thinking-level re-clamp, model_select emit
  *    with source "cycle")
@@ -30,9 +30,9 @@ import { getFavoritesStore, modelKey } from "./store.js";
 
 /**
  * pi's `Model<any>` — the exact type of `ModelCycleResult.model`
- * (pi-coding-agent 0.86–1.0; the field is unchanged across that span).
+ * (pi-coding-agent 0.87–1.1; the field is unchanged across that span).
  * Derived here instead of importing `Model` from @earendil-works/pi-ai,
- * whose index.d.ts (0.86 through 1.0.2 alike) re-exports it via an
+ * whose index.d.ts (0.87 through 1.1.0 alike) re-exports it via an
  * extensioned `"./types.ts"` specifier that not every TS resolver substitutes
  * to `types.d.ts` (tsc 5.9 bundler does; other tsserver builds don't).
  */

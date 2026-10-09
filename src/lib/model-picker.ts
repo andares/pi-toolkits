@@ -9,7 +9,7 @@
  *
  * The component is driven through a small ModelRuntime facade backed by
  * ctx.modelRegistry (pi's extension-facing wrapper). SAFETY: verified
- * against pi 0.86–1.0 dist (modes/interactive/components/model-selector.js +
+ * against pi 0.87.0–1.1.0 dist (modes/interactive/components/model-selector.js +
  * model-catalog-refresh.js — byte-identical across that span) — the
  * component only calls getAvailableSnapshot, getModel, getError and refresh
  * on modelRuntime, and ModelRegistry provides exactly those
@@ -42,7 +42,7 @@ function modelRuntimeFacade(ctx: ExtensionContext): ModelRuntime {
 		refresh: (options?: { signal?: AbortSignal }) =>
 			ctx.modelRegistry.refresh(options),
 	};
-	// SAFETY: the selector only touches the four members above (pi 0.86–1.0
+	// SAFETY: the selector only touches the four members above (pi 0.87–1.1
 	// model-selector.js); everything else on ModelRuntime is never reached
 	// from this component.
 	return facade as unknown as ModelRuntime;

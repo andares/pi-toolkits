@@ -9,12 +9,12 @@
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
-[![pi >= 0.86](https://img.shields.io/badge/pi-%3E%3D0.86.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
+[![pi >= 0.87](https://img.shields.io/badge/pi-%3E%3D0.87.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
 一句话介绍:目前包含六个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`,后续持续追加。
 
-**版本要求**:pi `>=0.86.0 <2.0.0`(覆盖最近 4 个中版本线 0.86.x / 0.87.x / 0.99.x / 1.0.x —— 0.88–0.98 从未发布。区间内全部 10 个已发布版本逐版本比对宿主 dist:用到的扩展 API 无差异,favorites 两处运行时 patch 目标 `ModelSelectorComponent` / `AgentSession.cycleModel` 字节级一致;并在 0.86.0、0.86.1、0.87.1、0.99.2、1.0.2 上逐一通过 typecheck + 全量测试,在真实 pi 1.0.2 上冒烟加载无警告)。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
+**版本要求**:pi `>=0.87.0 <2.0.0`(覆盖最近 4 个中版本线 0.87.x / 0.99.x / 1.0.x / 1.1.x —— 0.88–0.98 从未发布。区间内全部 11 个已发布版本(0.87.0 → 1.1.0)逐版本比对宿主 dist:用到的扩展 API 无破坏性差异(1.0.4 → 1.1.0 仅新增字段),favorites 两处运行时 patch 目标 `ModelSelectorComponent` / `AgentSession.cycleModel` 字节级一致;并在 0.87.0、0.87.1、0.99.0、0.99.2、1.0.0、1.0.4、1.1.0 上逐一通过 typecheck + 全量测试,在真实 pi 1.1.0 上冒烟加载无警告)。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
 
 ---
 
@@ -118,7 +118,7 @@ pi -e ./src/index.ts
 
 > **实现说明**:pi 的 `app.model.cycleForward`(`ctrl+p`)与 `cycleBackward` 是**保留键位**,扩展快捷键无法覆盖;且扩展快捷键只在编辑器聚焦时生效。因此本功能不重绑任何按键,而是在运行时 patch 两个内置原型(带版本守卫、`/reload` 幂等):`ModelSelectorComponent`(提示行、`ctrl+A`/`ctrl+J`、亮黄渲染、仅收藏过滤——按键仅在选择器内消费,编辑器里 `ctrl+j` 换行不受影响)与 `AgentSession.cycleModel`(收藏循环)。若 pi 升级导致 patch 无法应用,会 warn 并优雅降级,不影响其它功能。
 >
-> **为何是 `ctrl+A` 而不是 `ctrl+F`**:pi 自 1.0 起 `tuiMode` 默认 `fullscreen`(0.86–0.99 默认 `regular`),而在 Windows/WSL 上宿主把 `tui.altScreen.search` 解析为 `ctrl+f`;`TuiAltScreen.handleViewportInput()` 在**把输入交给聚焦覆盖层之前**先检查该绑定,于是 `ctrl+f` 打开了会话记录搜索、根本到不了选择器。曾过渡性地选过 `ctrl+alt+f`——pi 层完全空闲,却被 Windows 侧截图工具作为全局热键截走:**宿主表空闲 ≠ 机器层空闲**。最终从 "favorite" 一词里逐字母审计:`v` 是 Windows Terminal 的粘贴键,`o`/`r`/`t` 是宿主 app 层动作,`i` 与 Tab 字节恒等(选择器的 scope 切换),`e` 可用但无记忆点;`a` 仅遮蔽搜索框内的行首跳转、读作 *add favorite*,且选择器上游无任何消费者。完整依据见 `src/features/favorites/constants.ts` 与 `pnpm check:keybindings`。
+> **为何是 `ctrl+A` 而不是 `ctrl+F`**:pi 自 1.0 起 `tuiMode` 默认 `fullscreen`(0.87–0.99 默认 `regular`),而在 Windows/WSL 上宿主把 `tui.altScreen.search` 解析为 `ctrl+f`;`TuiAltScreen.handleViewportInput()` 在**把输入交给聚焦覆盖层之前**先检查该绑定,于是 `ctrl+f` 打开了会话记录搜索、根本到不了选择器。曾过渡性地选过 `ctrl+alt+f`——pi 层完全空闲,却被 Windows 侧截图工具作为全局热键截走:**宿主表空闲 ≠ 机器层空闲**。最终从 "favorite" 一词里逐字母审计:`v` 是 Windows Terminal 的粘贴键,`o`/`r`/`t` 是宿主 app 层动作,`i` 与 Tab 字节恒等(选择器的 scope 切换),`e` 可用但无记忆点;`a` 仅遮蔽搜索框内的行首跳转、读作 *add favorite*,且选择器上游无任何消费者。完整依据见 `src/features/favorites/constants.ts` 与 `pnpm check:keybindings`。
 
 ---
 
@@ -195,7 +195,7 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | auto-compact 阈值触发 | 压缩模型总结 |
 | context overflow 恢复 | 压缩模型总结,重试行为不变 |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,0.87.1 起字节级不变、已核对至 1.0.2,只换执行模型):
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,0.87.1 起字节级不变、已核对至 1.1.0,只换执行模型;0.87.0 的分割轮次前缀 prompt 与 0.87.1 不同,本镜像对所有宿主采用 0.87.1 的修复文本):
 
 - **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
 - **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
@@ -262,7 +262,7 @@ run = [
 
 **关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
 
-> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,已对照 pi 0.86–1.0.4 源码核实,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,已对照 pi 0.87.0–1.1.0 源码核实,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
 
 ---
 

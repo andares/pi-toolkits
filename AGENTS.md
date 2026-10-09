@@ -14,12 +14,14 @@
 ## pi 宿主兼容
 
 **核心纪律：兼容区间必须覆盖「最近 4 个已发布中版本线」，且每次改动宿主依赖或
-宿主内部 API 都要重跑验证。**（当前区间 `>=0.86.0 <2.0.0`，覆盖 0.86 / 0.87 /
-0.99 / 1.0 —— 0.88–0.98 从未发布。）
+宿主内部 API 都要重跑验证。**（当前区间 `>=0.87.0 <2.0.0`，覆盖 0.87 / 0.99 /
+1.0 / 1.1 —— 0.88–0.98 从未发布。）
 
 - **窗口纪律**：兼容下限必须 **≤「最近 4 个已发布中版本线」中最旧的一条**（不能只支持最新几版）。
-  随着 pi 发布新的中版本，窗口滑动时方可抬升下限：例如 1.1 发布后，最近 4 条变为
-  1.1 / 1.0 / 0.99 / 0.87，下限可从 0.86.x 抬到 0.87.x，但不得提前抬到 1.0。
+  随着 pi 发布新的中版本，窗口滑动时方可抬升下限：1.1 发布后，最近 4 条变为
+  1.1 / 1.0 / 0.99 / 0.87，下限已从 0.86.x 抬到 0.87.x（2026-10-10）；下次 1.2
+  发布后最近 4 条将变为 1.2 / 1.1 / 1.0 / 0.99，下限方可再抬到 0.99.x，
+  但仍不得提前抬到 1.0。
   下限的每次抬升必须在提交信息里写明「老版本为何不再支持」的实测结论。
   README 的 Requirements 段与该区间必须同步修改。
 - **peer 声明规则**（pi ≥ 0.99 启动时校验）：宿主提供的包（`@earendil-works/pi-*`）
@@ -28,7 +30,7 @@
   其中 `pi-tui` 用 `"*"`（运行时由宿主 virtual modules 重定向到宿主副本，值导入
   也不需要 `dependencies`）；`pi-coding-agent` 用实测支持区间——pi 托管安装禁用
   peer 解析（`--legacy-peer-deps` / `--omit=peer`），区间不参与安装求解，只作兼容声明。
-  （规则按 pi 1.0.2 源码核实：只校验 `dependencies` 成员，不校验 peer 区间；pi 升级时重新确认。）
+  （规则按 pi 1.1.0 源码核实：只校验 `dependencies` 成员，不校验 peer 区间；pi 升级时重新确认。）
 
 **改 pi 依赖或动用宿主内部 API 时的验证义务（三步全做）：**
 
@@ -49,7 +51,7 @@
 **键位冲突检查义务（每次宿主升级必跑，独立于上面三步）：**
 
 pi 升级本身就能把「我们没动过的键」变成死键——先例一：`favorites` 的 `ctrl+f`。
-pi 1.0 起 `tuiMode` 默认 `fullscreen`（0.86–0.99 默认 `regular`），fullscreen 下
+pi 1.0 起 `tuiMode` 默认 `fullscreen`（0.87–0.99 默认 `regular`），fullscreen 下
 `TuiAltScreen.handleViewportInput()` 先于对话框消费 `tui.altScreen.search`，而该绑定在
 Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。**升级前能用 ≠ 升级后能用，
 「我机器上按一下」不算验证。**
@@ -72,7 +74,7 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
     宿主任何绑定重叠**，只能选完全空闲的键。
   - 🔵 需人工判断屏属（`app.*`、其余 `tui.altScreen.*`，多为树/会话/滚动屏幕专用）。
 - **键位族选择**（按作用域分两类）：
-  - **全局快捷键（`registerShortcut`）**：优先 `ctrl+alt+<字母>`——pi 层整个 0.86→1.0
+  - **全局快捷键（`registerShortcut`）**：优先 `ctrl+alt+<字母>`——pi 层整个 0.87→1.1
     区间只被 `ctrl+alt+]` 占用，且 `ESC + ctrl-<字母>` 编码不依赖 kitty 协议。但
     Windows 侧截图/效率工具常绑 `ctrl+alt+<字母>`（先例二），Windows Terminal 默认占
     `ctrl+v`（粘贴）与 `ctrl+shift+f`（查找）——定键后必须真机试按。
@@ -141,7 +143,7 @@ run = [
 解析器选 `smol-toml`（零依赖、~10KB、TOML 1.0、活跃维护），
 加入 dependencies（先例：@dreki-gg/pi-command-sandbox）。
 
-### 已验证的技术事实（pi 1.0.4 源码，agent-session.js）
+### 已验证的技术事实（pi 1.1.0 源码，agent-session.js）
 
 1. `sendUserMessage("/cmd args")` 走 `prompt()` → `_tryExecuteExtensionCommand()`
    （~L1522）：**扩展命令被立即执行，不发给模型**，streaming 中也可执行
@@ -149,7 +151,7 @@ run = [
    内置命令（/compact、/reload、/resume）走 TUI 层，扩展层触发不了；
    skill 命令是展开机制非执行机制——此约束必须写进 README
 3. `SessionStartEvent.reason`: `"startup" | "reload" | "new" | "resume" | "fork"`
-   （types.d.ts L555-561）——时机过滤的依据
+   （types.d.ts `SessionStartEvent`）——时机过滤的依据
 4. `ctx.isProjectTrusted()` 可用——未信任目录不自动执行命令（安全默认，
    与 permission-system 的 project scope gating 同哲学）
 5. pi-add-dir 自带 Already added 幂等检查，重复重放不会翻车
@@ -168,8 +170,9 @@ session_start(reason 过滤)
 
 - **命令不存在时文本会作为普通消息发给模型**（跑偏风险）——必须预校验命令名；
   预校验 API 待查（注册表枚举接口，M1 第一件事）
-- `sendUserMessage` 的 "/cmd" 触发语义在 0.86/0.87 是否成立：
-  按宿主兼容纪律跑三步验证（tarball diff L1522 附近逻辑 + 矩阵 typecheck/test + 真实冒烟）
+- `sendUserMessage` 的 "/cmd" 触发语义在 0.87–1.1 全区间成立（`_tryExecuteExtensionCommand`
+  与 `sendUserMessage` 包装逐字节一致，矩阵 typecheck/test + 真实冒烟已过；
+  2026-10-10 随窗口迁移复核）
 - 与 pi-add-dir 的 session_start 顺序：命令执行时 pi-add-dir 必已完成注册
   （扩展加载先于全部 session_start）预期无问题，冒烟确认
 

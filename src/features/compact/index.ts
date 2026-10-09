@@ -11,7 +11,7 @@
  *    before running its own compaction
  *  - prompts, message assembly, split-turn handling, output budgets, and the
  *    summary file-list tail are verbatim pi built-in behavior (copied from
- *    0.87.1, verified unchanged through 1.0.2) — only the executing model
+ *    0.87.1, verified unchanged through 1.1.0) — only the executing model
  *    differs
  *  - lossless fallback: unset config, unavailable model, empty/failed
  *    summary, or user abort → return undefined and pi's default compaction
@@ -116,7 +116,7 @@ async function completeSummary(
 }
 
 /**
- * pi's output-budget formula (compaction.js, 0.87.1 → 1.0.2 unchanged): a
+ * pi's output-budget formula (compaction.js, 0.87.1 → 1.1.0 unchanged): a
  * fraction of reserveTokens clamped by the model's own output cap.
  */
 function summarizationBudget(
@@ -132,7 +132,7 @@ function summarizationBudget(
 
 /**
  * Run the full compaction summarization with the configured model,
- * replicating pi's compact() (0.87.1, verified unchanged through 1.0.2):
+ * replicating pi's compact() (0.87.1, verified unchanged through 1.1.0):
  * history summary (first-connection or iterative-update prompt, custom
  * focus appended), plus a separate turn-prefix checkpoint when the cut point
  * splits a turn, merged into one summary with the file-list tail. Returns

@@ -8,7 +8,7 @@
  * bindings — only the cycle semantics change (patch-cycle.ts), so no
  * keybinding conflicts arise.
  *
- * Verified against pi 0.86.0 / 0.87.0 / 0.99.0 / 1.0.2 / 1.0.4 keybinding
+ * Verified against pi 0.87.0 / 0.99.0 / 1.0.4 / 1.1.0 keybinding
  * tables + pi-tui input dispatch on WSL2 + Windows Terminal; re-run
  * `pnpm check:keybindings` after every host upgrade before trusting this.
  */
@@ -25,15 +25,15 @@ export const FAVORITES_FILE = "pi-toolkits-favorites.json";
  * missed — audit trail below; re-run `pnpm check:keybindings` on upgrades.
  *
  * Why ctrl+f is dead: fullscreen became pi's default `tuiMode` in 1.0
- * (0.86–0.99 defaulted to `regular`, where the binding is inert). On
+ * (0.87–0.99 defaulted to `regular`, where the binding is inert). On
  * Windows/WSL `tui.altScreen.search` resolves to ctrl+f, and
  * `TuiAltScreen.handleViewportInput()` checks it before
  * `shouldDeferViewportInputToOverlay()`, so the keystroke opens transcript
- * search and the selector never sees it (verified in pi-tui 1.0.4
+ * search and the selector never sees it (verified in pi-tui 1.1.0
  * `dist/tui-alt-screen.js`: the search check is the first key branch and
  * returns `{ consume: true }` unconditionally).
  *
- * Why ctrl+alt+f was discarded: clean at the pi layer across 0.86–1.0 (only
+ * Why ctrl+alt+f was discarded: clean at the pi layer across 0.87–1.1 (only
  * ctrl+alt+] is taken from that family) and byte-distinguishable without
  * kitty — but grabbed at the OS/app layer on the author's machine by a
  * Windows screenshot tool, so it never reached the terminal. Lesson: a key
