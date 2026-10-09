@@ -6,8 +6,8 @@
  *  - cycle patch: favorites-only cycling (fallback to stock when disabled or
  *    no favorites; favorites-only pick; single-favorite jump; not-a-favorite
  *    → forward first / backward last)
- *  - selector patches: ctrl+j favorites-only filter, ctrl+f toggle, hint
- *    injection, idempotent apply
+ *  - selector patches: ctrl+j favorites-only filter, ctrl+alt+f toggle, hint
+ *    injection, idempotent apply, plain ctrl+f left to the host
  *
  * The patches read the shared store via getFavoritesStore(); each test gets an
  * isolated store backed by a temp file via setSharedFavoritesStore(). The
@@ -408,16 +408,34 @@ describe("selector patches", () => {
 		expect(selector.filteredModels).toHaveLength(3);
 	});
 
-	it("ctrl+f toggles favorite for the selected model", () => {
+	it("ctrl+alt+f toggles favorite for the selected model", () => {
 		const selector = fakeSelector({
 			filteredModels: models.map(item),
 			selectedIndex: 1, // opus-4
 			activeModels: models.map(item),
 		});
-		selector.handleInput("\x06"); // ctrl+f
+		selector.handleInput("\x1b\x06"); // ctrl+alt+f (legacy ESC + ctrl-f)
 		expect(getFavoritesStore().has(models[1])).toBe(true);
-		selector.handleInput("\x06");
+		selector.handleInput("\x1b\x06");
 		expect(getFavoritesStore().has(models[1])).toBe(false);
+	});
+
+	it("does not intercept plain ctrl+f (host-owned in fullscreen mode)", () => {
+		const forwarded: string[] = [];
+		getFavoritesStore().toggle(models[1]);
+		const selector = fakeSelector({
+			filteredModels: models.map(item),
+			selectedIndex: 1,
+			activeModels: models.map(item),
+			searchInput: {
+				getValue: () => "",
+				handleInput: (d: string) => forwarded.push(d),
+			},
+		});
+		selector.handleInput("\x06"); // stock ctrl+f
+		// Reached the search box instead of our toggle, so the store is unchanged.
+		expect(forwarded).toEqual(["\x06"]);
+		expect(getFavoritesStore().has(models[1])).toBe(true);
 	});
 
 	it("injects the hint row once (children.length grows by exactly one)", () => {

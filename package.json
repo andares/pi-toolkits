@@ -46,6 +46,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "check:keybindings": "node ./scripts/check-keybindings.mjs",
     "prepublishOnly": "pnpm typecheck && pnpm test",
     "release": "node ./scripts/publish.mjs",
     "tag-current": "node ./scripts/tag-current.mjs"

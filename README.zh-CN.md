@@ -66,7 +66,7 @@ pi -e ./src/index.ts
 | 功能 | 入口 | 一句话说明 |
 | --- | --- | --- |
 | 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit` 硬禁用,`bash` 只读沙箱 |
-| ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+F` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
+| ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+alt+F` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
@@ -100,7 +100,7 @@ pi -e ./src/index.ts
 **在 `/model` 选择器内**(`/model` 或 `ctrl+l` 打开):
 
 - 顶部提示行显示按键与当前过滤状态
-- `ctrl+F` —— 对当前选中模型开/关收藏;收藏的模型文字显示为**加粗亮黄**
+- `ctrl+alt+F` —— 对当前选中模型开/关收藏;收藏的模型文字显示为**加粗亮黄**
 - `ctrl+J` —— 开/关「仅显示收藏模型」过滤(可与内置搜索叠加使用)
 
 **模型循环**:只要存在 ≥1 个收藏,`ctrl+p` / `ctrl+shift+p` 就**只在收藏模型间循环**。当前模型不是收藏时,`ctrl+p` 跳到第一个收藏、`ctrl+shift+p` 跳到最后一个;收藏仅 1 个时停在原地(`Only one model available`)。`ctrl+l` / `/model` 始终可自由选择任意模型(含非收藏)。在状态文件中设 `"cycleOnlyFavorites": false` 可恢复全量循环。
@@ -116,7 +116,9 @@ pi -e ./src/index.ts
 
 `/favorites` 命令列出当前收藏与循环模式。
 
-> **实现说明**:pi 的 `app.model.cycleForward`(`ctrl+p`)与 `cycleBackward` 是**保留键位**,扩展快捷键无法覆盖;且扩展快捷键只在编辑器聚焦时生效。因此本功能不重绑任何按键,而是在运行时 patch 两个内置原型(带版本守卫、`/reload` 幂等):`ModelSelectorComponent`(提示行、`ctrl+F`/`ctrl+J`、亮黄渲染、仅收藏过滤——按键仅在选择器内消费,编辑器里 `ctrl+f` 光标右移、`ctrl+j` 换行不受影响)与 `AgentSession.cycleModel`(收藏循环)。若 pi 升级导致 patch 无法应用,会 warn 并优雅降级,不影响其它功能。
+> **实现说明**:pi 的 `app.model.cycleForward`(`ctrl+p`)与 `cycleBackward` 是**保留键位**,扩展快捷键无法覆盖;且扩展快捷键只在编辑器聚焦时生效。因此本功能不重绑任何按键,而是在运行时 patch 两个内置原型(带版本守卫、`/reload` 幂等):`ModelSelectorComponent`(提示行、`ctrl+alt+F`/`ctrl+J`、亮黄渲染、仅收藏过滤——按键仅在选择器内消费,编辑器里 `ctrl+j` 换行不受影响)与 `AgentSession.cycleModel`(收藏循环)。若 pi 升级导致 patch 无法应用,会 warn 并优雅降级,不影响其它功能。
+>
+> **为何是 `ctrl+alt+F` 而不是 `ctrl+F`**:pi 自 1.0 起 `tuiMode` 默认 `fullscreen`(0.86–0.99 默认 `regular`),而在 Windows/WSL 上宿主把 `tui.altScreen.search` 解析为 `ctrl+f`;`TuiAltScreen.handleViewportInput()` 在**把输入交给聚焦覆盖层之前**先检查该绑定,于是 `ctrl+f` 打开了会话记录搜索、根本到不了选择器。`alt+f`、`shift+f`、`ctrl+shift+f` 同样被占或不可靠——依据见 `src/features/favorites/constants.ts` 与 `pnpm check:keybindings`。
 
 ---
 
@@ -323,7 +325,7 @@ pnpm release patch --dry-run   # 预览,不做任何改动
 - **测试** —— 每个功能自带 vitest 用例;保持确定性(时钟/状态可注入),不写真实 agent dir
 - **内建 patch**(favorites)必须保持**版本守卫 + 幂等** —— 打 patch 前先确认目标原型成员存在,防止重复应用,失败时用 `console.warn` 降级而不是把扩展搞挂
 - **内建提示词同步**(compact) —— `src/features/compact/prompt.ts` 里的总结 prompt 逐字抄自 pi 内建压缩;升级 pi 依赖时 diff `dist/core/compaction/compaction.js`(及 `utils.js`),同步字符串与组装辅助函数,保持接管输出与内建字节级一致
-- **键位** —— 定新快捷键前先查 pi 默认键位 + 保留键、终端控制字符、OS/终端模拟器占用;跨平台安全优先选 `ctrl+alt+<字母>`
+- **键位** —— 定新快捷键前先查 pi 默认键位 + 保留键、终端控制字符、OS/终端模拟器占用;跨平台安全优先选 `ctrl+alt+<字母>`。**不得只验证「主屏下我这台机器能用」**:自 pi 1.0 起默认 `fullscreen`,alt-screen 层在对话框看到按键**之前**就消费 `tui.altScreen.*`,且 Windows/WSL 上多个绑定与 Linux 默认值不同。用 `pnpm check:keybindings [候选键...]` 核查(pi 升级后跑 `pnpm check:keybindings --all`),它用宿主自己的 `matchesKey` 探测已安装宿主的**已解析**键位表。
 - **质量门禁** —— 提交前必须通过 `pnpm typecheck && pnpm test`
 
 ---

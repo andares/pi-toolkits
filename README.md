@@ -66,7 +66,7 @@ After installing, verify in any pi session:
 | Feature | Entry point | One-line description |
 | --- | --- | --- |
 | 🛡️ **ask** read-only consult mode | `/ask` | enter read-only Q&A mode: `write`/`edit` hard-disabled, `bash` runs in a read-only sandbox |
-| ⭐ **favorites** model favorites | `ctrl+F` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
+| ⭐ **favorites** model favorites | `ctrl+alt+F` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/third-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
@@ -100,7 +100,7 @@ Mark the models you use often so that model switching "sticks" to them. Favorite
 **Inside the `/model` selector** (open it with `/model` or `ctrl+l`):
 
 - The top hint line shows the keys and the current filter state
-- `ctrl+F` — toggle the favorite flag on the currently selected model; favorite models are rendered in **bold bright yellow**
+- `ctrl+alt+F` — toggle the favorite flag on the currently selected model; favorite models are rendered in **bold bright yellow**
 - `ctrl+J` — toggle the "show only favorite models" filter (composable with the built-in search)
 
 **Model cycling**: as long as ≥1 favorite exists, `ctrl+p` / `ctrl+shift+p` cycle **only among favorite models**. When the current model is not a favorite, `ctrl+p` jumps to the first favorite and `ctrl+shift+p` to the last; with exactly one favorite it stays put (`Only one model available`). `ctrl+l` / `/model` always allow picking any model freely, favorites or not. Set `"cycleOnlyFavorites": false` in the state file to restore full cycling.
@@ -116,7 +116,9 @@ Mark the models you use often so that model switching "sticks" to them. Favorite
 
 The `/favorites` command lists the current favorites and the cycling mode.
 
-> **Implementation notes**: pi's `app.model.cycleForward` (`ctrl+p`) and `cycleBackward` are **reserved keybindings** that extension shortcuts cannot override; extension shortcuts also only fire while the editor is focused. This feature therefore rebinds nothing; instead it patches two built-in prototypes at runtime (version-guarded, idempotent under `/reload`): `ModelSelectorComponent` (hint line, `ctrl+F`/`ctrl+J`, bright-yellow rendering, favorites-only filter — the keys are consumed only inside the selector, so in the editor `ctrl+f` still moves the cursor right and `ctrl+j` still inserts a newline) and `AgentSession.cycleModel` (favorites-only cycling). If a pi upgrade makes the patch inapplicable, it warns and degrades gracefully without affecting the other features.
+> **Implementation notes**: pi's `app.model.cycleForward` (`ctrl+p`) and `cycleBackward` are **reserved keybindings** that extension shortcuts cannot override; extension shortcuts also only fire while the editor is focused. This feature therefore rebinds nothing; instead it patches two built-in prototypes at runtime (version-guarded, idempotent under `/reload`): `ModelSelectorComponent` (hint line, `ctrl+alt+F`/`ctrl+J`, bright-yellow rendering, favorites-only filter — the keys are consumed only inside the selector, so in the editor `ctrl+j` still inserts a newline) and `AgentSession.cycleModel` (favorites-only cycling). If a pi upgrade makes the patch inapplicable, it warns and degrades gracefully without affecting the other features.
+>
+> **Why `ctrl+alt+F` and not `ctrl+F`**: since pi 1.0 the default `tuiMode` is `fullscreen` (0.86–0.99 defaulted to `regular`), and on Windows/WSL the host resolves `tui.altScreen.search` to `ctrl+f`; `TuiAltScreen.handleViewportInput()` checks that binding **before** handing input to the focused overlay, so `ctrl+f` opened the transcript search instead of reaching the selector. `alt+f`, `shift+f` and `ctrl+shift+f` are all taken or unreliable as well — see `src/features/favorites/constants.ts` and `pnpm check:keybindings`.
 
 ---
 
@@ -324,7 +326,7 @@ PRs and issues welcome. A few conventions:
 - **Tests** — every feature ships vitest cases; keep them deterministic (injectable clocks/state), no writes to the real agent dir
 - **Built-in patches** (favorites) must stay **version-guarded and idempotent** — verify the target prototype members exist before patching, guard against double-apply, degrade with a `console.warn` instead of breaking the extension
 - **Built-in prompt sync** (compact) — the summarization prompts in `src/features/compact/prompt.ts` are copied verbatim from pi's built-in compaction; when upgrading the pi dependency, diff `dist/core/compaction/compaction.js` (and `utils.js`) and update the strings + assembly helpers to match, keeping takeover output byte-compatible with stock
-- **Keybindings** — before picking a new shortcut, check pi defaults + reserved keys, terminal control chars, and OS/terminal-emulator grabs; prefer `ctrl+alt+<letter>` for cross-platform safety
+- **Keybindings** — before picking a new shortcut, check pi defaults + reserved keys, terminal control chars, and OS/terminal-emulator grabs; prefer `ctrl+alt+<letter>` for cross-platform safety. Do not stop at "it works on my machine in the main screen": in `fullscreen` mode (pi's default since 1.0) the alt-screen layer consumes `tui.altScreen.*` **before** dialogs see the key, and on Windows/WSL several of those bindings differ from the Linux defaults. Run `pnpm check:keybindings [candidate...]` (and `pnpm check:keybindings --all` after a pi upgrade) — it probes the installed host's resolved keybinding table with the host's own `matchesKey`.
 - **Quality gate** — `pnpm typecheck && pnpm test` must pass before submitting
 
 ---

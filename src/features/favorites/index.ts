@@ -4,11 +4,14 @@
  * What it does:
  *  - Inside the /model selector (opened via /model or ctrl+l):
  *      * a hint row at the top shows the keys and the favorites-only state
- *      * ctrl+f toggles favorite on the currently selected model
+ *      * ctrl+alt+f toggles favorite on the currently selected model
  *      * ctrl+j toggles the "only favorites" filter
  *      * favorited model ids render in bold bright yellow
  *    The keys are consumed by the selector component only, so pi's editor
- *    bindings (ctrl+f cursor-right, ctrl+j newline) are untouched elsewhere.
+ *    bindings (ctrl+j newline) are untouched elsewhere. (The toggle moved off
+ *    ctrl+f after v0.6.0: pi >= 1.0 defaults to fullscreen, where ctrl+f is
+ *    consumed by the alt-screen transcript search before the selector sees
+ *    it — see constants.ts for the full key audit.)
  *  - ctrl+p / ctrl+shift+p keep their bindings but, once favorites exist
  *    (and cycleOnlyFavorites is not false), cycle only among favorited
  *    models instead of all models. ctrl+l / /model remain the escape hatch
@@ -19,7 +22,7 @@
  * Implementation: pi's extension API has no hook to render inside the
  * built-in model selector and cannot rebind the reserved ctrl+p actions, so
  * the feature patches two built-in prototypes at runtime:
- *  - ModelSelectorComponent (hint row, ctrl+f/ctrl+j, styling, filter)
+ *  - ModelSelectorComponent (hint row, favorites keys, styling, filter)
  *  - AgentSession.cycleModel (favorites-only cycling)
  * Both patches are version-guarded (skip + warn if the API changed) and
  * idempotent across /reload.
@@ -91,13 +94,14 @@ export function registerFavorites(pi: ExtensionAPI): void {
 	applyCyclePatch();
 
 	pi.registerCommand("favorites", {
-		description: "List favorited models (add/remove with ctrl+F in /model)",
+		description:
+			"List favorited models (add/remove with ctrl+alt+F in /model)",
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			captureTheme(ctx);
 			const list = getFavoritesStore().list();
 			if (list.length === 0) {
 				ctx.ui.notify(
-					"No favorited models. Open /model and press ctrl+F on a model to favorite it.",
+					"No favorited models. Open /model and press ctrl+alt+F on a model to favorite it.",
 					"info",
 				);
 				return;

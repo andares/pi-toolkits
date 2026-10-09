@@ -4,11 +4,11 @@
  * pi's extension API has no hook to render inside the built-in model
  * selector, so we patch the component prototype at runtime. Three hooks:
  *
- *  1. handleInput  — intercept ctrl+f (toggle favorite for the selected
- *                    model) and ctrl+j (toggle "only favorites" filter)
- *                    BEFORE the original forwards them to the search box.
- *                    Scoped to the selector: outside it, ctrl+f/ctrl+j keep
- *                    pi's default editor bindings untouched.
+ *  1. handleInput  — intercept the favorites keys (see constants.ts for why
+ *                    they are ctrl+alt+f / ctrl+j) BEFORE the original
+ *                    forwards them to the search box. Scoped to the
+ *                    selector: outside it, ctrl+j keeps pi's default editor
+ *                    binding untouched.
  *  2. updateList   — inject a hint row at the top of the selector and render
  *                    favorited model ids in bold bright yellow.
  *  3. filterModels — when "only favorites" is on, temporarily swap
@@ -22,7 +22,7 @@
  * keeps loading and ctrl+p falls back to stock behavior. The prototype
  * shape touched here (handleInput/updateList/filterModels and the instance
  * fields below) is byte-identical across every published version in
- * pi 0.86.0 → 1.0.2.
+ * pi 0.86.0 → 1.0.4.
  */
 import {
 	ModelSelectorComponent,
@@ -138,7 +138,7 @@ export function applyModelSelectorPatches(): boolean {
 	const originalUpdateList = proto.updateList;
 	const originalFilterModels = proto.filterModels;
 
-	// ── 1. Key interception (ctrl+f / ctrl+j) ─────────────────────────────
+	// ── 1. Key interception (favorites keys) ────────────────────────────
 	proto.handleInput = function (
 		this: SelectorPatchTarget,
 		keyData: string,

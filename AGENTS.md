@@ -46,6 +46,32 @@
    `pi -p --no-extensions -e ./src/index.ts --tools '' 'Reply with exactly: OK'`，
    要求无 Extension 警告、正常回包。
 
+**键位冲突检查义务（每次宿主升级必跑，独立于上面三步）：**
+
+pi 升级本身就能把「我们没动过的键」变成死键——先例：`favorites` 的 `ctrl+f`。
+pi 1.0 起 `tuiMode` 默认 `fullscreen`（0.86–0.99 默认 `regular`），fullscreen 下
+`TuiAltScreen.handleViewportInput()` 先于对话框消费 `tui.altScreen.search`，而该绑定在
+Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。**升级前能用 ≠ 升级后能用，
+「我机器上按一下」不算验证。**
+
+- **跑 `pnpm check:keybindings [候选键...]`**：它用宿主自己的 `matchesKey` + 已解析键位表
+  （含平台/WSL 差异与用户 `keybindings.json`）核对插件声明的每个键；新增键位时把候选键
+  一并传入审。审的是 `devDependencies` 里那版宿主；要审正在运行的那份就传
+  `PI_HOST_PKG=/abs/path/to/@earendil-works/pi-coding-agent`（矩阵仓库同法）。
+- **判定口径**（脚本按 pi-tui 真实分发顺序建模，注释里有依据）：
+  - 🔴 不可接受：被 `tui.altScreen.search` 无条件消费；或非 kitty 终端下 legacy 字节等于
+    可打印字符（`shift+f` = `"F"`，会偷走搜索框的输入）。有 🔴 就是死键，必须换键。
+  - 🟠 可接受但不依赖：仅会话记录搜索框聚焦时才生效（`searchNext/Previous/Close`），
+    对话框打开期间不生效。
+  - 🟡 仅在选择器作用域内可接受：`tui.editor/input/select.*` 的绑定会被我们的
+    `patch-selector` 遮蔽（先于搜索框消费）。**全局快捷键（`registerShortcut`）不得与
+    宿主任何绑定重叠**，只能选完全空闲的键。
+  - 🔵 需人工判断屏属（`app.*`、其余 `tui.altScreen.*`，多为树/会话/滚动屏幕专用）。
+- **首选家族 `ctrl+alt+<字母>`**：整个 0.86→1.0 区间该家族只被 `ctrl+alt+]` 占用，
+  且 `ESC + ctrl-<字母>` 编码不依赖 kitty 协议，Windows Terminal / Windows OS 无占用。
+- 键位变动的依据（为何不选 `alt+f` / `shift+f` / `ctrl+shift+f`）必须写在键位常量旁的
+  注释里，并在 README「Implementation notes / 键位」段落同步。
+
 **内建行为同步义务**：`compact` 的摘要 prompt 与预算公式逐字复刻 pi 内建实现，
 `favorites` 的两个 patch 复刻内建语义——pi 升级时 diff
 `core/compaction/compaction.js`、`core/compaction/utils.js`、`model-selector.js`、
