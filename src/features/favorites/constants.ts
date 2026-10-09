@@ -20,31 +20,51 @@ export const FAVORITES_FILE = "pi-toolkits-favorites.json";
 /**
  * Selector-scoped keybindings (only honored while the model selector is open).
  *
- * Why ctrl+alt+f for the toggle (was ctrl+f through v0.6.0):
- *  - ctrl+f is consumed by the host in fullscreen mode, which became pi's
- *    default `tuiMode` in 1.0 (0.86–0.99 defaulted to `regular`, where the
- *    binding is inert). On Windows/WSL `tui.altScreen.search` resolves to
- *    ctrl+f, and `TuiAltScreen.handleViewportInput()` checks it before
- *    `shouldDeferViewportInputToOverlay()`, so the keystroke opens transcript
- *    search and the selector never sees it. Verified in pi-tui 1.0.4
- *    `dist/tui-alt-screen.js` (search check is the first key branch and
- *    returns `{ consume: true }` unconditionally).
- *  - alt+f is taken by `tui.editor.cursorWordRight` and `app.tree.unfoldOrDown`.
- *  - shift+f arrives as the literal character "F" without the kitty keyboard
- *    protocol, i.e. it would steal a typed character from the selector's
- *    search box.
- *  - ctrl+shift+f collapses to ctrl+f on Windows/WSL terminals (the reason
- *    pi itself binds search to ctrl+f there instead) and Windows Terminal
- *    binds it to its own Find action.
- *  - ctrl+alt+f is unclaimed across the whole 0.86–1.0 window (only
- *    `ctrl+alt+]` is taken from that family) and is byte-distinguishable from
- *    ctrl+f/alt+f without kitty (ESC + ctrl-f). Same family as the shipped
- *    stash key ctrl+alt+y, which is proven to reach pi on this terminal.
+ * Toggle key history: ctrl+f (through v0.6.0) → ctrl+alt+f (discarded before
+ * release) → ctrl+a (current). Each step is a real layer the previous pick
+ * missed — audit trail below; re-run `pnpm check:keybindings` on upgrades.
+ *
+ * Why ctrl+f is dead: fullscreen became pi's default `tuiMode` in 1.0
+ * (0.86–0.99 defaulted to `regular`, where the binding is inert). On
+ * Windows/WSL `tui.altScreen.search` resolves to ctrl+f, and
+ * `TuiAltScreen.handleViewportInput()` checks it before
+ * `shouldDeferViewportInputToOverlay()`, so the keystroke opens transcript
+ * search and the selector never sees it (verified in pi-tui 1.0.4
+ * `dist/tui-alt-screen.js`: the search check is the first key branch and
+ * returns `{ consume: true }` unconditionally).
+ *
+ * Why ctrl+alt+f was discarded: clean at the pi layer across 0.86–1.0 (only
+ * ctrl+alt+] is taken from that family) and byte-distinguishable without
+ * kitty — but grabbed at the OS/app layer on the author's machine by a
+ * Windows screenshot tool, so it never reached the terminal. Lesson: a key
+ * that is free in the host table is not necessarily free on the machine.
+ *
+ * Why ctrl+a (letter taken from "favorite", audited with the host's own
+ * matchesKey on WSL2 + Windows Terminal):
+ *  - f: consumed upstream by `tui.altScreen.search` in fullscreen (above).
+ *  - v: free at the pi layer on WSL (`app.clipboard.pasteImage` is alt+v
+ *    there) but Windows Terminal binds ctrl+v to paste — and pasting a model
+ *    name into the search box is a feature, not a slot to steal.
+ *  - o / r / t: host-owned at the app layer (`app.tools.expand`,
+ *    `app.session.rename`, `app.thinking.toggle`).
+ *  - i: byte-identical to Tab on non-kitty terminals ("\t"), and Tab is the
+ *    selector's built-in scope toggle — a guaranteed fight.
+ *  - e: viable (shadows only `tui.editor.cursorLineEnd` inside the selector)
+ *    but carries no mnemonic; a was preferred.
+ *  - a: shadows only `tui.editor.cursorLineStart` (readline home) inside the
+ *    selector — our patch consumes it before the search box, exactly like
+ *    ctrl+j shadows newLine. No upstream consumer, nothing bound at the
+ *    Windows Terminal / Windows OS layer, no other loaded extension claims
+ *    it, and "a" reads as *add favorite*.
+ *  (Rejected elsewhere: alt+f = cursorWordRight + tree unfold; shift+f is
+ *  the literal character "F" without kitty, stealing typed search text;
+ *  ctrl+shift+f collapses to ctrl+f on Windows/WSL and is Windows Terminal's
+ *  own Find.)
  *
  * ctrl+j is kept: no host layer consumes it before the selector, so it only
  * shadows `tui.input.newLine` inside the search box.
  */
-export const FAVORITE_TOGGLE_KEY = "ctrl+alt+f";
+export const FAVORITE_TOGGLE_KEY = "ctrl+a";
 export const FAVORITES_ONLY_KEY = "ctrl+j";
 
 /**

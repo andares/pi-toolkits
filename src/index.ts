@@ -6,7 +6,7 @@
  *
  * Current features:
  *  - ask — read-only Q&A mode (/ask)
- *  - favorites — model favorites (ctrl+alt+F/ctrl+J in /model, favorites-only cycling)
+ *  - favorites — model favorites (ctrl+A/ctrl+J in /model, favorites-only cycling)
  *  - stash — prompt stash (ctrl+alt+y swap / double-press stash-and-clear)
  *  - review — third-party code review with a configured review model (third-review)
  *  - compact — dedicated compact model for /compact + auto-compact summaries

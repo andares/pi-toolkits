@@ -5,7 +5,7 @@
  * selector, so we patch the component prototype at runtime. Three hooks:
  *
  *  1. handleInput  — intercept the favorites keys (see constants.ts for why
- *                    they are ctrl+alt+f / ctrl+j) BEFORE the original
+ *                    they are ctrl+a / ctrl+j) BEFORE the original
  *                    forwards them to the search box. Scoped to the
  *                    selector: outside it, ctrl+j keeps pi's default editor
  *                    binding untouched.

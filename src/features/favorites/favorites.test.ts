@@ -6,7 +6,7 @@
  *  - cycle patch: favorites-only cycling (fallback to stock when disabled or
  *    no favorites; favorites-only pick; single-favorite jump; not-a-favorite
  *    → forward first / backward last)
- *  - selector patches: ctrl+j favorites-only filter, ctrl+alt+f toggle, hint
+ *  - selector patches: ctrl+j favorites-only filter, ctrl+a toggle, hint
  *    injection, idempotent apply, plain ctrl+f left to the host
  *
  * The patches read the shared store via getFavoritesStore(); each test gets an
@@ -408,19 +408,19 @@ describe("selector patches", () => {
 		expect(selector.filteredModels).toHaveLength(3);
 	});
 
-	it("ctrl+alt+f toggles favorite for the selected model", () => {
+	it("ctrl+a toggles favorite for the selected model", () => {
 		const selector = fakeSelector({
 			filteredModels: models.map(item),
 			selectedIndex: 1, // opus-4
 			activeModels: models.map(item),
 		});
-		selector.handleInput("\x1b\x06"); // ctrl+alt+f (legacy ESC + ctrl-f)
+		selector.handleInput("\x01"); // ctrl+a
 		expect(getFavoritesStore().has(models[1])).toBe(true);
-		selector.handleInput("\x1b\x06");
+		selector.handleInput("\x01");
 		expect(getFavoritesStore().has(models[1])).toBe(false);
 	});
 
-	it("does not intercept plain ctrl+f (host-owned in fullscreen mode)", () => {
+	it("does not intercept the retired keys ctrl+f / ctrl+alt+f (host/machine-owned)", () => {
 		const forwarded: string[] = [];
 		getFavoritesStore().toggle(models[1]);
 		const selector = fakeSelector({
@@ -432,9 +432,10 @@ describe("selector patches", () => {
 				handleInput: (d: string) => forwarded.push(d),
 			},
 		});
-		selector.handleInput("\x06"); // stock ctrl+f
-		// Reached the search box instead of our toggle, so the store is unchanged.
-		expect(forwarded).toEqual(["\x06"]);
+		selector.handleInput("\x06"); // stock ctrl+f — upstream transcript search
+		selector.handleInput("\x1b\x06"); // retired ctrl+alt+f — machine-level hotkey
+		// Both reached the search box instead of our toggle, so the store is unchanged.
+		expect(forwarded).toEqual(["\x06", "\x1b\x06"]);
 		expect(getFavoritesStore().has(models[1])).toBe(true);
 	});
 

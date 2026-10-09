@@ -214,6 +214,28 @@ function classify(claimants) {
 	return groups;
 }
 
+/**
+ * Machine-layer grabs the host table cannot see. Encodes real incidents:
+ * ctrl+alt+f passed the host audit but was taken by a Windows screenshot
+ * tool; ctrl+v / ctrl+shift+f are Windows Terminal defaults. Advisories are
+ * never fatal — the host table cannot know any user's machine — but every
+ * ⚠ demands a real keypress on the target machine before shipping the key.
+ */
+const EXTERNAL_GRABS = [
+	{
+		match: (key) => key === "ctrl+v",
+		note: "Windows Terminal default: Paste (and pasting a model name into the search box is a feature, not a slot to steal)",
+	},
+	{
+		match: (key) => key === "ctrl+shift+f",
+		note: "Windows Terminal default: Find",
+	},
+	{
+		match: (key) => /^ctrl\+alt\+[a-z0-9]$/i.test(key),
+		note: "commonly bound by third-party Windows utilities (screenshot/efficiency tools took ctrl+alt+f); verify on the real machine",
+	},
+];
+
 function audit(keyId) {
 	const legacy = legacyBytes(keyId);
 	const kitty = kittyBytes(keyId);
@@ -258,6 +280,11 @@ function render(result) {
 		);
 		red = true;
 	}
+	for (const grab of EXTERNAL_GRABS) {
+		if (grab.match(keyId)) {
+			console.log(`  ⚠ machine layer: ${grab.note}`);
+		}
+	}
 	return { red, free };
 }
 
@@ -281,7 +308,8 @@ if (argv.includes("--all")) {
 const declared = declaredKeys();
 const candidates = argv.filter((arg) => !arg.startsWith("-"));
 
-console.log("\n=== keys declared by this plugin ===");let failed = false;
+console.log("\n=== keys declared by this plugin ===");
+let failed = false;
 for (const entry of declared) {
 	console.log(`\n[${entry.feature}] ${entry.name} (${entry.file})`);
 	const outcome = render(audit(entry.key));
@@ -294,10 +322,11 @@ if (candidates.length) {
 }
 
 if (failed) {
-	console.log(
-		"\n❌ A declared key is consumed upstream (🔴 or a printable legacy form).\n" +
-			"   Pick a key from the ctrl+alt+<letter> family (see AGENTS.md).",
-	);
-	process.exit(1);
+console.log(
+"\n❌ A declared key is consumed upstream (🔴 or a printable legacy form).\n" +
+"   Replace it and re-run. Scope rules and the machine-layer ⚠ advisories:\n" +
+"   see the 键位冲突检查义务 section in AGENTS.md.",
+);
+process.exit(1);
 }
 console.log("\n✅ No upstream conflict among the keys this plugin declares.");

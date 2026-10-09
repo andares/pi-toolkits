@@ -48,11 +48,15 @@
 
 **键位冲突检查义务（每次宿主升级必跑，独立于上面三步）：**
 
-pi 升级本身就能把「我们没动过的键」变成死键——先例：`favorites` 的 `ctrl+f`。
+pi 升级本身就能把「我们没动过的键」变成死键——先例一：`favorites` 的 `ctrl+f`。
 pi 1.0 起 `tuiMode` 默认 `fullscreen`（0.86–0.99 默认 `regular`），fullscreen 下
 `TuiAltScreen.handleViewportInput()` 先于对话框消费 `tui.altScreen.search`，而该绑定在
 Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。**升级前能用 ≠ 升级后能用，
 「我机器上按一下」不算验证。**
+
+先例二：`ctrl+alt+f` 在 pi 层全绿（脚本审计通过、字节可区分），却被 Windows 侧
+截图工具作为全局热键截走——**宿主表空闲 ≠ 机器层空闲**。候选键除了跑脚本，
+还必须在真机按一次，确认按键真的到得了应用。
 
 - **跑 `pnpm check:keybindings [候选键...]`**：它用宿主自己的 `matchesKey` + 已解析键位表
   （含平台/WSL 差异与用户 `keybindings.json`）核对插件声明的每个键；新增键位时把候选键
@@ -67,10 +71,19 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
     `patch-selector` 遮蔽（先于搜索框消费）。**全局快捷键（`registerShortcut`）不得与
     宿主任何绑定重叠**，只能选完全空闲的键。
   - 🔵 需人工判断屏属（`app.*`、其余 `tui.altScreen.*`，多为树/会话/滚动屏幕专用）。
-- **首选家族 `ctrl+alt+<字母>`**：整个 0.86→1.0 区间该家族只被 `ctrl+alt+]` 占用，
-  且 `ESC + ctrl-<字母>` 编码不依赖 kitty 协议，Windows Terminal / Windows OS 无占用。
-- 键位变动的依据（为何不选 `alt+f` / `shift+f` / `ctrl+shift+f`）必须写在键位常量旁的
-  注释里，并在 README「Implementation notes / 键位」段落同步。
+- **键位族选择**（按作用域分两类）：
+  - **全局快捷键（`registerShortcut`）**：优先 `ctrl+alt+<字母>`——pi 层整个 0.86→1.0
+    区间只被 `ctrl+alt+]` 占用，且 `ESC + ctrl-<字母>` 编码不依赖 kitty 协议。但
+    Windows 侧截图/效率工具常绑 `ctrl+alt+<字母>`（先例二），Windows Terminal 默认占
+    `ctrl+v`（粘贴）与 `ctrl+shift+f`（查找）——定键后必须真机试按。
+  - **选择器作用域键**：可选「仅 🟡 遮蔽 `tui.editor/input/select.*`」的 `ctrl+<字母>`
+    ——patch 在选择器内先于搜索框消费，编辑器等其它场景不受影响（先例：favorites
+    的 `ctrl+a`，遮蔽的只是搜索框内的行首跳转）。注意 legacy 字节恒等：`ctrl+i` ≡ Tab
+    （选择器内置的 scope 切换）、`ctrl+m` ≡ Enter（确认）——这类键不可选；
+    `ctrl+j` ≡ LF 属可接受遮蔽（搜索框里换行无意义）。
+- 键位变动的依据（为何不选其它候选：如 `ctrl+f` 被上游消费、`ctrl+alt+f` 被截图工具
+  占、`ctrl+v` 是 Windows Terminal 粘贴、`ctrl+i` ≡ Tab）必须写在键位常量旁的注释里，
+  并在 README「Implementation notes / 键位」段落同步。
 
 **内建行为同步义务**：`compact` 的摘要 prompt 与预算公式逐字复刻 pi 内建实现，
 `favorites` 的两个 patch 复刻内建语义——pi 升级时 diff

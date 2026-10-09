@@ -4,14 +4,15 @@
  * What it does:
  *  - Inside the /model selector (opened via /model or ctrl+l):
  *      * a hint row at the top shows the keys and the favorites-only state
- *      * ctrl+alt+f toggles favorite on the currently selected model
+ *      * ctrl+a toggles favorite on the currently selected model
  *      * ctrl+j toggles the "only favorites" filter
  *      * favorited model ids render in bold bright yellow
  *    The keys are consumed by the selector component only, so pi's editor
  *    bindings (ctrl+j newline) are untouched elsewhere. (The toggle moved off
- *    ctrl+f after v0.6.0: pi >= 1.0 defaults to fullscreen, where ctrl+f is
+ *    ctrl+f after v0.6.0 — pi >= 1.0 defaults to fullscreen, where ctrl+f is
  *    consumed by the alt-screen transcript search before the selector sees
- *    it — see constants.ts for the full key audit.)
+ *    it — and an interim ctrl+alt+f pick turned out to be grabbed by a
+ *    Windows screenshot tool; see constants.ts for the full key audit.)
  *  - ctrl+p / ctrl+shift+p keep their bindings but, once favorites exist
  *    (and cycleOnlyFavorites is not false), cycle only among favorited
  *    models instead of all models. ctrl+l / /model remain the escape hatch
@@ -95,13 +96,13 @@ export function registerFavorites(pi: ExtensionAPI): void {
 
 	pi.registerCommand("favorites", {
 		description:
-			"List favorited models (add/remove with ctrl+alt+F in /model)",
+			"List favorited models (add/remove with ctrl+A in /model)",
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			captureTheme(ctx);
 			const list = getFavoritesStore().list();
 			if (list.length === 0) {
 				ctx.ui.notify(
-					"No favorited models. Open /model and press ctrl+alt+F on a model to favorite it.",
+					"No favorited models. Open /model and press ctrl+A on a model to favorite it.",
 					"info",
 				);
 				return;
