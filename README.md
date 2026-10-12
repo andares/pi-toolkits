@@ -65,7 +65,7 @@ After installing, verify in any pi session:
 
 | Feature | Entry point | One-line description |
 | --- | --- | --- |
-| 🛡️ **ask** read-only consult mode | `/ask` | enter read-only Q&A mode: `write`/`edit` hard-disabled, `bash` runs in a read-only sandbox |
+| 🛡️ **ask** read-only consult mode | `/ask` | enter read-only Q&A mode: `write`/`edit`/`powershell` hard-disabled, `bash` runs in a read-only sandbox, `grep`/`find`/`ls` activated |
 | ⭐ **favorites** model favorites | `ctrl+A` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/third-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
@@ -82,12 +82,13 @@ Enter with `/ask` (press it again to exit). Meant for the case where you only wa
 
 **While active**:
 
-- **`write` / `edit` hard-disabled** — removed from the active tool set; pi rejects calls to inactive tools outright ("Tool not found"), so file modification becomes mechanically impossible
-- **`bash` kept, but sandboxed to read-only** — based on shell tokenization plus write-intent detection (blocks `curl -o/-O`, `wget -O`, `dd of=`, `tee`, redirections, and the like). Heuristic, not a security boundary
-- **System prompt appendix** — a mode description is appended so the model behaves along the read-only constraint
+- **`write` / `edit` / `powershell` hard-disabled** — removed from the active tool set; pi rejects calls to inactive tools outright ("Tool not found"), so file modification becomes mechanically impossible
+- **Read-only helper tools activated** — `grep` / `find` / `ls` (registered by pi but inactive by default) are switched on for the duration, so the model gets proper search tools instead of bash-only search; the entry snapshot is restored exactly on exit
+- **`bash` kept, but sandboxed to read-only** — shell tokenization, per-segment validation plus write-intent detection. Allowed beyond the obvious readers: git archaeology (`blame`, `grep`, `rev-parse`, `describe`, `shortlog`, `reflog show`, `stash list`, `tag -l`, `cat-file`, ...), package metadata queries (`pnpm view`, `pip show/list`, `python -m json.tool`) and network reads through `curl -s <url>` / `wget -O - <url>`. Still blocked: redirections, `tee`, `dd`, `sed -i`, installs/builds, git mutations, command substitution, command runners (`find -exec`, `git grep -O`, `rg --pre`), and every write target (`curl -o`, `wget -O file`, `git diff --output=`, `tree -o`). Heuristic, not a security boundary
+- **System prompt appendix names the alternatives** — the appended mode description states what is blocked *and what to use instead* (`read` for file contents, `curl -s` for URLs, `/ask` to exit). Rejected tool calls come back with a classified reason that points at the nearest allowed alternative, so the model does not retry blind variants
 - **Grey `ask` footer status** — a permanent reminder that read-only mode is on
 
-**Exit**: press `/ask` again; the tool-set snapshot taken on entry is fully restored.
+**Exit**: press `/ask` again; the tool-set snapshot taken on entry is fully restored (read-only helpers included).
 
 ---
 

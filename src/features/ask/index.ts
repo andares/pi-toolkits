@@ -2,13 +2,15 @@
  * ask feature — read-only Q&A mode.
  *
  * Design notes (see PLAN.md):
- *  - Hard guarantee: write/edit are removed from the active tool set via
- *    pi.setActiveTools(); pi's runtime rejects calls to non-active tools
+ *  - Hard guarantee: write/edit/powershell are removed from the active tool set
+ *    via pi.setActiveTools(); pi's runtime rejects calls to non-active tools
  *    ("Tool not found") so nothing executes.
+ *  - Read-only helper tools (grep/find/ls) are activated for the duration so
+ *    the model gets proper search tools; the entry snapshot restores exactly.
  *  - bash stays available but is gated by a read-only sandbox
  *    (see bash-sandbox.ts) via the tool_call hook.
  *  - Mode banner appended to the system prompt via before_agent_start
- *    chained systemPrompt (see prompt.ts).
+ *    chained systemPrompt (see prompt.ts), listing blocked -> alternative.
  */
 import type {
 	ExtensionAPI,
@@ -21,11 +23,13 @@ import {
 } from "../../lib/tools.js";
 import {
 	ASK_BLOCKED_TOOLS,
+	ASK_READ_ONLY_HELPERS,
 	ASK_STATUS_KEY,
 	ASK_STATUS_LABEL,
 } from "./constants.js";
 import { isReadOnlyCommand } from "./bash-sandbox.js";
 import { appendAskBanner } from "./prompt.js";
+import { blockedBashReason, blockedToolReason } from "./reasons.js";
 
 export function registerAsk(pi: ExtensionAPI): void {
 	let enabled = false;
@@ -40,14 +44,30 @@ export function registerAsk(pi: ExtensionAPI): void {
 		);
 	}
 
+	/** Read-only helpers currently active (drives the banner's search hint). */
+	function activeHelperTools(): string[] {
+		const active = new Set(pi.getActiveTools());
+		return ASK_READ_ONLY_HELPERS.filter((name) => active.has(name));
+	}
+
 	function enter(ctx: ExtensionContext): void {
 		if (enabled) return;
 		enabled = true;
 		snapshot = snapshotActiveTools(pi);
-		pi.setActiveTools(withoutTools(snapshot, ASK_BLOCKED_TOOLS));
+		// Activate grep/find/ls when the host has them registered and they were
+		// not already active. Names must be registered; unknown names are ignored
+		// by setActiveTools, but filtering here keeps the intent explicit.
+		const registered = new Set(pi.getAllTools().map((tool) => tool.name));
+		const helpers = ASK_READ_ONLY_HELPERS.filter(
+			(name) => registered.has(name) && !snapshot.includes(name),
+		);
+		pi.setActiveTools([
+			...withoutTools(snapshot, ASK_BLOCKED_TOOLS),
+			...helpers,
+		]);
 		updateStatus(ctx);
 		ctx.ui.notify(
-			"Ask mode ON — read-only (write/edit disabled). /ask to exit.",
+			"Ask mode ON — read-only (write/edit/powershell disabled, bash sandboxed). /ask to exit.",
 			"info",
 		);
 	}
@@ -77,27 +97,23 @@ export function registerAsk(pi: ExtensionAPI): void {
 	});
 
 	// Defense-in-depth gate while ask mode is active:
-	//  - write/edit are already removed from the active set (runtime rejects
-	//    them), this blocks them again in case anything re-enables them.
+	//  - write/edit/powershell are already removed from the active set (runtime
+	//    rejects them); this blocks them again in case anything re-enables them.
 	//  - bash is kept available but only read-only commands pass the sandbox.
+	// The rejection `reason` reaches the model as the tool result, so it names
+	// the nearest allowed alternative (see reasons.ts).
 	pi.on("tool_call", (event) => {
 		if (!enabled) return;
 
-		if (event.toolName === "write" || event.toolName === "edit") {
-			return {
-				block: true,
-				reason:
-					"Ask mode: write/edit are disabled. Use /ask to exit ask mode first.",
-			};
+		if (ASK_BLOCKED_TOOLS.has(event.toolName)) {
+			return { block: true, reason: blockedToolReason(event.toolName) };
 		}
 
 		if (event.toolName === "bash") {
-			const command = event.input.command as string;
+			const command =
+				typeof event.input.command === "string" ? event.input.command : "";
 			if (!isReadOnlyCommand(command)) {
-				return {
-					block: true,
-					reason: `Ask mode: only read-only bash commands are allowed.\nCommand: ${command}\nUse /ask to exit ask mode first.`,
-				};
+				return { block: true, reason: blockedBashReason(command) };
 			}
 		}
 	});
@@ -107,6 +123,10 @@ export function registerAsk(pi: ExtensionAPI): void {
 		if (!enabled) return;
 		// event.systemPrompt is the current (possibly already modified by other
 		// extensions) system prompt — append, don't replace.
-		return { systemPrompt: appendAskBanner(event.systemPrompt) };
+		return {
+			systemPrompt: appendAskBanner(event.systemPrompt, {
+				helperTools: activeHelperTools(),
+			}),
+		};
 	});
 }

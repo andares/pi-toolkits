@@ -8,9 +8,11 @@ export function snapshotActiveTools(pi: ExtensionAPI): string[] {
 	return [...pi.getActiveTools()];
 }
 
-/** Restore a previously snapshotted tool set. No-op when the snapshot is empty. */
-export function restoreActiveTools(pi: ExtensionAPI, snapshot: string[]): void {
-	if (snapshot.length === 0) return;
+/** Restore a previously snapshotted tool set (an empty snapshot = no tools). */
+export function restoreActiveTools(
+	pi: ExtensionAPI,
+	snapshot: readonly string[],
+): void {
 	pi.setActiveTools([...snapshot]);
 }
 

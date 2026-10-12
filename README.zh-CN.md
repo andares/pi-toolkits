@@ -65,7 +65,7 @@ pi -e ./src/index.ts
 
 | 功能 | 入口 | 一句话说明 |
 | --- | --- | --- |
-| 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit` 硬禁用,`bash` 只读沙箱 |
+| 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit`/`powershell` 硬禁用,`bash` 只读沙箱,临时启用 `grep`/`find`/`ls` |
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+A` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
@@ -82,12 +82,13 @@ pi -e ./src/index.ts
 
 **进入后**:
 
-- **`write` / `edit` 硬禁用** —— 从活跃工具集中移除,pi 运行时对未激活工具的调用直接拒绝("Tool not found"),文件修改在机制上不可能发生
-- **`bash` 保留但只读沙箱** —— 基于 shell 分词 + 写盘意图检测(`curl -o/-O`、`wget -O`、`dd of=`、`tee`、重定向等一律拦截)。启发式,非安全边界
-- **系统提示词追加** —— 追加一段模式说明,模型会遵守只读约束行事
+- **`write` / `edit` / `powershell` 硬禁用** —— 从活跃工具集中移除,pi 运行时对未激活工具的调用直接拒绝("Tool not found"),文件修改在机制上不可能发生
+- **临时启用只读检索工具** —— `grep` / `find` / `ls`(宿主已注册但默认不激活)在 ask 期间打开,让模型有正规搜索工具而不是只能走 bash;退出时按进入前快照完整恢复
+- **`bash` 保留但只读沙箱** —— shell 分词 + 逐段校验 + 写盘意图检测。除常见读取命令外,放行 git 考古族(`blame`、`grep`、`rev-parse`、`describe`、`shortlog`、`reflog show`、`stash list`、`tag -l`、`cat-file` 等)、包元数据查询(`pnpm view`、`pip show/list`、`python -m json.tool`),以及网络读取 `curl -s <url>` / `wget -O - <url>`。仍拦截:重定向、`tee`、`dd`、`sed -i`、安装/构建、git 变更类命令、命令替换、会启动其它程序的选项(`find -exec`、`git grep -O`、`rg --pre`),以及一切写盘目标(`curl -o`、`wget -O file`、`git diff --output=`、`tree -o`)。启发式,非安全边界
+- **系统提示词给出替代方案** —— 追加的模式说明不仅列限制,还写明被拦后用什么替代(读文件用 `read`、取网页用 `curl -s`、要改动则 `/ask` 退出);被拒的工具调用返回分类原因,直接指向最近的可用替代,模型不会盲目重试
 - **灰色 `ask` footer 状态** —— 常驻提示当前处于只读模式
 
-**退出**:再按 `/ask`,完整恢复进入前的工具集快照。
+**退出**:再按 `/ask`,完整恢复进入前的工具集快照(含临时启用的只读工具)。
 
 ---
 
