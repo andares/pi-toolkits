@@ -11,8 +11,11 @@
  *    before running its own compaction
  *  - prompts, message assembly, split-turn handling, output budgets, and the
  *    summary file-list tail are verbatim pi built-in behavior (copied from
- *    0.87.1, verified unchanged through 1.1.0) — only the executing model
- *    differs
+ *    0.87.1, byte-identical across every published version of the supported
+ *    window, 0.99.0 → 1.2.0) — only the executing model differs. The one
+ *    exception is `serializeConversation`, which is imported from the host
+ *    instead of mirrored, so it tracks whatever the running host does
+ *    (1.2.0 stopped feeding assistant thinking into the request).
  *  - lossless fallback: unset config, unavailable model, empty/failed
  *    summary, or user abort → return undefined and pi's default compaction
  *    (session model) runs untouched. The extension can never make
@@ -116,7 +119,7 @@ async function completeSummary(
 }
 
 /**
- * pi's output-budget formula (compaction.js, 0.87.1 → 1.1.0 unchanged): a
+ * pi's output-budget formula (compaction.js, 0.87.1 → 1.2.0 unchanged): a
  * fraction of reserveTokens clamped by the model's own output cap.
  */
 function summarizationBudget(
@@ -132,7 +135,8 @@ function summarizationBudget(
 
 /**
  * Run the full compaction summarization with the configured model,
- * replicating pi's compact() (0.87.1, verified unchanged through 1.1.0):
+ * replicating pi's compact() (0.87.1, byte-identical across the supported
+ * 0.99.0 → 1.2.0 window):
  * history summary (first-connection or iterative-update prompt, custom
  * focus appended), plus a separate turn-prefix checkpoint when the cut point
  * splits a turn, merged into one summary with the file-list tail. Returns

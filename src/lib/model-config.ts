@@ -4,8 +4,8 @@
  * (review, compact-model — favorites keeps its own store-local key logic).
  *
  * Types are derived from pi-coding-agent's own exports (ModelRegistry)
- * rather than imported from @earendil-works/pi-ai: pi-ai's index.d.ts (0.87
- * through 1.1.0 alike) re-exports `Model`/`Api` via extensioned
+ * rather than imported from @earendil-works/pi-ai: pi-ai's index.d.ts (0.99
+ * through 1.2.0 alike) re-exports `Model`/`Api` via extensioned
  * `./types.ts` specifiers, which tsc 5.9 bundler resolution substitutes to
  * `.d.ts` but some tsserver builds do not. Deriving from ModelRegistry keeps
  * every resolver in agreement with the exact type

@@ -148,7 +148,9 @@ function kittyBytes(keyId) {
 
 // ── policy ───────────────────────────────────────────────────────────────
 // Modeled on the real dispatch order in pi-tui's
-// TuiAltScreen.handleViewportInput() (verified 1.1.0):
+// TuiAltScreen.handleViewportInput() (verified 1.2.0; the search branch is
+// still the first key check and still returns `{consume: true}` before
+// shouldDeferViewportInputToOverlay()):
 //
 //   1. tui.altScreen.search            → consumed UNCONDITIONALLY
 //   2. searchNext/Previous/Close       → only while the transcript search box

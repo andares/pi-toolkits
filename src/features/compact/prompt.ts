@@ -5,11 +5,15 @@
  * compaction (dist/core/compaction/compaction.js and utils.js) so that
  * summaries produced by the configured compact model are formatted exactly
  * like pi's own compaction output. Only the executing model differs.
- * Verified byte-identical against pi 1.1.0 (0.88–0.98 were never published;
- * the only 0.87.1→1.1.0 change there is a combineUsage refactor into a
- * shared core/usage-totals.js, no prompt or budget change). 0.87.0 shipped a
- * different split-turn prefix prompt; the text mirrored here is 0.87.1+'s
- * fix, which is also what 0.87.0 hosts get — intentional.
+ * Verified byte-identical against every published version of the supported
+ * window (0.99.0 → 1.2.0): dist/core/compaction/compaction.js and
+ * core/usage-totals.js are unchanged files across that span, and the only
+ * utils.js change (1.2.0 dropping assistant thinking from
+ * serializeConversation) does not touch the strings mirrored here — that
+ * serializer is imported from the host, not mirrored. 0.87.0 shipped a
+ * different split-turn prefix prompt; the text mirrored here is 0.87.1's
+ * fix, and the mirror is the only variant any supported host gets —
+ * intentional.
  *
  * Update these strings whenever pi changes its built-in prompts (diff
  * dist/core/compaction/compaction.js between versions).
@@ -198,7 +202,8 @@ export function formatFileOperations(
 
 /**
  * Combine two provider usage records field-wise (pi 0.87.1 compaction.js
- * combineUsage, moved verbatim to core/usage-totals.js in 0.99.0): used when
+ * combineUsage, moved verbatim to core/usage-totals.js in 0.99.0 and
+ * unchanged through 1.2.0): used when
  * a split turn produces two summarization calls.
  */
 export function combineUsage<T extends UsageLike>(first: T, second: T): T {

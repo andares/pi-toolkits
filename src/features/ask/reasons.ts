@@ -2,7 +2,9 @@
  * ask feature — actionable rejection messages.
  *
  * The `tool_call` hook's `reason` is delivered to the model as the tool result
- * (verified against pi 1.1.0: the blocked call returns the reason text), so it
+ * (verified against pi 1.2.0: `extensions/runner.js` returns the `{block,
+ * reason}` result unchanged and pi-agent-core's `agent-loop.js` turns it into
+ * `createErrorToolResult(reason)`; both paths are byte-identical to 1.1.0), so it
  * is the best place to name the nearest allowed alternative and stop the model
  * from retrying variants of a blocked command.
  */

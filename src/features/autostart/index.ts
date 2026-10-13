@@ -16,7 +16,8 @@
  * Dispatch uses `sendUserMessage(cmd, { expandPromptTemplates: true })` —
  * that flag is what routes "/cmd args" through _tryExecuteExtensionCommand
  * instead of the model prompt path. The wrapper defaults it to false
- * (verified against pi 1.1.0 agent-session.js; see AGENTS.md host-compat
+ * (each byte-identical across every published version of the supported
+ * window, 0.99.0 → 1.2.0; see AGENTS.md host-compat
  * discipline for the version matrix).
  *
  * Only extension commands can run this way. Built-in commands (/compact,

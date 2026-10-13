@@ -9,12 +9,12 @@
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
-[![pi >= 0.87](https://img.shields.io/badge/pi-%3E%3D0.87.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
+[![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
 In a nutshell: six ready-to-use capabilities — **read-only consult mode** `ask`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model` and **session startup automation** `autostart` — with more to come.
 
-**Requirements**: pi `>=0.87.0 <2.0.0` (covering the four most recently released minor lines — 0.87.x / 0.99.x / 1.0.x / 1.1.x; 0.88–0.98 were never released). Every one of the 11 published versions inside that range (0.87.0 → 1.1.0) was compared against the host `dist`: the extension APIs we use carry no breaking differences (1.0.4 → 1.1.0 only adds fields), and the two runtime patch targets used by favorites — `ModelSelectorComponent` / `AgentSession.cycleModel` — are byte-identical. `typecheck` plus the full test suite pass on each of 0.87.0, 0.87.1, 0.99.0, 0.99.2, 1.0.0, 1.0.4 and 1.1.0, and smoke-loading on real pi 1.1.0 produces no warnings. Note: pi ≥ 0.99 hosts require `@earendil-works/pi-tui` to be declared in `peerDependencies` as `"*"` (provided by the host); this package declares it as required.
+**Requirements**: pi `>=0.99.0 <2.0.0` (covering the four most recently released minor lines — 0.99.x / 1.0.x / 1.1.x / 1.2.x; 0.88–0.98 were never released). Every one of the 10 published versions inside that range (0.99.0 → 1.2.0) was compared against the host `dist`: the extension APIs we use carry no breaking differences (1.2.0 turns `before_agent_start` into a discriminated union and adds `reachesTools`; the fields we read are unchanged), and both runtime patch targets used by favorites — `ModelSelectorComponent` / `AgentSession.cycleModel` — are byte-identical, as are the `core/compaction/compaction.js` and `core/usage-totals.js` sources compact-model mirrors. `typecheck` plus the full test suite pass on each of 0.99.0, 0.99.1, 0.99.2, 1.0.0, 1.0.1, 1.0.2, 1.0.3, 1.0.4, 1.1.0 and 1.2.0, and smoke-loading on real pi 1.2.0 produces no warnings. Note: pi ≥ 0.99 hosts require `@earendil-works/pi-tui` to be declared in `peerDependencies` as `"*"` (provided by the host); this package declares it as required.
 
 ---
 
@@ -196,7 +196,7 @@ pi's `/compact` and auto-compact summarize the context **with the current sessio
 | auto-compact threshold reached | summarized by the compaction model |
 | context overflow recovery | summarized by the compaction model, retry behavior unchanged |
 
-**Parts that are identical to pi's built-in behavior after takeover** (the built-in implementation is mirrored verbatim — byte-identical since 0.87.1, verified up to 1.1.0; 0.87.0 shipped an earlier split-turn prompt, and the mirror carries the 0.87.1 fix for every host — and only the executing model changes):
+**Parts that are identical to pi's built-in behavior after takeover** (the built-in implementation is mirrored verbatim — copied from 0.87.1, byte-identical across every published version of the supported window, 0.99.0 → 1.2.0 — and only the executing model changes; the conversation serializer itself is imported from the host, so it follows whatever the running host does, e.g. 1.2.0 stops feeding assistant thinking back into the summarization request):
 
 - **Summary format** — the structured Goal / Progress / Key Decisions checkpoint; when a summary already exists, the iterative-update prompt is used so information carries over instead of being lost
 - **Split behavior** — the `keepRecentTokens` retention policy, and `firstKeptEntryId` / `tokensBefore` passed back unchanged
@@ -263,7 +263,7 @@ No file = feature disabled, zero overhead, silently skipped.
 
 **Key constraint: extension commands only**. Commands registered via `registerCommand` such as `/add-dir` (pi-add-dir) and `/cd` (pi-cd) work; built-in commands (`/compact`, `/reload`, `/resume`, …) are dispatched in the TUI layer and cannot be triggered from the extension layer; skill commands (`/skill:name`) are an expansion mechanism rather than an execution mechanism. The target extension you depend on (e.g. pi-add-dir) must be installed first.
 
-> **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; verified against pi 0.87.0–1.1.0 sources, see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
+> **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; `sendUserMessage` and `_tryExecuteExtensionCommand` are byte-identical across 0.99.0–1.2.0, see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
 
 ---
 

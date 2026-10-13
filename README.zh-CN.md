@@ -9,12 +9,12 @@
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
-[![pi >= 0.87](https://img.shields.io/badge/pi-%3E%3D0.87.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
+[![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0%20%3C2.0.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
 一句话介绍:目前包含六个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`,后续持续追加。
 
-**版本要求**:pi `>=0.87.0 <2.0.0`(覆盖最近 4 个中版本线 0.87.x / 0.99.x / 1.0.x / 1.1.x —— 0.88–0.98 从未发布。区间内全部 11 个已发布版本(0.87.0 → 1.1.0)逐版本比对宿主 dist:用到的扩展 API 无破坏性差异(1.0.4 → 1.1.0 仅新增字段),favorites 两处运行时 patch 目标 `ModelSelectorComponent` / `AgentSession.cycleModel` 字节级一致;并在 0.87.0、0.87.1、0.99.0、0.99.2、1.0.0、1.0.4、1.1.0 上逐一通过 typecheck + 全量测试,在真实 pi 1.1.0 上冒烟加载无警告)。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
+**版本要求**:pi `>=0.99.0 <2.0.0`(覆盖最近 4 个中版本线 0.99.x / 1.0.x / 1.1.x / 1.2.x —— 0.88–0.98 从未发布。区间内全部 10 个已发布版本(0.99.0 → 1.2.0)逐版本比对宿主 dist:用到的扩展 API 无破坏性差异(1.2.0 把 `before_agent_start` 改为判别联合类型、新增 `reachesTools`,我们读取的字段未变),favorites 两处运行时 patch 目标 `ModelSelectorComponent` / `AgentSession.cycleModel` 字节级一致,compact-model 镜像所依据的 `core/compaction/compaction.js` 与 `core/usage-totals.js` 同样字节级一致;并在 0.99.0、0.99.1、0.99.2、1.0.0、1.0.1、1.0.2、1.0.3、1.0.4、1.1.0、1.2.0 上逐一通过 typecheck + 全量测试,在真实 pi 1.2.0 上冒烟加载无警告)。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
 
 ---
 
@@ -196,7 +196,7 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | auto-compact 阈值触发 | 压缩模型总结 |
 | context overflow 恢复 | 压缩模型总结,重试行为不变 |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,0.87.1 起字节级不变、已核对至 1.1.0,只换执行模型;0.87.0 的分割轮次前缀 prompt 与 0.87.1 不同,本镜像对所有宿主采用 0.87.1 的修复文本):
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在支持区间内全部已发布版本(0.99.0 → 1.2.0)字节级不变,只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
 
 - **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
 - **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
@@ -263,7 +263,7 @@ run = [
 
 **关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
 
-> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,已对照 pi 0.87.0–1.1.0 源码核实,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,`sendUserMessage` 与 `_tryExecuteExtensionCommand` 在 0.99.0–1.2.0 全区间字节级一致,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
 
 ---
 

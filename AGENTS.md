@@ -14,14 +14,15 @@
 ## pi 宿主兼容
 
 **核心纪律：兼容区间必须覆盖「最近 4 个已发布中版本线」，且每次改动宿主依赖或
-宿主内部 API 都要重跑验证。**（当前区间 `>=0.87.0 <2.0.0`，覆盖 0.87 / 0.99 /
-1.0 / 1.1 —— 0.88–0.98 从未发布。）
+宿主内部 API 都要重跑验证。**（当前区间 `>=0.99.0 <2.0.0`，覆盖 0.99 / 1.0 /
+1.1 / 1.2 —— 0.88–0.98 从未发布。）
 
 - **窗口纪律**：兼容下限必须 **≤「最近 4 个已发布中版本线」中最旧的一条**（不能只支持最新几版）。
   随着 pi 发布新的中版本，窗口滑动时方可抬升下限：1.1 发布后，最近 4 条变为
-  1.1 / 1.0 / 0.99 / 0.87，下限已从 0.86.x 抬到 0.87.x（2026-10-10）；下次 1.2
-  发布后最近 4 条将变为 1.2 / 1.1 / 1.0 / 0.99，下限方可再抬到 0.99.x，
-  但仍不得提前抬到 1.0。
+  1.1 / 1.0 / 0.99 / 0.87，下限已从 0.86.x 抬到 0.87.x（2026-10-10）；1.2 发布后
+  最近 4 条变为 1.2 / 1.1 / 1.0 / 0.99，下限已抬到 0.99.x（2026-10-13）。
+  下次 1.3 发布后最近 4 条将变为 1.3 / 1.2 / 1.1 / 1.0，下限方可再抬到 1.0.x，
+  但仍不得提前抬到 1.1。
   下限的每次抬升必须在提交信息里写明「老版本为何不再支持」的实测结论。
   README 的 Requirements 段与该区间必须同步修改。
 - **peer 声明规则**（pi ≥ 0.99 启动时校验）：宿主提供的包（`@earendil-works/pi-*`）
@@ -30,20 +31,28 @@
   其中 `pi-tui` 用 `"*"`（运行时由宿主 virtual modules 重定向到宿主副本，值导入
   也不需要 `dependencies`）；`pi-coding-agent` 用实测支持区间——pi 托管安装禁用
   peer 解析（`--legacy-peer-deps` / `--omit=peer`），区间不参与安装求解，只作兼容声明。
-  （规则按 pi 1.1.0 源码核实：只校验 `dependencies` 成员，不校验 peer 区间；pi 升级时重新确认。）
+  （规则按 pi 1.2.0 源码核实：`resource-loader.js` 只校验 `dependencies` 成员，
+  peer 区间不被检查；pi 升级时重新确认。）
 
 **改 pi 依赖或动用宿主内部 API 时的验证义务（三步全做）：**
 
 1. **区间内全部已发布版本比对宿主 dist**：解包 tarball 后 diff 受影响的内建文件，
    重点盯运行时 patch 目标 `ModelSelectorComponent`
    （`modes/interactive/components/model-selector.js`）与 `AgentSession.cycleModel`
-   （`core/agent-session.js`）。取 tarball 可用 `pnpm view <pkg> dist.tarball` + `curl`，
+   （`core/agent-session.js`），以及我们 import 的扩展 API 类型（先例：1.2.0 把
+   `BeforeAgentStartEvent` 拆成 user/custom 判别联合、`ToolInfo` 新增 `reachesTools`）。
+   取 tarball 可用 `pnpm view <pkg> dist.tarball` + `curl`，
    或 `npm pack <pkg>@<ver>`（只下载不解包安装，不属 Package Management 禁止的
    install/publish；不要用 `npx`）。
 2. **多版本矩阵 typecheck + 测试**：至少在区间端点与最新版上跑 `pnpm typecheck`
    与 `pnpm test`。矩阵做法：复制仓库到 **Linux 本地盘**（`/tmp`），逐版本改
    `devDependencies` 后安装验证；**不要在 `/mnt/c` 等 Windows 挂载盘上跑
    pnpm/vitest**——那里 1 秒的测试要跑 2 分钟（I/O 慢两个数量级）。
+   **矩阵必须把整个 `@earendil-works/*` 家族钉在与宿主同版本**（`overrides` 要写在
+   `pnpm-workspace.yaml`——pnpm 12 不再读 package.json 的 `pnpm` 字段，写了会静默失效）。
+   理由（2026-10-13 实测）：老宿主的 `^1.0.x` 依赖会把 `pi-codemode` 等兄弟包浮动到
+   最新 1.2.0，而 1.2.0 删掉了老宿主 dist 仍在 import 的 `MCP_TYPESCRIPT_PREAMBLE`
+   导出，vitest 直接在 import 阶段炸——那不是宿主兼容性问题，是上游浮动解析的噪声。
 3. **真实 pi 冒烟加载**：
    `pi -p --no-extensions -e ./src/index.ts --tools '' 'Reply with exactly: OK'`，
    要求无 Extension 警告、正常回包。
@@ -74,7 +83,7 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
     宿主任何绑定重叠**，只能选完全空闲的键。
   - 🔵 需人工判断屏属（`app.*`、其余 `tui.altScreen.*`，多为树/会话/滚动屏幕专用）。
 - **键位族选择**（按作用域分两类）：
-  - **全局快捷键（`registerShortcut`）**：优先 `ctrl+alt+<字母>`——pi 层整个 0.87→1.1
+  - **全局快捷键（`registerShortcut`）**：优先 `ctrl+alt+<字母>`——pi 层整个 0.99→1.2
     区间只被 `ctrl+alt+]` 占用，且 `ESC + ctrl-<字母>` 编码不依赖 kitty 协议。但
     Windows 侧截图/效率工具常绑 `ctrl+alt+<字母>`（先例二），Windows Terminal 默认占
     `ctrl+v`（粘贴）与 `ctrl+shift+f`（查找）——定键后必须真机试按。
@@ -91,7 +100,10 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
 `favorites` 的两个 patch 复刻内建语义——pi 升级时 diff
 `core/compaction/compaction.js`、`core/compaction/utils.js`、`model-selector.js`、
 `agent-session.js`，有变化就同步代码或改正注释里的版本声明（注释中的「已验证区间」
-必须与 peer 下限一致）。
+必须与 peer 下限一致）。注意 `compact` 的 `serializeConversation` 是**从宿主导入而非
+镜像**，自动跟随宿主实现：1.2.0 起它不再把 assistant thinking 写进摘要请求（thinking
+可能不在模型活动上下文里，会让请求比被摘要内容还大）。升级 diff 到这类变化时，确认
+「跟随宿主」仍是预期行为，并同步 README/注释里对它的描述。
 
 ## Release
 
@@ -143,10 +155,13 @@ run = [
 解析器选 `smol-toml`（零依赖、~10KB、TOML 1.0、活跃维护），
 加入 dependencies（先例：@dreki-gg/pi-command-sandbox）。
 
-### 已验证的技术事实（pi 1.1.0 源码，agent-session.js）
+### 已验证的技术事实（pi 1.2.0 源码，agent-session.js）
 
-1. `sendUserMessage("/cmd args")` 走 `prompt()` → `_tryExecuteExtensionCommand()`
-   （~L1522）：**扩展命令被立即执行，不发给模型**，streaming 中也可执行
+1. `sendUserMessage("/cmd args")` 走 `prompt()` → `_tryExecuteExtensionCommand()`：
+   **扩展命令被立即执行，不发给模型**，streaming 中也可执行。1.2.0 把 prompt 内的
+   「准备消息 + 启动 run」重构成 `_prepareRun`/`_startRun`，但扩展命令分支仍是最前的
+   同一条早退路径；`sendUserMessage` 与 `_tryExecuteExtensionCommand` 两函数在
+   0.99.0–1.2.0 全区间逐字节一致。
 2. **只能支持扩展命令**（/add-dir、/cd、/skill:xxx 等 registerCommand 注册的）；
    内置命令（/compact、/reload、/resume）走 TUI 层，扩展层触发不了；
    skill 命令是展开机制非执行机制——此约束必须写进 README
@@ -170,9 +185,9 @@ session_start(reason 过滤)
 
 - **命令不存在时文本会作为普通消息发给模型**（跑偏风险）——必须预校验命令名；
   预校验 API 待查（注册表枚举接口，M1 第一件事）
-- `sendUserMessage` 的 "/cmd" 触发语义在 0.87–1.1 全区间成立（`_tryExecuteExtensionCommand`
+- `sendUserMessage` 的 "/cmd" 触发语义在 0.99–1.2 全区间成立（`_tryExecuteExtensionCommand`
   与 `sendUserMessage` 包装逐字节一致，矩阵 typecheck/test + 真实冒烟已过；
-  2026-10-10 随窗口迁移复核）
+  2026-10-13 随窗口迁移复核）
 - 与 pi-add-dir 的 session_start 顺序：命令执行时 pi-add-dir 必已完成注册
   （扩展加载先于全部 session_start）预期无问题，冒烟确认
 
