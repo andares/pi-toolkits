@@ -125,6 +125,12 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
   补建过）→ 视为成功跳过；404 = 真失败 → 提示可稍后手动补建，均不影响
   npm 已发布的结果
 - `pnpm tag-current` 可独立使用：给当前版本打本地 tag（已存在跳过，不推送）
+- 远端 tag 校验用的是**紧随推送之后的一次 `ls-remote`**，而 GitHub 的 ref 可见性
+  可能滞后——v0.7.3 发布时就出现过「tag 实际已推成功、校验却报不存在」。看到
+  「远端 tag 不一致」**先手动 `git ls-remote origin refs/tags/vX.Y.Z` 复核**：
+  哈希一致就说明只是竞态，此时**不要**按提示 force-push（会把同一个 tag 重推一次），
+  直接手动补建 Release 即可（payload 与脚本一致：
+  `{"tag_name":"vX.Y.Z","name":"vX.Y.Z","generate_release_notes":true}`）。
 - 发布失败回滚：`git tag -d vX.Y.Z && git reset --hard HEAD~1`
 - 需要覆盖远端 tag（如本地 tag 已重指）时：
   `git push origin refs/tags/vX.Y.Z --force`
