@@ -6,7 +6,7 @@
  * summaries produced by the configured compact model are formatted exactly
  * like pi's own compaction output. Only the executing model differs.
  * Verified byte-identical against every published version of the supported
- * window (0.99.0 → 1.2.0): dist/core/compaction/compaction.js and
+ * window (1.0.0 → 1.3.0): dist/core/compaction/compaction.js and
  * core/usage-totals.js are unchanged files across that span, and the only
  * utils.js change (1.2.0 dropping assistant thinking from
  * serializeConversation) does not touch the strings mirrored here — that
@@ -203,7 +203,7 @@ export function formatFileOperations(
 /**
  * Combine two provider usage records field-wise (pi 0.87.1 compaction.js
  * combineUsage, moved verbatim to core/usage-totals.js in 0.99.0 and
- * unchanged through 1.2.0): used when
+ * unchanged through 1.3.0): used when
  * a split turn produces two summarization calls.
  */
 export function combineUsage<T extends UsageLike>(first: T, second: T): T {

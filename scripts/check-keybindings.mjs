@@ -34,10 +34,17 @@ const REPO = resolve(HERE, "..");
 // ── host resolution ──────────────────────────────────────────────────────
 // The host's keybinding table is not an exported subpath, so import the dist
 // file directly. A layout change here is itself a finding: report it loudly.
+//
+// PI_HOST_PKG is authoritative: when it is set, its host is the ONLY one
+// considered. Falling back to the repo's own install would let the script
+// audit version X while printing "pi host: X" from the intended path and
+// silently auditing Y instead — exactly the kind of evidence corruption this
+// audit exists to prevent (an unpacked tarball has no node_modules, so the
+// import fails with ERR_MODULE_NOT_FOUND).
+const requestedRoot = process.env.PI_HOST_PKG;
 const hostRoots = [
-	process.env.PI_HOST_PKG,
-	join(REPO, "node_modules/@earendil-works/pi-coding-agent"),
-].filter(Boolean);
+	requestedRoot ?? join(REPO, "node_modules/@earendil-works/pi-coding-agent"),
+];
 
 async function loadHost() {
 	const failures = [];
@@ -55,10 +62,21 @@ async function loadHost() {
 	}
 	console.error("Could not load the pi host keybinding table.");
 	for (const line of failures) console.error(`  ${line}`);
-	console.error(
-		"If the host dist layout moved, update this script AND re-run the\n" +
-			"keybinding audit mandated in AGENTS.md.",
-	);
+	if (requestedRoot) {
+		console.error(
+			`\nPI_HOST_PKG=${requestedRoot} did not load — refusing to fall back\n` +
+				"to the repo install, because the audit would then report a host\n" +
+				"other than the one you asked about. Point PI_HOST_PKG at an\n" +
+				"INSTALLED copy (one with node_modules; an unpacked tarball has\n" +
+				"none, so dist/core/keybindings.js cannot import pi-tui), e.g. the\n" +
+				"sandbox that `pnpm check:compat` builds.",
+		);
+	} else {
+		console.error(
+			"If the host dist layout moved, update this script AND re-run the\n" +
+				"keybinding audit mandated in AGENTS.md.",
+		);
+	}
 	process.exit(2);
 }
 

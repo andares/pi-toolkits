@@ -17,7 +17,7 @@
  * that flag is what routes "/cmd args" through _tryExecuteExtensionCommand
  * instead of the model prompt path. The wrapper defaults it to false
  * (each byte-identical across every published version of the supported
- * window, 0.99.0 → 1.2.0; see AGENTS.md host-compat
+ * window, 1.0.0 → 1.3.0; see AGENTS.md host-compat
  * discipline for the version matrix).
  *
  * Only extension commands can run this way. Built-in commands (/compact,

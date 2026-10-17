@@ -22,7 +22,7 @@
  * keeps loading and ctrl+p falls back to stock behavior. The prototype
  * shape touched here (handleInput/updateList/filterModels and the instance
  * fields below) is byte-identical across every published version in
- * pi 0.99.0 → 1.2.0 (and 0.87.0 → 1.1.0 before the floor moved).
+ * pi 1.0.0 → 1.3.0 (and 0.99.0 → 1.2.0 before the floor moved).
  */
 import {
 	ModelSelectorComponent,
@@ -61,7 +61,7 @@ interface SelectorPatchTarget {
 	handleInput(keyData: string): void;
 	updateList(): void;
 	filterModels(query: string): void;
-	/** pi 0.99–1.2: default-model badge source. */
+	/** pi 1.0–1.3: default-model badge source. */
 	isDefaultModel(model: ModelRef): boolean;
 	listContainer: ListContainerLike;
 	searchInput: SearchInputLike;
@@ -116,7 +116,7 @@ let patched = false;
 export function applyModelSelectorPatches(): boolean {
 	if (patched) return true;
 	// SAFETY: ModelSelectorComponent's members are TS-private (compile-time
-	// only); the structural view matches pi 0.99–1.2's prototype shape
+	// only); the structural view matches pi 1.0–1.3's prototype shape
 	// (byte-identical across that span) and every touched method is
 	// existence-checked below before any patching happens.
 	const proto =
@@ -155,7 +155,7 @@ export function applyModelSelectorPatches(): boolean {
 	};
 
 	// ── 2. List rendering: hint row + bold bright yellow favorites ────────
-	// Replicates the built-in updateList layout (pi 0.99–1.2: fixed-width cursor
+	// Replicates the built-in updateList layout (pi 1.0–1.3: fixed-width cursor
 	// and ✓ current-marker columns, provider badge, `· default` badge, scroll
 	// indicator, empty/error states, refresh status, Model Name footer) with
 	// one change: favorited model ids render in the favorite style.

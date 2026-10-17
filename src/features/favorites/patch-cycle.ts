@@ -15,7 +15,7 @@
  *    model available" feedback); otherwise jump to it
  *  - the apply logic mirrors pi's _cycleScopedModel/_cycleAvailableModel
  *    (byte-identical across every published version in the supported window
- *    0.99.0 → 1.2.0:
+ *    1.0.0 → 1.3.0:
  *    state swap, session persistence, default-model persistence only when
  *    `options.persist` is set, thinking-level re-clamp, model_select emit
  *    with source "cycle")
@@ -31,9 +31,9 @@ import { getFavoritesStore, modelKey } from "./store.js";
 
 /**
  * pi's `Model<any>` — the exact type of `ModelCycleResult.model`
- * (pi-coding-agent 0.99–1.2; the field is unchanged across that span).
+ * (pi-coding-agent 1.0–1.3; the field is unchanged across that span).
  * Derived here instead of importing `Model` from @earendil-works/pi-ai,
- * whose index.d.ts (0.99 through 1.2.0 alike) re-exports it via an
+ * whose index.d.ts (1.0 through 1.3.0 alike) re-exports it via an
  * extensioned `"./types.ts"` specifier that not every TS resolver substitutes
  * to `types.d.ts` (tsc 5.9 bundler does; other tsserver builds don't).
  */
@@ -57,7 +57,7 @@ interface CycleSessionInternals {
 		setDefaultModelAndProvider(provider: string, id: string): void;
 	};
 	/**
-	 * pi 0.99–1.2: keeps a persisted default usable when cycling inside a
+	 * pi 1.0–1.3: keeps a persisted default usable when cycling inside a
 	 * non-empty --models scope.
 	 */
 	_addPersistedDefaultToNonEmptyScope(model: unknown): void;
@@ -140,7 +140,7 @@ export function applyCyclePatch(): boolean {
 			return original.call(this, direction, options);
 		}
 
-		// Same source and availability filtering as pi's stock cycling (0.99–1.2).
+		// Same source and availability filtering as pi's stock cycling (1.0–1.3).
 		const scoped = this._scopedModels.length > 0;
 		let candidates: CycleCandidate[];
 		if (scoped) {
@@ -185,7 +185,7 @@ export function applyCyclePatch(): boolean {
 				: this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = next.model;
 		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
-		// pi 0.99–1.2: only persist the default model when the caller asked for it.
+		// pi 1.0–1.3: only persist the default model when the caller asked for it.
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(
 				next.model.provider,

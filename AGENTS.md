@@ -13,51 +13,71 @@
 
 ## pi 宿主兼容
 
-**核心纪律：兼容区间必须覆盖「最近 4 个已发布中版本线」，且每次改动宿主依赖或
-宿主内部 API 都要重跑验证。**（当前区间 `>=0.99.0 <2.0.0`，覆盖 0.99 / 1.0 /
-1.1 / 1.2 —— 0.88–0.98 从未发布。）
+**核心纪律：兼容区间是实测结论，不是愿望。** 下限 = 「最近 4 个已发布中版本线」
+中最旧的一条（尽量支持）；上界 = 最新线 + 8 条中版本（向后探针的硬上限，再晚不宣称）；
+区间内每个已发布版本都要真的跑绿，README 与源码注释标注「实测支持到 X」。
+（当前 `>=1.0.0 <1.12.0`：窗口 1.0 / 1.1 / 1.2 / 1.3，探针 1.4 … 1.11，
+**实测支持到 1.3.0**；0.88–0.98 从未发布，0.87.x 与 0.99.x 均因窗口滑出而下调。）
 
-- **窗口纪律**：兼容下限必须 **≤「最近 4 个已发布中版本线」中最旧的一条**（不能只支持最新几版）。
-  随着 pi 发布新的中版本，窗口滑动时方可抬升下限：1.1 发布后，最近 4 条变为
-  1.1 / 1.0 / 0.99 / 0.87，下限已从 0.86.x 抬到 0.87.x（2026-10-10）；1.2 发布后
-  最近 4 条变为 1.2 / 1.1 / 1.0 / 0.99，下限已抬到 0.99.x（2026-10-13）。
-  下次 1.3 发布后最近 4 条将变为 1.3 / 1.2 / 1.1 / 1.0，下限方可再抬到 1.0.x，
-  但仍不得提前抬到 1.1。
-  下限的每次抬升必须在提交信息里写明「老版本为何不再支持」的实测结论。
-  README 的 Requirements 段与该区间必须同步修改。
+- **窗口纪律**：下限只能随窗口滑动抬升，且每次抬升必须在提交信息里写明
+  「老版本为何不再支持」的实测结论——是政策下调就明说政策下调，别编不兼容。
+  历史：0.86.x → 0.87.x（2026-10-10，1.1 发布）→ 0.99.x（2026-10-13，1.2 发布）
+  → 1.0.x（2026-10-17，1.3 发布）。README 的 Requirements 段、badge、
+  源码注释里的「已验证区间」都随区间同步修改。
 - **peer 声明规则**（pi ≥ 0.99 启动时校验）：宿主提供的包（`@earendil-works/pi-*`）
   **只能**放进 `peerDependencies`，进 `dependencies` 会被 pi 告警
   「Host-provided extension packages must be declared in peerDependencies」。
   其中 `pi-tui` 用 `"*"`（运行时由宿主 virtual modules 重定向到宿主副本，值导入
   也不需要 `dependencies`）；`pi-coding-agent` 用实测支持区间——pi 托管安装禁用
   peer 解析（`--legacy-peer-deps` / `--omit=peer`），区间不参与安装求解，只作兼容声明。
-  （规则按 pi 1.2.0 源码核实：`resource-loader.js` 只校验 `dependencies` 成员，
+  该区间的值不要手工推演：下限 = 窗口最旧版本、上界 = 最新线下一条 + 8 条线的下一条，
+  由 `pnpm check:compat` 校验（不一致直接判失败）。
+  （规则按 pi 1.3.0 源码核实：`resource-loader.js` 只校验 `dependencies` 成员，
   peer 区间不被检查；pi 升级时重新确认。）
 
-**改 pi 依赖或动用宿主内部 API 时的验证义务（三步全做）：**
+### 一条命令跑完纪律：`pnpm check:compat`
 
-1. **区间内全部已发布版本比对宿主 dist**：解包 tarball 后 diff 受影响的内建文件，
-   重点盯运行时 patch 目标 `ModelSelectorComponent`
+`scripts/check-compat.mjs` 从 npm 枚举已发布版本、自己推导目标集合，逐版本验证：
+
+| 集合 | 范围 | 判定 |
+| --- | --- | --- |
+| window | 最近 4 条中版本线内**全部已发布版本** | 任一红 = 破坏承诺：修，或带实测理由抬下限 |
+| forward | 最新线之后最多 8 条线（默认 1.4 … 1.11）里**已发布**的版本 | 红 = 早期预警，**不得据此改区间**，先上报决策 |
+
+每个版本跑：`pnpm install`（`@earendil-works/*` 家族用 `overrides` 钉在宿主同版本）
+→ `tsc --noEmit` → `vitest run` → `check-keybindings`（`PI_HOST_PKG` 指向该沙箱）
+→ 对 patch/mirror 目标的宿主 dist 文件做哈希比对（基线 = 最新窗口版本）。
+脚本同时校验 `package.json` 的 peer 区间 == 策略推导值（下限 = 窗口最旧版本，
+上界 = 最新线下一条 + 8 条线的下一条），不一致即失败——**区间必须跟着窗口走**。
+
+- `--skip-tests`（只装 + dist + 键位，快速回归）、`--versions a,b`（只测指定版本）、
+  `--keep`（保留沙箱排查）、`--window/--forward`（显式改策略旋钮）
+- 沙箱落在 `os.tmpdir()`：**不要在 `/mnt/c` 等 Windows 挂载盘上跑 pnpm/vitest**，
+  那里 1 秒的测试要跑 2 分钟（I/O 慢两个数量级）
+- 家族钉版本的由来（2026-10-13 实测）：老宿主的 `^1.0.x` 依赖会把 `pi-codemode`
+  等兄弟包浮动到最新版，而新版删掉了老宿主 dist 仍在 import 的
+  `MCP_TYPESCRIPT_PREAMBLE`，vitest 在 import 阶段就炸——那是上游浮动解析的噪声，
+  不是宿主兼容性问题。`overrides` 必须写在 `pnpm-workspace.yaml`（pnpm 12 不再读
+  package.json 的 `pnpm` 字段，写了会静默失效），脚本按此生成沙箱配置。
+- 脚本报「resolved X, expected Y」或「deps floated」= 该次验证无效，先修沙箱再谈结论。
+
+**脚本测不到、必须人工补的三件事：**
+
+1. **判断 dist 漂移的性质**——脚本只报「哪些文件与基线不同」，不判断是否影响我们，
+   要人读 diff。重点：运行时 patch 目标 `ModelSelectorComponent`
    （`modes/interactive/components/model-selector.js`）与 `AgentSession.cycleModel`
-   （`core/agent-session.js`），以及我们 import 的扩展 API 类型（先例：1.2.0 把
-   `BeforeAgentStartEvent` 拆成 user/custom 判别联合、`ToolInfo` 新增 `reachesTools`）。
-   取 tarball 可用 `pnpm view <pkg> dist.tarball` + `curl`，
-   或 `npm pack <pkg>@<ver>`（只下载不解包安装，不属 Package Management 禁止的
-   install/publish；不要用 `npx`）。
-2. **多版本矩阵 typecheck + 测试**：至少在区间端点与最新版上跑 `pnpm typecheck`
-   与 `pnpm test`。矩阵做法：复制仓库到 **Linux 本地盘**（`/tmp`），逐版本改
-   `devDependencies` 后安装验证；**不要在 `/mnt/c` 等 Windows 挂载盘上跑
-   pnpm/vitest**——那里 1 秒的测试要跑 2 分钟（I/O 慢两个数量级）。
-   **矩阵必须把整个 `@earendil-works/*` 家族钉在与宿主同版本**（`overrides` 要写在
-   `pnpm-workspace.yaml`——pnpm 12 不再读 package.json 的 `pnpm` 字段，写了会静默失效）。
-   理由（2026-10-13 实测）：老宿主的 `^1.0.x` 依赖会把 `pi-codemode` 等兄弟包浮动到
-   最新 1.2.0，而 1.2.0 删掉了老宿主 dist 仍在 import 的 `MCP_TYPESCRIPT_PREAMBLE`
-   导出，vitest 直接在 import 阶段炸——那不是宿主兼容性问题，是上游浮动解析的噪声。
-3. **真实 pi 冒烟加载**：
-   `pi -p --no-extensions -e ./src/index.ts --tools '' 'Reply with exactly: OK'`，
-   要求无 Extension 警告、正常回包。
+   （`core/agent-session.js`）、镜像源 `core/compaction/{compaction,utils}.js`、
+   以及我们 import 的扩展 API 类型（先例：1.2.0 把 `BeforeAgentStartEvent` 拆成
+   user/custom 判别联合、`ToolInfo` 新增 `reachesTools`；1.3.0 只新增
+   `supportsMidConvoEffort`/`sessionShareDestination` 与 `formatReadLineRange` 导出，
+   全为增量）。取 tarball 用 `npm pack <pkg>@<ver>`（只下载不解包安装，不属
+   Package Management 禁止的 install/publish；不要用 `npx`）。
+2. **真实 pi 冒烟加载**：
+   `pi -p --no-extensions -e ./src/index.ts --tools '' 'Reply with exactly: OK'`
+   ——无 Extension 警告、正常回包。沙箱跑的是 mock，冒烟才是真宿主加载路径。
+3. **真机按一次键**——宿主表空闲 ≠ 机器层空闲（见下节）。
 
-**键位冲突检查义务（每次宿主升级必跑，独立于上面三步）：**
+**键位冲突检查义务（每次宿主升级必跑，结论必须上报）：**
 
 pi 升级本身就能把「我们没动过的键」变成死键——先例一：`favorites` 的 `ctrl+f`。
 pi 1.0 起 `tuiMode` 默认 `fullscreen`（0.87–0.99 默认 `regular`），fullscreen 下
@@ -69,10 +89,17 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
 截图工具作为全局热键截走——**宿主表空闲 ≠ 机器层空闲**。候选键除了跑脚本，
 还必须在真机按一次，确认按键真的到得了应用。
 
+**冲突/疑似冲突发现后的顺序：先上报崔总，再动键。** 升级时若矩阵的 keys 列出现
+红项，或真机按不出来，升级这一轮只做「发现 + 候选键审计 + 影响面」——换键是产品决策
+（键位族、记忆点、机器层习惯都参与），等崔总定。上报内容至少包含：哪个键、被谁在哪层
+消费（tier + 具体 binding id）、`pnpm check:keybindings <候选...>` 的候选审计结果。
+
 - **跑 `pnpm check:keybindings [候选键...]`**：它用宿主自己的 `matchesKey` + 已解析键位表
   （含平台/WSL 差异与用户 `keybindings.json`）核对插件声明的每个键；新增键位时把候选键
-  一并传入审。审的是 `devDependencies` 里那版宿主；要审正在运行的那份就传
-  `PI_HOST_PKG=/abs/path/to/@earendil-works/pi-coding-agent`（矩阵仓库同法）。
+  一并传入审。审的是 `devDependencies` 里那版宿主；要审别的版本就传
+  `PI_HOST_PKG=/abs/path/to/@earendil-works/pi-coding-agent`——**必须指向装好的副本
+  （有 `node_modules`）**，解包 tarball 里 dist 会因缺 pi-tui 而 import 失败；
+  该失败是硬错误（旧行为是静默改用仓库那版宿主却照报目标路径，会毁掉审计证据）。
 - **判定口径**（脚本按 pi-tui 真实分发顺序建模，注释里有依据）：
   - 🔴 不可接受：被 `tui.altScreen.search` 无条件消费；或非 kitty 终端下 legacy 字节等于
     可打印字符（`shift+f` = `"F"`，会偷走搜索框的输入）。有 🔴 就是死键，必须换键。
@@ -83,7 +110,7 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
     宿主任何绑定重叠**，只能选完全空闲的键。
   - 🔵 需人工判断屏属（`app.*`、其余 `tui.altScreen.*`，多为树/会话/滚动屏幕专用）。
 - **键位族选择**（按作用域分两类）：
-  - **全局快捷键（`registerShortcut`）**：优先 `ctrl+alt+<字母>`——pi 层整个 0.99→1.2
+  - **全局快捷键（`registerShortcut`）**：优先 `ctrl+alt+<字母>`——pi 层整个 1.0→1.3
     区间只被 `ctrl+alt+]` 占用，且 `ESC + ctrl-<字母>` 编码不依赖 kitty 协议。但
     Windows 侧截图/效率工具常绑 `ctrl+alt+<字母>`（先例二），Windows Terminal 默认占
     `ctrl+v`（粘贴）与 `ctrl+shift+f`（查找）——定键后必须真机试按。
@@ -97,13 +124,16 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
   并在 README「Implementation notes / 键位」段落同步。
 
 **内建行为同步义务**：`compact` 的摘要 prompt 与预算公式逐字复刻 pi 内建实现，
-`favorites` 的两个 patch 复刻内建语义——pi 升级时 diff
-`core/compaction/compaction.js`、`core/compaction/utils.js`、`model-selector.js`、
-`agent-session.js`，有变化就同步代码或改正注释里的版本声明（注释中的「已验证区间」
-必须与 peer 下限一致）。注意 `compact` 的 `serializeConversation` 是**从宿主导入而非
-镜像**，自动跟随宿主实现：1.2.0 起它不再把 assistant thinking 写进摘要请求（thinking
-可能不在模型活动上下文里，会让请求比被摘要内容还大）。升级 diff 到这类变化时，确认
-「跟随宿主」仍是预期行为，并同步 README/注释里对它的描述。
+`favorites` 的两个 patch 复刻内建语义——pi 升级时看矩阵里的 dist 漂移列，
+对 `core/compaction/compaction.js`、`core/compaction/utils.js`、`model-selector.js`、
+`agent-session.js` 逐文件 diff，有变化就同步代码或改正注释里的版本声明（注释中的
+「已验证区间」必须与 peer 下限一致；当前 1.0.0 → 1.3.0：`compaction.js` 与
+`usage-totals.js` 全窗口字节级不变，`utils.js` 最后一次变化是 1.2.0，
+`agent-session.js` 1.3.0 只改了 tool-restore 路径）。注意 `compact` 的
+`serializeConversation` 是**从宿主导入而非镜像**，自动跟随宿主实现：1.2.0 起它不再把
+assistant thinking 写进摘要请求（thinking 可能不在模型活动上下文里，会让请求比被摘要
+内容还大）。升级 diff 到这类变化时，确认「跟随宿主」仍是预期行为，并同步 README/
+注释里对它的描述。
 
 ## Release
 

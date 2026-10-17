@@ -21,7 +21,7 @@ import type { KeyId } from "@earendil-works/pi-tui";
 /**
  * Stash hotkey.
  *
- * Compatibility rationale (verified against pi 0.99.0–1.2.0 keybindings, live
+ * Compatibility rationale (verified against pi 1.0.0–1.3.0 keybindings, live
  * matchesKey probes and terminal/OS behavior):
  *  - pi: no default binding for ctrl+alt+<letter> (only ctrl+alt+] is taken);
  *    extension shortcuts dispatch first while the editor is focused
