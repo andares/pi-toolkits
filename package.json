@@ -48,6 +48,7 @@
     "test": "vitest run",
     "check:keybindings": "node ./scripts/check-keybindings.mjs",
     "check:compat": "node ./scripts/check-compat.mjs",
+    "release:github": "node ./scripts/release-github.mjs",
     "prepublishOnly": "pnpm typecheck && pnpm test",
     "release": "node ./scripts/publish.mjs",
     "tag-current": "node ./scripts/tag-current.mjs"

@@ -16,11 +16,16 @@
  *     → 自检：tag == HEAD 且工作区干净（否则中止）
  *   → `pnpm publish` (pnpm-only repo — never `npm publish`). `prepublishOnly`
  *     re-runs typecheck + test as the publish gate.
- *   → npm 成功后（失败即中止）：git push origin <branch> + 只推当前 tag
- *     refs/tags/vX.Y.Z（不再 --tags），随后校验远端分支/tag 哈希与本地一致；
- *     远端 tag 不一致 → 跳过 Release 创建并给出修复命令。
- *   → 用 GITHUB_TOKEN 创建 GitHub Release v{next}（仅在远端 tag 校验通过后；
- *     best-effort：未设 token / 已存在 / 失败都只提示、不中止）。
+ *   → npm 成功后（失败即中止）：git push origin <branch>（只推当前分支），
+ *     tag 的推送/远端校验/GitHub Release 创建交给 scripts/lib/github-release.mjs
+ *     （与 `pnpm release:github` 共用同一条路径，带远端可见性重试；远端 tag 不存在
+ *     就推，指向别的提交就拒绝建 Release 并给出人工修复命令）。
+ *   → 用 GITHUB_TOKEN 创建 GitHub Release v{next}（best-effort：未设 token /
+ *     已存在 / 失败都只提示、不中止）。
+ *
+ * 发布后若 GitHub Release 被跳过（竞态/缺 token/push 失败），补建用：
+ *     pnpm release:github v{next}      # 不动版本号，不碰 npm，幂等
+ *     pnpm release:github --audit      # 列出 npm 与 GitHub Release 的差集
  *
  * `--dry-run` prints the plan (version + steps) and exits without changing
  * anything.
@@ -38,11 +43,11 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { syncGitHubRelease } from "./lib/github-release.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_PATH = join(ROOT, "package.json");
 const BUMPS = ["major", "minor", "patch"];
-const curl = process.platform === "win32" ? "curl.exe" : "curl";
 
 const C = {
 	reset: "\x1b[0m",
@@ -170,7 +175,8 @@ if (dryRun) {
 	console.log(`  3b. 自检：tag == HEAD 且工作区干净`);
 	console.log(`  4. pnpm publish --no-git-checks`);
 	console.log(
-		`  5. git push origin ${branch} + refs/tags/v${next}（只推当前 tag）+ 校验远端哈希` +
+		`  5. git push origin ${branch} + refs/tags/v${next}（tag 不存在才推）+ 校验远端 tag 哈希` +
+			`（带可见性重试）+ 创建 GitHub Release` +
 			(process.env.GITHUB_TOKEN ? "" : "（未设置 GITHUB_TOKEN → Release 跳过）"),
 	);
 	if (dirty) {
@@ -245,6 +251,12 @@ console.log(
 );
 
 // 4. Publish (prepublishOnly re-gates with typecheck + test).
+if (!process.env.GITHUB_TOKEN) {
+	console.warn(
+		`${C.yellow}未设置 GITHUB_TOKEN —— npm 会照常发布，但 GitHub Release 会被跳过；` +
+			`发布后用 pnpm release:github v${next} 补建（幂等，不碰 npm）。${C.reset}`,
+	);
+}
 step("pnpm publish");
 const publish = run(pnpm, ["publish", "--no-git-checks"], {
 	allowFailure: true,
@@ -257,9 +269,11 @@ if (publish.status !== 0) {
 	process.exit(publish.status ?? 1);
 }
 
-// 5. GitHub：只推当前分支 + 当前 tag（不再 --tags —— 历史 tag 分歧会整条
-// 拒绝推送且掩盖当前 tag 的真实状态），随后校验远端哈希；仅当远端 tag 与
-// 本地一致时才创建 Release（否则 Release 会指向错误内容）。
+// 5. GitHub：只推当前分支（不再 --tags —— 历史 tag 分歧会整条拒绝推送且掩盖
+// 当前 tag 的真实状态）；tag 推送 + 远端校验 + Release 创建在
+// scripts/lib/github-release.mjs 里，与 `pnpm release:github` 共用。
+// 旧版把「远端 tag 不一致」当成终局、又提示「重跑本脚本（幂等）」——两条都是坑：
+// `pnpm release` 永远会再 bump 一版，漏掉的 Release 反而永远补不上。
 step("git push + 校验 + GitHub Release");
 const pushBranch = gitTry(["push", "origin", branch]);
 if (pushBranch.status !== 0) {
@@ -267,18 +281,6 @@ if (pushBranch.status !== 0) {
 		`${C.yellow}git push origin ${branch} 失败（可能已推过或非快进）— 请手动检查。${C.reset}`,
 	);
 }
-const pushTag = gitTry(["push", "origin", `refs/tags/v${next}`]);
-if (pushTag.status !== 0) {
-	console.warn(
-		`${C.yellow}git push refs/tags/v${next} 失败（远端同名 tag 可能已存在且指向其它提交）。` +
-			`\n  如需覆盖：git push origin refs/tags/v${next} --force${C.reset}`,
-	);
-}
-const remoteTag =
-	gitTry(["ls-remote", "origin", `refs/tags/v${next}`])
-		.stdout.toString()
-		.trim()
-		.split(/\s+/)[0] ?? "";
 const remoteBranch =
 	gitTry(["ls-remote", "origin", `refs/heads/${branch}`])
 		.stdout.toString()
@@ -289,100 +291,22 @@ if (remoteBranch !== headHash) {
 		`${C.yellow}远端 ${branch} (${remoteBranch.slice(0, 7) || "?"}) 与本地 (${headHash.slice(0, 7)}) 不一致 — push 可能未成功。${C.reset}`,
 	);
 }
-const tagVerified = remoteTag === tagHash;
-if (tagVerified) {
+const release = await syncGitHubRelease({
+	cwd: ROOT,
+	repo: ghRepo,
+	token: process.env.GITHUB_TOKEN,
+	tag: `v${next}`,
+});
+const releaseOk = release.status === "created" || release.status === "exists";
+if (!releaseOk) {
 	console.log(
-		`${C.green}远端 tag v${next} 校验通过 → ${tagHash.slice(0, 7)}${C.reset}`,
+		`${C.dim}补建：pnpm release:github v${next}（幂等，不碰 npm 与版本号）${C.reset}`,
 	);
-} else {
-	console.warn(
-		`${C.red}远端 tag v${next} (${remoteTag.slice(0, 7) || "不存在"}) 与本地 (${tagHash.slice(0, 7)}) 不一致。` +
-			`\n  修复：git push origin refs/tags/v${next} --force${C.reset}`,
-	);
-}
-if (!process.env.GITHUB_TOKEN) {
-	console.warn(
-		`${C.yellow}未设置 GITHUB_TOKEN — 跳过 GitHub Release 创建。` +
-			`npm 已发布 v${next}，可稍后手动创建 release。${C.reset}`,
-	);
-} else if (!tagVerified) {
-	console.warn(
-		`${C.yellow}远端 tag 校验未通过 — 跳过 GitHub Release 创建（避免 Release 指向错误内容）。` +
-			`修好 tag 后重跑本脚本（幂等）或手动创建。${C.reset}`,
-	);
-} else {
-	const rel = run(
-		curl,
-		[
-			"-sS",
-			"-X",
-			"POST",
-			"-H",
-			"Accept: application/vnd.github+json",
-			"-H",
-			"X-GitHub-Api-Version: 2022-11-28",
-			"-H",
-			`Authorization: Bearer ${process.env.GITHUB_TOKEN}`,
-			"-w",
-			"\n%{http_code}",
-			"-d",
-			JSON.stringify({
-				tag_name: `v${next}`,
-				name: `v${next}`,
-				generate_release_notes: true,
-			}),
-			`https://api.github.com/repos/${ghRepo}/releases`,
-		],
-		{ allowFailure: true, stdio: "pipe" },
-	);
-	const lines = rel.stdout.toString().trimEnd().split("\n");
-	const code = lines.pop()?.trim() ?? "";
-	const body = lines.join("\n").replace(/\s+/g, "");
-	if (
-		rel.status === 0 &&
-		code === "201" &&
-		body.includes(`"tag_name":"v${next}"`)
-	) {
-		console.log(
-			`${C.green}GitHub Release v${next} 创建成功（tag → ${tagHash.slice(0, 7)}）${C.reset}`,
-		);
-	} else if (rel.status === 0 && code === "201") {
-		console.warn(
-			`${C.yellow}Release 创建成功但响应未确认 tag_name=v${next} — 请手动核对。${C.reset}`,
-		);
-	} else {
-		// POST 失败后查询确认——release 可能已存在（并发/重试/手动补建），
-		// 幂等处理：查询返回 200 即视为成功，不再重复创建。
-		const chk = run(
-			curl,
-			[
-				"-sS",
-				"-o",
-				"/dev/null",
-				"-w",
-				"%{http_code}",
-				"-H",
-				`Authorization: Bearer ${process.env.GITHUB_TOKEN}`,
-				`https://api.github.com/repos/${ghRepo}/releases/tags/v${next}`,
-			],
-			{ allowFailure: true, stdio: "pipe" },
-		);
-		const chkCode = chk.stdout.toString().trim();
-		if (chkCode === "200") {
-			console.warn(
-				`${C.yellow}POST 返回 HTTP ${code || "?"}，但查询确认 Release v${next} 已存在，跳过（不重复创建）${C.reset}`,
-			);
-		} else {
-			console.warn(
-				`${C.yellow}GitHub Release 创建失败（POST HTTP ${code || "?"}，按 tag 查询 ${chkCode || "?"}）。` +
-					`npm 已发布 v${next}，可稍后手动创建。${C.reset}`,
-			);
-		}
-	}
 }
 
 console.log(
 	`\n${C.green}${C.bold}✅ Published v${current} → v${next}${C.reset}` +
-		`\n${C.dim}Tag: v${next} (${tagHash.slice(0, 7)})` +
-		` · npm${tagVerified ? " · GitHub Release" : ""}${C.reset}`,
+		`\n${C.dim}Tag: v${next} (${tagHash.slice(0, 7)}) · npm` +
+		(releaseOk ? " · GitHub Release" : " · GitHub Release 未创建（见上）") +
+		`${C.reset}`,
 );

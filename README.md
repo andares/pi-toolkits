@@ -313,9 +313,13 @@ pnpm release patch   # 0.1.2 → 0.1.3
 pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
 pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
 pnpm release patch --dry-run   # preview without changing anything
+pnpm release:github            # create/verify the GitHub Release for the current version
+pnpm release:github --audit    # list npm versions vs GitHub Releases vs remote tags
 ```
 
-`release` requires exactly one of `major | minor | patch`; incrementing a higher level zeroes the lower ones. The chain is: **the working tree must be clean (any uncommitted change aborts before anything happens, guaranteeing tag content == published content)** → `typecheck + test` gate → version bump → git commit + `vX.Y.Z` tag (self-check that tag == HEAD and the tree is clean) → `pnpm publish` (with `prepublishOnly` as a second gate) → push only the current branch + the current tag and verify the remote hashes match (if the remote tag differs, GitHub Release creation is skipped).
+`release` requires exactly one of `major | minor | patch`; incrementing a higher level zeroes the lower ones. The chain is: **the working tree must be clean (any uncommitted change aborts before anything happens, guaranteeing tag content == published content)** → `typecheck + test` gate → version bump → git commit + `vX.Y.Z` tag (self-check that tag == HEAD and the tree is clean) → `pnpm publish` (with `prepublishOnly` as a second gate) → push the current branch → push the tag if the remote lacks it, verify the remote tag hash (with bounded retries, because GitHub's ref view lags right after a push) and create the GitHub Release.
+
+If that last step is skipped (no `GITHUB_TOKEN`, a failed push, an HTTP error), the version would otherwise stay Release-less forever: the next release's auto-generated notes diff against the previous *published* Release, so the missing version's commits get folded into the next one and GitHub drifts away from npm. `pnpm release:github` is the resume path — it never bumps the version and never touches npm; `--audit` is the drift detector (`--allow-gaps` downgrades a historical gap to a warning).
 
 ---
 

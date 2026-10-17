@@ -312,9 +312,13 @@ pnpm release patch   # 0.1.2 → 0.1.3
 pnpm release minor   # 0.1.2 → 0.2.0   (patch 清零)
 pnpm release major   # 0.1.2 → 1.0.0   (minor + patch 清零)
 pnpm release patch --dry-run   # 预览,不做任何改动
+pnpm release:github            # 为当前版本创建/校验 GitHub Release(幂等)
+pnpm release:github --audit    # 列出 npm 版本 vs GitHub Release vs 远端 tag
 ```
 
-`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:**工作区必须干净(有未提交变更直接中止,保证 tag 内容 == 发布内容)** → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag(自检 tag==HEAD 且工作区干净) → `pnpm publish`(`prepublishOnly` 二次门禁) → 只推当前分支 + 当前 tag 并校验远端哈希一致(远端 tag 不一致则跳过 Release 创建)。
+`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:**工作区必须干净(有未提交变更直接中止,保证 tag 内容 == 发布内容)** → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag(自检 tag==HEAD 且工作区干净) → `pnpm publish`(`prepublishOnly` 二次门禁) → 推当前分支 → tag 远端没有就推、有就校验哈希一致(带有限次重试——刚推完 GitHub 的 ref 可见性可能滞后)→ 创建 GitHub Release。
+
+若最后一步被跳过(无 `GITHUB_TOKEN`、push 失败、HTTP 报错),该版本会永远没有 Release:下一版自动生成的 release notes 是**对着上一个已发布的 Release** 算 diff 的,于是缺的那版提交被吞进下一版,GitHub 的版本线就与 npm 对不上。`pnpm release:github` 就是补建/续跑入口——不动版本号、不碰 npm;`--audit` 是差集探测器(`--allow-gaps` 把历史缺口降级为警告)。
 
 ---
 

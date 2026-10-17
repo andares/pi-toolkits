@@ -145,22 +145,33 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
   typecheck+test → bump → commit + tag（`scripts/tag-current.mjs` 打
   `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且工作区干净**（否则中止）
   → `pnpm publish`（失败即中止，版本已锚定）
-  → **npm 成功后**：只推当前分支 + 当前 tag（`git push origin <分支>` +
-  `git push origin refs/tags/vX.Y.Z`，不再 `--tags`）→ **校验远端分支/tag
-  哈希与本地一致**；远端 tag 不一致 → 跳过 Release 创建并给出修复命令
-  → 创建 GitHub Release `vX.Y.Z`（仅在远端 tag 校验通过后；best-effort，不中止）
+  → **npm 成功后**：只推当前分支；tag 的推送 / 远端校验 / Release 创建交给
+  `scripts/lib/github-release.mjs`（与 `pnpm release:github` 共用同一条路径）——
+  远端没有 tag 就推，哈希与本地一致才建 Release，指向别的提交就拒绝创建
+  并给出人工修复命令（绝不 force、绝不给错版本建 Release）。
+- **`pnpm release:github [vX.Y.Z]`：补建 / 续跑入口**（默认取当前 package.json
+  版本）——不动版本号、不碰 npm，只做「解析本地 tag → 推送/校验远端（带重试）
+  → 幂等创建 Release」。**漏掉的 Release 只能用这条命令补**：`pnpm release`
+  永远会再 bump 一版，所以以前的提示语「修好 tag 后重跑本脚本（幂等）」是错的
+  （已删）。`--audit` 列出 npm 已发布版本 ↔ GitHub Release ↔ 远端 tag 的差集
+  （`--allow-gaps` 把历史缺口降为警告）；**每次发布后跑一次 `--audit`**——只在
+  npm 上、没有 Release 的版本，其提交会被下一版的 `generate_release_notes`
+  吞进下一版（对照的是上一个已发布 Release），GitHub 的版本线就与 npm 对不上
+  （0.1.0 就是这样一条历史缺口）。
 - GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（fine-grained token，
-  Contents: write）；未设置时只提示。创建失败（403/422/网络等）后脚本会
-  自动 `GET /releases/tags/{tag}` 查询确认：200 = 已存在（并发/重试/手动
-  补建过）→ 视为成功跳过；404 = 真失败 → 提示可稍后手动补建，均不影响
-  npm 已发布的结果
+  Contents: write）；未设置时只提示——且 `pnpm release` 会在 `pnpm publish`
+  **之前**先警告一次：npm 会照常发布，Release 事后用 `pnpm release:github` 补。
+  创建失败（403/422/网络等）后脚本会自动 `GET /releases/tags/{tag}` 查询确认：
+  200 = 已存在（并发/重试/手动补建过）→ 视为成功跳过；404 = 真失败 → 提示可
+  稍后重跑补建，均不影响 npm 已发布的结果
 - `pnpm tag-current` 可独立使用：给当前版本打本地 tag（已存在跳过，不推送）
-- 远端 tag 校验用的是**紧随推送之后的一次 `ls-remote`**，而 GitHub 的 ref 可见性
-  可能滞后——v0.7.3 发布时就出现过「tag 实际已推成功、校验却报不存在」。看到
-  「远端 tag 不一致」**先手动 `git ls-remote origin refs/tags/vX.Y.Z` 复核**：
-  哈希一致就说明只是竞态，此时**不要**按提示 force-push（会把同一个 tag 重推一次），
-  直接手动补建 Release 即可（payload 与脚本一致：
-  `{"tag_name":"vX.Y.Z","name":"vX.Y.Z","generate_release_notes":true}`）。
+- **远端 tag 校验带有限次退避重试**（默认 5 次、2s 起翻倍）：GitHub 的 ref
+  可见性在刚推完时可能滞后——v0.7.3 发布时就出现过「tag 实际已推成功、校验却
+  报不存在」，一次 `ls-remote` 报「不存在」不等于失败。脚本区分「远端不存在」
+  与「哈希不同」：前者重试仍失败才提示推 tag，后者提示人工确认后才可 `--force`。
+  看到不一致**先手动 `git ls-remote origin refs/tags/vX.Y.Z` 复核**：哈希一致
+  就说明只是竞态，此时**不要** force-push（会把同一个 tag 重推一次），重跑
+  `pnpm release:github vX.Y.Z`（幂等）即可。
 - 发布失败回滚：`git tag -d vX.Y.Z && git reset --hard HEAD~1`
 - 需要覆盖远端 tag（如本地 tag 已重指）时：
   `git push origin refs/tags/vX.Y.Z --force`
