@@ -7,6 +7,7 @@
 > Integrated toolkit extension for [pi](https://github.com/earendil-works/pi-coding-agent) — one package, growing new capabilities over time.
 
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
+[![Pi package gallery](https://img.shields.io/badge/pi.dev-package%20gallery-6f42c1)](https://pi.dev/packages/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
 [![pi >= 1.0](https://img.shields.io/badge/pi-%3E%3D1.0.0%20%3C1.12.0-blueviolet)](https://github.com/earendil-works/pi)
@@ -23,7 +24,8 @@ In a nutshell: seven ready-to-use capabilities — **read-only consult mode** `a
 <a name="install"></a>
 
 ```bash
-# from npm (recommended)
+# from npm (recommended) — also indexed in the official pi package gallery
+# https://pi.dev/packages/@andares/pi-toolkits
 pi install npm:@andares/pi-toolkits
 
 # local development install

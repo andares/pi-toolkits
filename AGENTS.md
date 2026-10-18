@@ -176,6 +176,26 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
 - 需要覆盖远端 tag（如本地 tag 已重指）时：
   `git push origin refs/tags/vX.Y.Z --force`
 
+## 分发与发现（npm 关键词即注册）
+
+pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是爬 npm 的产物，唯一门槛是包
+`keywords` 里带 **`pi-package`**（宿主 `docs/packages.md` 原话）。没有表单、没有事前审核，
+治理是事后的——每个卡片上有 report 链接（GitHub issue 模板）。
+
+- **实测判定规则（2026-10-19）**：`pi` manifest 只让卡片页可达，**keyword 才进索引/搜索/列表**。
+  对照实验：`@themoltnet/pi-extension`、`pi-extension-utils`（有 manifest、无 keyword）→
+  卡片 200 但搜索 0 结果；`pi-acp`、`@zooid/pi-extension`，连 `@earendil-works/pi-coding-agent`
+  自己（两者都无）→ 卡片 404。本包 0.9.5 正是前者：
+  https://pi.dev/packages/@andares/pi-toolkits 打得开、但搜不到，0.9.6 补关键词修掉。
+- **社区目录读的是同一批关键词**：awesome-pi.site（`shaftoe/awesome-pi-coding-agent`，每日爬）
+  用 `keywords:pi-coding-agent | pi-agent | pi-theme | pi-package`（见其 `src/core/terms.ts`），
+  所以两个都带：`pi-package`（官方索引）+ `pi-coding-agent`（社区爬取）。
+- **改关键词必须发版**：npm 元数据发布即冻结，回改旧版本无效。发版后自检两件事——
+  https://pi.dev/packages/@andares/pi-toolkits 是否出现 Downloads，以及
+  https://pi.dev/packages?name=toolkits 能否搜到；爬虫是小时/天级，不是即时。
+- qualisero/awesome-pi-agent（1.1k★）**已归档**（最后更新 2026-06），不要往那儿提 PR；
+  BubblePtr/awesome-pi → https://piindex.dev/ 仍活跃，可提 PR。
+
 ## Feature: autostart（已实现并发布）
 
 2026-10-07 立项。会话启动自动化：项目内配置文件声明启动时要执行的斜杠命令，

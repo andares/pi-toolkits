@@ -7,6 +7,7 @@
 > pi 编码代理的集成扩展工具包 — 一个包,持续生长新能力。
 
 [![npm version](https://img.shields.io/npm/v/@andares/pi-toolkits?label=npm&logo=npm)](https://www.npmjs.com/package/@andares/pi-toolkits)
+[![Pi package gallery](https://img.shields.io/badge/pi.dev-package%20gallery-6f42c1)](https://pi.dev/packages/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
 [![pi >= 1.0](https://img.shields.io/badge/pi-%3E%3D1.0.0%20%3C1.12.0-blueviolet)](https://github.com/earendil-works/pi)
@@ -23,7 +24,8 @@
 <a name="install"></a>
 
 ```bash
-# 从 npm 安装(推荐)
+# 从 npm 安装(推荐) —— 也已收录进 pi 官方包编目
+# https://pi.dev/packages/@andares/pi-toolkits
 pi install npm:@andares/pi-toolkits
 
 # 本地开发安装
