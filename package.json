@@ -1,6 +1,6 @@
 {
   "name": "@andares/pi-toolkits",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, and a dedicated compaction model",
   "type": "module",
   "license": "MIT",
