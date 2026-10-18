@@ -16,6 +16,7 @@ import {
 	AUTOSTART_CONFIG_PATH,
 	AutostartParseError,
 	commandNameOf,
+	GLOBAL_AUTOSTART_FILENAME,
 	parseAutostartConfig,
 	RUNNABLE_REASONS,
 } from "./autostart.js";
@@ -138,8 +139,16 @@ interface Harness {
 async function makeHarness(
 	config: string | null,
 	configAsDir = false,
+	globalConfig: string | null = null,
 ): Promise<Harness> {
 	const cwd = await mkdtemp(join(tmpdir(), "pi-autostart-test-"));
+	// The agent dir lives inside the temp project so cleanup covers it; passing
+	// it explicitly keeps the real ~/.pi/agent out of the test.
+	const agentDir = join(cwd, "agent");
+	await mkdir(agentDir, { recursive: true });
+	if (globalConfig !== null) {
+		await writeFile(join(agentDir, GLOBAL_AUTOSTART_FILENAME), globalConfig, "utf8");
+	}
 	if (configAsDir) {
 		// EISDIR setup: the config path exists but is a directory.
 		await mkdir(join(cwd, ".pi"), { recursive: true });
@@ -172,7 +181,7 @@ async function makeHarness(
 			}
 		},
 	} as unknown as ExtensionAPI;
-	registerAutostart(pi);
+	registerAutostart(pi, { agentDir });
 	return {
 		handler,
 		sent,
@@ -209,8 +218,9 @@ afterEach(async () => {
 async function harness(
 	config: string | null,
 	configAsDir = false,
+	globalConfig: string | null = null,
 ): Promise<Harness> {
-	const h = await makeHarness(config, configAsDir);
+	const h = await makeHarness(config, configAsDir, globalConfig);
 	current = h;
 	return h;
 }
@@ -311,5 +321,38 @@ describe("registerAutostart", () => {
 		]);
 		expect(h.notifications).toHaveLength(1);
 		expect(h.notifications[0]?.type).toBe("error");
+	});
+
+	it("runs the global config before the project config", async () => {
+		const h = await harness(
+			'[command]\nrun = ["/add-dir ../project"]',
+			false,
+			'[command]\nrun = ["/ask on"]',
+		);
+		await h.start("startup");
+		expect(h.sent.map((entry) => entry.command)).toEqual([
+			"/ask on",
+			"/add-dir ../project",
+		]);
+		expect(h.notifications).toEqual([]);
+	});
+
+	it("runs the global config in an untrusted project but skips the project one", async () => {
+		const h = await harness(
+			'[command]\nrun = ["/add-dir ../project"]',
+			false,
+			'[command]\nrun = ["/ask on"]',
+		);
+		h.setTrusted(false);
+		await h.start("startup");
+		expect(h.sent.map((entry) => entry.command)).toEqual(["/ask on"]);
+		expect(h.notifications).toHaveLength(1);
+		expect(h.notifications[0]?.type).toBe("warning");
+	});
+
+	it("keeps running the project config when the global one is absent", async () => {
+		const h = await harness('[command]\nrun = ["/ask on"]', false, null);
+		await h.start("startup");
+		expect(h.sent.map((entry) => entry.command)).toEqual(["/ask on"]);
 	});
 });

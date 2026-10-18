@@ -1,81 +1,120 @@
 /**
- * autostart feature — run project-declared slash commands at session start.
+ * autostart feature — run declared slash commands at session start.
  *
- * Config lives at `<project root>/.pi/autostart.toml` (see autostart.ts for
- * the schema). Execution gates, in order:
+ * Two sources, executed in order, never merged:
  *
- *  1. reason filter — only startup/new/fork replay (see RUNNABLE_REASONS)
- *  2. config file exists — a missing file is a silent opt-in skip
- *  3. `ctx.isProjectTrusted()` — an untrusted project never auto-executes
- *  4. per-command pre-validation against `pi.getCommands()`: only commands
- *     registered by an *extension* are dispatched. This is mandatory:
- *     sendUserMessage with an unhandled "/x" falls through prompt() to the
- *     model as a plain user message (pi agent-session.js), so an unknown
- *     command must be skipped here, never sent.
+ *  1. `<agentDir>/autostart.toml` — the operator's own defaults. Runs in every
+ *     project; no trust gate, because the file lives in pi's config directory
+ *     and is not controlled by the project.
+ *  2. `<project root>/.pi/autostart.toml` — project-declared commands. Gated on
+ *     `ctx.isProjectTrusted()`: an untrusted repository must not execute
+ *     anything.
+ *
+ * Execution gates, in order:
+ *
+ *  - reason filter — only startup/new/fork replay (see RUNNABLE_REASONS)
+ *  - config file exists — a missing file is a silent opt-in skip
+ *  - project trust (project source only)
+ *  - per-command pre-validation against `pi.getCommands()`: only commands
+ *    registered by an *extension* are dispatched. This is mandatory:
+ *    sendUserMessage with an unhandled "/x" falls through prompt() to the
+ *    model as a plain user message (pi agent-session.js), so an unknown
+ *    command must be skipped here, never sent.
  *
  * Dispatch uses `sendUserMessage(cmd, { expandPromptTemplates: true })` —
  * that flag is what routes "/cmd args" through _tryExecuteExtensionCommand
- * instead of the model prompt path. The wrapper defaults it to false
- * (each byte-identical across every published version of the supported
- * window, 1.0.0 → 1.3.0; see AGENTS.md host-compat
- * discipline for the version matrix).
+ * instead of the model prompt path. The wrapper defaults it to false in this
+ * package (each byte-identical across every published version of the supported
+ * window, 1.0.0 → 1.3.0; see AGENTS.md host-compat discipline for the version
+ * matrix).
  *
  * Only extension commands can run this way. Built-in commands (/compact,
  * /reload, /resume, …) are dispatched at the TUI layer and cannot be
  * triggered from the extension layer; skill commands (/skill:name) expand
- * into prompts rather than execute. First-party use case: `/add-dir`
- * (pi-add-dir), which is idempotent ("Already added" check).
+ * into prompts rather than execute. First-party use cases: `/add-dir`
+ * (pi-add-dir, idempotent) and `/ask-perm` (session-scoped permission).
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import {
 	AUTOSTART_CONFIG_PATH,
 	AutostartParseError,
 	commandNameOf,
+	GLOBAL_AUTOSTART_FILENAME,
 	parseAutostartConfig,
 	RUNNABLE_REASONS,
 } from "./autostart.js";
 
-export function registerAutostart(pi: ExtensionAPI): void {
-	pi.on("session_start", async (event, ctx) => {
-		if (!RUNNABLE_REASONS.has(event.reason)) return;
+export interface AutostartOptions {
+	/** pi's config directory; defaults to `getAgentDir()`. */
+	readonly agentDir?: string;
+}
 
+interface Source {
+	readonly path: string;
+	readonly label: string;
+	/** Project sources require trust; the operator's global file does not. */
+	readonly requiresTrust: boolean;
+}
+
+function messageOf(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
+}
+
+export function registerAutostart(
+	pi: ExtensionAPI,
+	options: AutostartOptions = {},
+): void {
+	const agentDir = options.agentDir ?? getAgentDir();
+
+	async function readCommands(
+		ctx: ExtensionContext,
+		source: Source,
+	): Promise<string[] | undefined> {
 		let text: string;
 		try {
-			text = await readFile(join(ctx.cwd, AUTOSTART_CONFIG_PATH), "utf8");
+			text = await readFile(source.path, "utf8");
 		} catch (err) {
 			// Missing file = opt-in skip. Any other read failure (EACCES, EISDIR,
 			// …) is a misconfiguration the operator should hear about.
 			if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
 				ctx.ui.notify(
-					`autostart: skipped — cannot read ${AUTOSTART_CONFIG_PATH}: ${err instanceof Error ? err.message : String(err)}`,
+					`autostart: skipped ${source.label} — cannot read ${source.path}: ${messageOf(err)}`,
 					"warning",
 				);
 			}
-			return;
+			return undefined;
 		}
 
-		let commands: string[];
 		try {
-			commands = parseAutostartConfig(text);
+			return parseAutostartConfig(text);
 		} catch (err) {
 			const message = err instanceof AutostartParseError ? err.message : String(err);
 			ctx.ui.notify(
-				`autostart: skipped — ${message} (${AUTOSTART_CONFIG_PATH})`,
+				`autostart: skipped ${source.label} — ${message} (${source.path})`,
 				"error",
 			);
-			return;
+			return undefined;
 		}
-		if (commands.length === 0) return;
+	}
 
-		if (!ctx.isProjectTrusted()) {
-			ctx.ui.notify(
-				`autostart: skipped — project not trusted (${AUTOSTART_CONFIG_PATH})`,
-				"warning",
-			);
-			return;
-		}
+	pi.on("session_start", async (event, ctx) => {
+		if (!RUNNABLE_REASONS.has(event.reason)) return;
+
+		const sources: Source[] = [
+			{
+				path: join(agentDir, GLOBAL_AUTOSTART_FILENAME),
+				label: "global config",
+				requiresTrust: false,
+			},
+			{
+				path: join(ctx.cwd, AUTOSTART_CONFIG_PATH),
+				label: "project config",
+				requiresTrust: true,
+			},
+		];
 
 		// Only extension-registered commands are dispatchable; skill and
 		// prompt-template entries expand rather than execute.
@@ -87,23 +126,36 @@ export function registerAutostart(pi: ExtensionAPI): void {
 				),
 		);
 
-		for (const command of commands) {
-			const name = commandNameOf(command);
-			if (!name || !dispatchable.has(name)) {
+		for (const source of sources) {
+			const commands = await readCommands(ctx, source);
+			if (commands === undefined || commands.length === 0) continue;
+
+			if (source.requiresTrust && !ctx.isProjectTrusted()) {
 				ctx.ui.notify(
-					`autostart: skipped "${command}" — not a registered extension command`,
+					`autostart: skipped ${source.label} — project not trusted (${source.path})`,
 					"warning",
 				);
 				continue;
 			}
-			// One failing command must not cancel the rest of the list.
-			try {
-				await pi.sendUserMessage(command, { expandPromptTemplates: true });
-			} catch (err) {
-				ctx.ui.notify(
-					`autostart: "${command}" failed — ${err instanceof Error ? err.message : String(err)}`,
-					"error",
-				);
+
+			for (const command of commands) {
+				const name = commandNameOf(command);
+				if (!name || !dispatchable.has(name)) {
+					ctx.ui.notify(
+						`autostart: skipped "${command}" — not a registered extension command`,
+						"warning",
+					);
+					continue;
+				}
+				// One failing command must not cancel the rest of the list.
+				try {
+					await pi.sendUserMessage(command, { expandPromptTemplates: true });
+				} catch (err) {
+					ctx.ui.notify(
+						`autostart: "${command}" failed — ${messageOf(err)}`,
+						"error",
+					);
+				}
 			}
 		}
 	});

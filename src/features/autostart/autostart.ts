@@ -18,9 +18,11 @@
  */
 import { parse as parseToml } from "smol-toml";
 
-/** Project-relative location of the autostart config (`.pi/` is pi's
- *  project-config convention, precedent: `.pi/mcp.json`). */
+/** Project-relative location of the project autostart config. */
 export const AUTOSTART_CONFIG_PATH = ".pi/autostart.toml";
+
+/** File name of the operator's global autostart config, inside the agent dir. */
+export const GLOBAL_AUTOSTART_FILENAME = "autostart.toml";
 
 /**
  * session_start reasons that replay autostart commands:
