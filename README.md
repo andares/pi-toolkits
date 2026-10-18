@@ -133,6 +133,8 @@ Repeating the argument form with the modes already in force is a **no-op**: no s
 
 **Composition with `/ask`**: the two features are independent gates on one bus. Each answers only its own question — ask: "does this mutate?", permission: "does this cross the boundary?" — and either can block. Ask mode still denies credential reads, and permission still applies while the read-only sandbox is active. Neither feature needs to know the other exists.
 
+**Startup is quiet**: when the command comes from autostart, the chat notice is suppressed and only the footer status (`perm i:… o:…`) announces the mode. This is deliberate — the host keeps every info notice in the chat but renders all of them from one shared "last status" field, so an info notice emitted after another extension's warning (for example `/lens-toggle`) makes the earlier line display the new text too, i.e. the same message twice. A manual `/ask-perm` still prints the notice.
+
 **Enable it for every session** (the state itself is never persisted — this is the opt-in):
 
 ```toml

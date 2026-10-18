@@ -40,6 +40,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearQuiet, markQuiet } from "../../lib/quiet.js";
 import {
 	AUTOSTART_CONFIG_PATH,
 	AutostartParseError,
@@ -213,6 +214,12 @@ export function registerAutostart(
 				}
 				if (dispatched.has(command)) continue;
 				dispatched.add(command);
+				// Our own commands stay silent on startup: the host keeps every
+				// info notice and re-renders old lines with the newest text, so a
+				// second info notice after another extension's warning would show
+				// the same message twice (see lib/quiet.ts).
+				const quiet = name === "ask-perm";
+				if (quiet) markQuiet(name);
 				// One failing command must not cancel the rest of the list.
 				try {
 					await pi.sendUserMessage(command, { expandPromptTemplates: true });
@@ -221,6 +228,8 @@ export function registerAutostart(
 						`autostart: "${command}" failed — ${messageOf(err)}`,
 						"error",
 					);
+				} finally {
+					if (quiet) clearQuiet(name);
 				}
 			}
 		}

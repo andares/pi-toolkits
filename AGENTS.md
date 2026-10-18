@@ -356,7 +356,12 @@ src/features/permission/
    我们只加「任意行回车 = 应用」；对话框用 `SelectList` + a/s/d/f 热键。
    非 TUI（rpc/print）无法挂自定义组件，回落 `ctx.ui.select`；`hasUI === false` 直接拒绝（fail closed）。
 10. **提示字串一律英文**（崔总要求）：panel/prompt/notify/banner/拒绝理由。
-11. **带参数开启是幂等的**：模式与当前一致时直接返回——不重复 notify，也不清空会话授权。
+11. **autostart 触发的开启不刷聊天区**（`src/lib/quiet.ts`）：宿主的 info 提示行共享一个
+    `lastStatusMessage` 字段（`interactive-mode.js#showStatus`），旧行不会移除，于是
+    `info(add-dir) → warning(lens) → info(ask-perm)` 会让两行都显示「Permission ON」。
+    这不是执行了两次（`/lens-toggle` 只出现一次即可证伪）。autostart 在派发 `/ask-perm`
+    前打 quiet 标记，命令消费后跳过聊天提示，只留 footer 状态；手动执行照常提示。
+12. **带参数开启是幂等的**：模式与当前一致时直接返回——不重复 notify，也不清空会话授权。
     这条是被实际使用逼出来的：`/ask-perm` 既可能被两个 autostart 来源各跑一次，
     也可能在配置里写了两行；旧实现每条都会 `rules.clear()` 并提示一次，
     用户看到的就是「Permission ON」出现两遍，且此前的授权被静默清掉。
