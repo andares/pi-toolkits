@@ -21,6 +21,7 @@ import {
 	RUNNABLE_REASONS,
 	shouldReplay,
 } from "./autostart.js";
+import { consumeStartupCommand } from "../../lib/startup.js";
 import { registerAutostart } from "./index.js";
 
 describe("parseAutostartConfig", () => {
@@ -159,6 +160,7 @@ interface Harness {
 	notifications: Array<{ message: string; type?: string }>;
 	commands: Array<{ name: string; source: string }>;
 	failCommands: Set<string>;
+	startupAtDispatch: Array<{ command: string; startup: boolean }>;
 	setTrusted(trusted: boolean): void;
 	/** Simulate a session that already had a conversation (resumed process). */
 	setHistory(entries: Array<{ type: string }>): void;
@@ -201,7 +203,9 @@ async function makeHarness(
 	const commands: Harness["commands"] = [
 		{ name: "add-dir", source: "extension" },
 		{ name: "ask", source: "extension" },
+		{ name: "ask-perm", source: "extension" },
 	];
+	const startupAtDispatch: Harness["startupAtDispatch"] = [];
 	const failCommands = new Set<string>();
 	const pi = {
 		on: (event: string, h: SessionStartHandler) => {
@@ -213,6 +217,10 @@ async function makeHarness(
 			options?: { expandPromptTemplates?: boolean },
 		) => {
 			sent.push({ command, options }); // records attempts, including failures
+			startupAtDispatch.push({
+				command,
+				startup: consumeStartupCommand("ask-perm"),
+			});
 			if (failCommands.has(command)) {
 				return Promise.reject(new Error("boom"));
 			}
@@ -222,6 +230,7 @@ async function makeHarness(
 	return {
 		handler,
 		sent,
+		startupAtDispatch,
 		notifications,
 		commands,
 		failCommands,
@@ -313,6 +322,23 @@ describe("registerAutostart", () => {
 		await h.start("reload");
 		expect(h.sent).toEqual([]);
 		expect(h.notifications).toEqual([]);
+	});
+
+	it("marks our own command as a startup notice and clears the mark", async () => {
+		const h = await harness('[command]\nrun = ["/ask-perm allow"]');
+		await h.start("startup");
+		expect(h.startupAtDispatch).toEqual([
+			{ command: "/ask-perm allow", startup: true },
+		]);
+		expect(consumeStartupCommand("ask-perm")).toBe(false);
+	});
+
+	it("leaves other extensions' commands unmarked", async () => {
+		const h = await harness(fullConfig);
+		await h.start("startup");
+		expect(h.startupAtDispatch.every((entry) => entry.startup === false)).toBe(
+			true,
+		);
 	});
 
 	it("replays once per session even if session_start is emitted twice", async () => {

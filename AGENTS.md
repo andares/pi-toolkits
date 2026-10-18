@@ -360,16 +360,22 @@ src/features/permission/
     `ask-perm` 既可能被两个 autostart 来源各跑一次，也可能在配置里写了两行；
     旧实现每条都会 `rules.clear()` 并记一次，用户会看到授权被静默清掉。
     现在只有模式**真的变化**才记录并清空授权（旧授权是按旧策略给的）。
-12. **模式提示用自定义会话条目，不用 `ctx.ui.notify("info")`**：
-    宿主把每条 info 提示渲染成一个 `ThemedText`，而它的 builder 读的是**共享的**
+12. **只有 `/ask-perm` 的提示采用混合方案**（其他命令如 `/ask` 保持原样，继续用
+    `ctx.ui.notify("info")`）：
+    - **启动（autostart 派发）** → 自定义会话条目 `ask-perm:notice` +
+      `registerEntryRenderer`，自带文本、不受 invalidate 影响，不进模型上下文
+      （与 pi-chrome 同款用法）；标记由 `src/lib/startup.ts` 传递，autostart 派发前
+      `markStartupCommand("ask-perm")`、`finally` 里清除，permission 消费一次。
+    - **手动执行** → 仍用 `ctx.ui.notify("info")`：连续 info 会覆盖上一行，ON/OFF/ON
+      原地更新、屏幕不滚动。
+    原因是宿主把每条 info 提示渲染成一个 `ThemedText`，其 builder 读的是**共享的**
     `lastStatusMessage` 字段（`interactive-mode.js#showStatus`）；`ui.invalidate()`
-    （切换主题、主题文件变更、启动期语法加载完成）会重建**所有**旧状态行。于是
-    `/add-dir` 那行也会显示我们的文案，一条命令看起来像执行了两次。这正是
-    「Permission ON 出现两遍、且与终端/启动时序有关」的根因——不是重复执行，
+    （切换主题、主题文件变更、启动期语法加载完成）会重建**所有**旧状态行，于是
+    `/add-dir` 那行也会显示我们的文案，一条命令看起来像执行了两次。这不是重复执行，
     也不是 API 用错（add-dir 的 info 提示同样会被改写）。
-    现在 `ask-perm:notice` 条目自带文本、由 `registerEntryRenderer` 渲染，
-    不受 invalidate 影响，且不进模型上下文（与 pi-chrome 同款用法）；启动期的
-    chat 重建也会从会话历史重新渲染条目，不会像 notify 那样被冲掉。
+    残余限制：手动切换过之后若再遇到 invalidate，旧状态行仍会被改写成最新的手动提示；
+    启动阶段因为只追加条目、不新增状态行，不会重复。**两套语义只限 `/ask-perm`**——
+    它最常出现在 autostart 里与别的命令混排；不要把该方案扩散到 `/ask` 等命令。
 
 ### 已实现并验证
 

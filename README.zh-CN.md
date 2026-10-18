@@ -141,7 +141,7 @@ pi -e ./src/index.ts
 run = ["/ask-perm allow allow allow ask"]
 ```
 
-> **实现说明**:新会话在 `session_start` 重置状态(同一会话的重复 emission 保持状态);开启时 footer 显示 `perm i:A/A o:A/ask`(`A` allow、`a` ask、`D` deny)。子代理会话有自己的状态、不继承父会话的模式;需要子会话也受控时,通过项目 autostart 再开启一次。实测目标是 POSIX 宿主(Linux/macOS/WSL);原生 Windows Git-Bash 的路径拼写只做了近似,未验证。bash 拆解使用 `shell-quote`;未知变量会展开成哨兵而不是空字符串,使该命令转为询问而不是被悄悄当成空路径。add-dir 目录从 pi-add-dir 的会话条目 `add-dir:state` 读取。模式变化写成自定义会话条目(`ask-perm:notice`),而不是 info toast:宿主的所有 info toast 共用一个状态字段,界面失效(切换主题、改主题文件、启动期语法加载)会用最新文案重建所有旧状态行,于是一条命令看起来像执行了两次。条目自带文本、不进模型上下文,也不会在启动期的 chat 重建中被冲掉。启发式,不是沙箱:项目内的破坏性操作由固定表兜底,而不是靠沙箱。已知盲区一处:**读命令的裸文件名参数**(`cat notes.txt`)不被收集为目标,所以把 `out read` 调成 `ask` 时只有绝对路径形状的读目标会被问——读本身不会写,四格模式的写侧不受影响。
+> **实现说明**:新会话在 `session_start` 重置状态(同一会话的重复 emission 保持状态);开启时 footer 显示 `perm i:A/A o:A/ask`(`A` allow、`a` ask、`D` deny)。子代理会话有自己的状态、不继承父会话的模式;需要子会话也受控时,通过项目 autostart 再开启一次。实测目标是 POSIX 宿主(Linux/macOS/WSL);原生 Windows Git-Bash 的路径拼写只做了近似,未验证。bash 拆解使用 `shell-quote`;未知变量会展开成哨兵而不是空字符串,使该命令转为询问而不是被悄悄当成空路径。add-dir 目录从 pi-add-dir 的会话条目 `add-dir:state` 读取。启发式,不是沙箱:项目内的破坏性操作由固定表兜底,而不是靠沙箱。已知盲区一处:**读命令的裸文件名参数**(`cat notes.txt`)不被收集为目标,所以把 `out read` 调成 `ask` 时只有绝对路径形状的读目标会被问——读本身不会写,四格模式的写侧不受影响。
 
 ---
 

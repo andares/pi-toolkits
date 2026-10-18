@@ -40,6 +40,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { clearStartupCommand, markStartupCommand } from "../../lib/startup.js";
 import {
 	AUTOSTART_CONFIG_PATH,
 	AutostartParseError,
@@ -213,6 +214,12 @@ export function registerAutostart(
 				}
 				if (dispatched.has(command)) continue;
 				dispatched.add(command);
+				// Our own command answers a startup notice with a session entry
+				// instead of a status line: at startup several commands emit status
+				// lines and a later UI invalidation would paint our text on all of
+				// them (see lib/startup.ts).
+				const startup = name === "ask-perm";
+				if (startup) markStartupCommand(name);
 				// One failing command must not cancel the rest of the list.
 				try {
 					await pi.sendUserMessage(command, { expandPromptTemplates: true });
@@ -221,6 +228,8 @@ export function registerAutostart(
 						`autostart: "${command}" failed — ${messageOf(err)}`,
 						"error",
 					);
+				} finally {
+					if (startup) clearStartupCommand(name);
 				}
 			}
 		}

@@ -23,6 +23,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { AskRequest, GateHub } from "../../lib/gates.js";
+import { consumeStartupCommand } from "../../lib/startup.js";
 import {
 	DEFAULT_MODES,
 	type PermissionModes,
@@ -110,6 +111,10 @@ function toolUnit(
  * A custom entry carries its own text and is rendered from that data, so it is
  * immune to invalidation. Entries stay out of the model context (same pattern
  * as pi-chrome) and survive the startup chat rebuild instead of being wiped.
+ *
+ * Only startup notices (dispatched by autostart, `lib/startup.ts`) use an
+ * entry. Interactive toggles keep `ctx.ui.notify`: consecutive info notices
+ * update the previous line in place, so ON/OFF/ON does not scroll the screen.
  */
 const NOTICE_ENTRY = "ask-perm:notice";
 
@@ -124,10 +129,6 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 			? undefined
 			: new Text(theme.fg("dim", text), 1, 0);
 	});
-	const notice = (text: string): void => {
-		pi.appendEntry<NoticeData>(NOTICE_ENTRY, { text });
-	};
-
 	let enabled = false;
 	let modes: PermissionModes = { ...DEFAULT_MODES };
 	// Session this state belongs to. A runtime rebind can emit `session_start`
@@ -294,6 +295,12 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 		description:
 			"Toggle permission checks; with arguments: /ask-perm [in-read] [in-write] [out-read] [out-write]",
 		handler: async (args, ctx) => {
+			// Startup notices are entries; interactive ones stay in-place toasts.
+			const startup = consumeStartupCommand("ask-perm");
+			const notice = (text: string): void => {
+				if (startup) pi.appendEntry<NoticeData>(NOTICE_ENTRY, { text });
+				else ctx.ui.notify(text, "info");
+			};
 			const raw = args.trim();
 
 			if (raw !== "") {
