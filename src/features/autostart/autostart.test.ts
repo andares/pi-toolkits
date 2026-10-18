@@ -21,7 +21,6 @@ import {
 	RUNNABLE_REASONS,
 	shouldReplay,
 } from "./autostart.js";
-import { consumeQuiet } from "../../lib/quiet.js";
 import { registerAutostart } from "./index.js";
 
 describe("parseAutostartConfig", () => {
@@ -160,7 +159,6 @@ interface Harness {
 	notifications: Array<{ message: string; type?: string }>;
 	commands: Array<{ name: string; source: string }>;
 	failCommands: Set<string>;
-	quietAtDispatch: Array<{ command: string; quiet: boolean }>;
 	setTrusted(trusted: boolean): void;
 	/** Simulate a session that already had a conversation (resumed process). */
 	setHistory(entries: Array<{ type: string }>): void;
@@ -203,9 +201,7 @@ async function makeHarness(
 	const commands: Harness["commands"] = [
 		{ name: "add-dir", source: "extension" },
 		{ name: "ask", source: "extension" },
-		{ name: "ask-perm", source: "extension" },
 	];
-	const quietAtDispatch: Harness["quietAtDispatch"] = [];
 	const failCommands = new Set<string>();
 	const pi = {
 		on: (event: string, h: SessionStartHandler) => {
@@ -217,7 +213,6 @@ async function makeHarness(
 			options?: { expandPromptTemplates?: boolean },
 		) => {
 			sent.push({ command, options }); // records attempts, including failures
-			quietAtDispatch.push({ command, quiet: consumeQuiet("ask-perm") });
 			if (failCommands.has(command)) {
 				return Promise.reject(new Error("boom"));
 			}
@@ -227,7 +222,6 @@ async function makeHarness(
 	return {
 		handler,
 		sent,
-		quietAtDispatch,
 		notifications,
 		commands,
 		failCommands,
@@ -319,21 +313,6 @@ describe("registerAutostart", () => {
 		await h.start("reload");
 		expect(h.sent).toEqual([]);
 		expect(h.notifications).toEqual([]);
-	});
-
-	it("marks our own command quiet for the dispatch and clears the mark", async () => {
-		const h = await harness('[command]\nrun = ["/ask-perm allow"]');
-		await h.start("startup");
-		expect(h.quietAtDispatch).toEqual([
-			{ command: "/ask-perm allow", quiet: true },
-		]);
-		expect(consumeQuiet("ask-perm")).toBe(false);
-	});
-
-	it("leaves other extensions' commands unmarked", async () => {
-		const h = await harness(fullConfig);
-		await h.start("startup");
-		expect(h.quietAtDispatch.every((entry) => entry.quiet === false)).toBe(true);
 	});
 
 	it("replays once per session even if session_start is emitted twice", async () => {

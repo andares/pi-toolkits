@@ -15,7 +15,6 @@ import type {
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { AskDecision, GateHub, ToolGate } from "../../lib/gates.js";
-import { markQuiet } from "../../lib/quiet.js";
 import { registerPermission } from "./index.js";
 
 function bashEvent(command: string): ToolCallEvent {
@@ -295,25 +294,6 @@ describe("/ask-perm", () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
 		expect(await h.evaluate(customEvent("mcp"))).toBeUndefined();
-	});
-
-	it("suppresses the chat notice when autostart started the command", async () => {
-		const h = makeHarness();
-		markQuiet("ask-perm");
-		await h.command("allow allow allow ask");
-		// The footer carries the state; the chat stays quiet at startup.
-		expect(h.notes).toHaveLength(0);
-		expect(h.statuses.at(-1)?.[1]).toContain("perm");
-		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).kind).toBe(
-			"ask",
-		);
-	});
-
-	it("still reports an invalid argument from autostart", async () => {
-		const h = makeHarness();
-		markQuiet("ask-perm");
-		await h.command("deny");
-		expect(h.notes.at(-1)?.kind).toBe("error");
 	});
 
 	it("is idempotent: repeating the same command notifies once and keeps grants", async () => {

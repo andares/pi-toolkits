@@ -22,7 +22,6 @@ import type {
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { AskRequest, GateHub } from "../../lib/gates.js";
-import { consumeQuiet } from "../../lib/quiet.js";
 import {
 	DEFAULT_MODES,
 	type PermissionModes,
@@ -264,21 +263,12 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 		description:
 			"Toggle permission checks; with arguments: /ask-perm [in-read] [in-write] [out-read] [out-write]",
 		handler: async (args, ctx) => {
-			// Started by autostart: the footer status is the notice (lib/quiet.ts).
-			const quietNotice = consumeQuiet("ask-perm");
-			const notify = (
-				message: string,
-				type: "info" | "warning" | "error" = "info",
-			): void => {
-				if (type === "info" && quietNotice) return;
-				ctx.ui.notify(message, type);
-			};
 			const raw = args.trim();
 
 			if (raw !== "") {
 				const parsed = parsePermissionArgs(raw);
 				if ("error" in parsed) {
-					notify(`ask-perm: ${parsed.error}`, "error");
+					ctx.ui.notify(`ask-perm: ${parsed.error}`, "error");
 					return;
 				}
 				// Idempotent: the same command may arrive twice in one session start
@@ -293,7 +283,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				if (changed) rules.clear();
 				enabled = true;
 				syncStatus(ctx);
-				notify(
+				ctx.ui.notify(
 					`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`,
 					"info",
 				);
@@ -304,7 +294,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				enabled = false;
 				rules.clear();
 				syncStatus(ctx);
-				notify(
+				ctx.ui.notify(
 					"Permission OFF — no boundary checks in this session.",
 					"info",
 				);
@@ -313,7 +303,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 
 			const chosen = await openPermissionPanel(ctx, modes);
 			if (!chosen) {
-				notify(
+				ctx.ui.notify(
 					"ask-perm: cancelled. Use /ask-perm allow allow allow ask to enable from the argument form.",
 					"info",
 				);
@@ -324,7 +314,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 			rules.clear();
 			enabled = true;
 			syncStatus(ctx);
-			notify(
+			ctx.ui.notify(
 				`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`,
 				"info",
 			);
