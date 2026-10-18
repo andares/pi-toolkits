@@ -41,6 +41,30 @@ export const RUNNABLE_REASONS: ReadonlySet<string> = new Set([
 	"fork",
 ]);
 
+/**
+ * Whether this session start should replay the command lists.
+ *
+ * The reason alone is not enough at process start. `pi -c` (`--continue`),
+ * `-r` (`--resume`), `--session <path>` and `--fork <path>` all open an
+ * existing session *before* the first runtime exists, and that runtime is
+ * created without an explicit session_start event, so extensions see pi's
+ * default reason — `startup` — not `resume` (verified on pi 1.0.0–1.3.0:
+ * `main.js` builds the initial session manager from those flags and calls
+ * `createAgentSessionRuntime` with no `sessionStartEvent`;
+ * `agent-session.js` defaults it to `{ reason: "startup" }`). `resume` is only
+ * emitted for in-process session switches, never for a resumed process.
+ *
+ * So the session content decides: a `startup` on a session that already has
+ * conversation history is a resumed (or forked) process, and its branch already
+ * carries the state a replay would rebuild. `hasHistory` is the same signal pi
+ * itself uses to recognise an existing session
+ * (`buildSessionContext().messages.length > 0`).
+ */
+export function shouldReplay(reason: string, hasHistory: boolean): boolean {
+	if (reason === "startup") return !hasHistory;
+	return RUNNABLE_REASONS.has(reason);
+}
+
 /** Parse/validation failure with a user-facing message. */
 export class AutostartParseError extends Error {}
 

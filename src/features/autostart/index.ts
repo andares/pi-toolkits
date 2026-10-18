@@ -12,7 +12,9 @@
  *
  * Execution gates, in order:
  *
- *  - reason filter — only startup/new/fork replay (see RUNNABLE_REASONS)
+ *  - reason filter — see `shouldReplay`: startup/new/fork replay, but a
+ *    `startup` that already carries conversation history is a process started
+ *    on an existing session (`pi -c`/`-r`/`--session`/`--fork`) and does not
  *  - config file exists — a missing file is a silent opt-in skip
  *  - project trust (project source only)
  *  - per-command pre-validation against `pi.getCommands()`: only commands
@@ -44,7 +46,7 @@ import {
 	commandNameOf,
 	GLOBAL_AUTOSTART_FILENAME,
 	parseAutostartConfig,
-	RUNNABLE_REASONS,
+	shouldReplay,
 } from "./autostart.js";
 
 export interface AutostartOptions {
@@ -61,6 +63,38 @@ interface Source {
 
 function messageOf(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Entry types that prove the session already held a conversation.
+ *
+ * `buildContextEntries()` returns the active branch's entries including the
+ * boot-level ones (`session`, `model_change`, `thinking_level_change`), so
+ * presence alone is not enough — a brand-new session has those too.
+ */
+const HISTORY_ENTRY_TYPES: ReadonlySet<string> = new Set([
+	"message",
+	"custom_message",
+	"compaction",
+	"branch_summary",
+]);
+
+/**
+ * Whether the session already carries conversation history.
+ *
+ * This is how a `startup` on an existing session (a resumed process) is told
+ * apart from a genuinely new one — see {@link shouldReplay}. An unreadable
+ * session manager counts as new, which keeps the feature working in hosts where
+ * the session surface is unavailable.
+ */
+function hasConversationHistory(ctx: ExtensionContext): boolean {
+	try {
+		return ctx.sessionManager
+			.buildContextEntries()
+			.some((entry) => HISTORY_ENTRY_TYPES.has(entry.type));
+	} catch {
+		return false;
+	}
 }
 
 export function registerAutostart(
@@ -101,7 +135,10 @@ export function registerAutostart(
 	}
 
 	pi.on("session_start", async (event, ctx) => {
-		if (!RUNNABLE_REASONS.has(event.reason)) return;
+		// `pi -c` / `-r` / `--session` / `--fork` report `startup` for a session
+		// that already has history; the content is what tells them apart. See
+		// shouldReplay in autostart.ts for the host-side evidence.
+		if (!shouldReplay(event.reason, hasConversationHistory(ctx))) return;
 
 		const sources: Source[] = [
 			{

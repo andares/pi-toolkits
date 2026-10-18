@@ -189,7 +189,11 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
 
   全局先跑、项目后跑，所以项目可以覆盖此前的设置（例如后面再来一条不同参数的 `/ask-perm`）。
   之所以不合并：TOML 数组合并语义容易产生「谁覆盖谁」的意外，两条列表各自独立、顺序可预测。
-- **执行时机**：仅 `session_start.reason ∈ {startup, new, fork}`；resume 不重放（会话分支已恢复 add-dir 状态）
+- **执行时机**：判定不能只看 reason（见下）——`shouldReplay(reason, hasHistory)`：
+  - `startup` 且会话无历史（含 `new`）：重放
+  - `startup` 但会话已有历史：**不重放**（进程启动即带旧会话，见「已验证的技术事实」第 6 条）
+  - `fork`（进程内）：重放（分支点可能早于配置出现）
+  - `resume`（进程内 `/resume`）/ `reload`：不重放（分支已带状态；重放会重复副作用）
 
 ### 配置 schema
 
@@ -226,6 +230,21 @@ run = [
 4. `ctx.isProjectTrusted()` 可用——未信任目录不自动执行命令（安全默认，
    与 permission-system 的 project scope gating 同哲学）
 5. pi-add-dir 自带 Already added 幂等检查，重复重放不会翻车
+6. **`session_start.reason` 在「进程启动即打开旧会话」时是 `startup`，不是 `resume`**
+   ——`-c`/`-r`/`--session`/`--fork` 都在创建第一个 runtime 之前就把旧会话装进
+   sessionManager，而该 runtime 创建时不带 `sessionStartEvent`，于是落到默认值
+   `startup`（`main.js` 的 `isInitialRuntime` 分支 + `agent-session.js:200`
+   `{ type: "session_start", reason: "startup" }`）。`resume` 只在进程内切换会话
+   （`/resume`、session replacement）时由 `agent-session-runtime.js` 显式发出。
+   实测（pi 1.3.0 + 探针扩展）：新会话 `entries=2 messages=0`，`pi -c` 之后
+   `entries=8 messages=3`，两者都报 `reason=startup`。
+   **结论**：判「是不是新会话」必须看会话内容——用 `buildContextEntries()`
+   是否含 `message`/`custom_message`/`compaction`/`branch_summary`（扩展侧拿不到
+   `buildSessionContext()`，它不在 `ReadonlySessionManager` 的 Pick 里；
+   宿主自己判「existing session」用的是 `buildSessionContext().messages.length > 0`，
+   语义一致）。**这是 v0.9.0 的 bug**：只看 reason 会让 `pi -c` 也重放，
+   用户在项目里配的 `/ask-perm` 于是会在续会话时把权限打开，与其「只在新会话生效」
+   的文档承诺不符（2026-10-18 崔总实测发现，v0.9.1 修）。
 
 ### 执行流程
 

@@ -311,10 +311,13 @@ The global list runs first, so a project can override an earlier setting (for ex
 
 | session_start reason | Replayed | Why |
 | --- | --- | --- |
-| `startup` / `new` | ✅ | a new session, replay as declared |
-| `fork` | ✅ | the branch point may predate the config's appearance |
-| `resume` | ❌ | the restored branch already carries the mount state from its time, replaying would conflict |
+| `startup` / `new`, empty session | ✅ | a new session, replay as declared |
+| `startup` on a session that already has history | ❌ | that is a process started on an existing session (`pi -c` / `-r` / `--session` / `--fork`), and its branch already carries the state a replay would rebuild |
+| `fork` (in-process) | ✅ | the branch point may predate the config's appearance |
+| `resume` (in-process `/resume`) | ❌ | the restored branch already carries the mount state from its time, replaying would conflict |
 | `reload` | ❌ | extensions are rebuilt, replaying would duplicate side effects |
+
+> The `startup` split is not cosmetic: pi reports `startup` for **every** process start, including one that opens an existing session. `resume` is emitted only for in-process session switches, never for `pi -c`. Lines 1–2 of the table are therefore decided by the session's content (does it already hold a message?), not by the reason alone.
 
 **Safety gates** (in order):
 

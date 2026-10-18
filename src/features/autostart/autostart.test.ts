@@ -19,6 +19,7 @@ import {
 	GLOBAL_AUTOSTART_FILENAME,
 	parseAutostartConfig,
 	RUNNABLE_REASONS,
+	shouldReplay,
 } from "./autostart.js";
 import { registerAutostart } from "./index.js";
 
@@ -112,6 +113,28 @@ describe("RUNNABLE_REASONS", () => {
 	});
 });
 
+describe("shouldReplay", () => {
+	it("replays a genuinely new session", () => {
+		expect(shouldReplay("startup", false)).toBe(true);
+		expect(shouldReplay("new", false)).toBe(true);
+	});
+
+	it("skips a startup that already has history (a resumed process)", () => {
+		// `pi -c`, `-r`, `--session` and `--fork` all report `startup` for a
+		// session that already carries history.
+		expect(shouldReplay("startup", true)).toBe(false);
+	});
+
+	it("replays a fork even though the branch has history", () => {
+		expect(shouldReplay("fork", true)).toBe(true);
+	});
+
+	it("skips in-process resume and reload", () => {
+		expect(shouldReplay("resume", true)).toBe(false);
+		expect(shouldReplay("reload", true)).toBe(false);
+	});
+});
+
 /* ------------------------------------------------------------------ */
 /* registerAutostart integration (mocked pi surface)                   */
 /* ------------------------------------------------------------------ */
@@ -122,6 +145,7 @@ type SessionStartHandler = (
 		cwd: string;
 		isProjectTrusted: () => boolean;
 		ui: { notify: (message: string, type?: string) => void };
+		sessionManager: { buildContextEntries: () => Array<{ type: string }> };
 	},
 ) => Promise<void>;
 
@@ -133,6 +157,8 @@ interface Harness {
 	commands: Array<{ name: string; source: string }>;
 	failCommands: Set<string>;
 	setTrusted(trusted: boolean): void;
+	/** Simulate a session that already had a conversation (resumed process). */
+	setHistory(entries: Array<{ type: string }>): void;
 	start(reason: string): Promise<void>;
 }
 
@@ -158,6 +184,12 @@ async function makeHarness(
 		await writeFile(join(cwd, AUTOSTART_CONFIG_PATH), config, "utf8");
 	}
 	let trusted = true;
+	// Boot-level entries every session has; a resumed session adds messages.
+	let history: Array<{ type: string }> = [
+		{ type: "session" },
+		{ type: "model_change" },
+		{ type: "thinking_level_change" },
+	];
 	let handler: SessionStartHandler = async () => {};
 	const sent: Harness["sent"] = [];
 	const notifications: Harness["notifications"] = [];
@@ -191,6 +223,9 @@ async function makeHarness(
 		setTrusted(value: boolean) {
 			trusted = value;
 		},
+		setHistory(entries) {
+			history = entries;
+		},
 		async start(reason: string) {
 			await handler({ reason }, {
 				cwd,
@@ -200,6 +235,7 @@ async function makeHarness(
 						notifications.push({ message, type });
 					},
 				},
+				sessionManager: { buildContextEntries: () => history },
 			});
 		},
 		cwd,
@@ -264,6 +300,38 @@ describe("registerAutostart", () => {
 		await h.start("reload");
 		expect(h.sent).toEqual([]);
 		expect(h.notifications).toEqual([]);
+	});
+
+	it("skips a process started on an existing session (pi -c reports startup)", async () => {
+		const h = await harness(fullConfig);
+		h.setHistory([
+			{ type: "session" },
+			{ type: "model_change" },
+			{ type: "message" },
+		]);
+		await h.start("startup");
+		expect(h.sent).toEqual([]);
+		expect(h.notifications).toEqual([]);
+	});
+
+	it("still replays when the session holds only boot-level entries", async () => {
+		const h = await harness(fullConfig);
+		h.setHistory([
+			{ type: "session" },
+			{ type: "model_change" },
+			{ type: "thinking_level_change" },
+			{ type: "session_info" },
+			{ type: "custom" },
+		]);
+		await h.start("startup");
+		expect(h.sent).toHaveLength(2);
+	});
+
+	it("replays a fork of a session that has history", async () => {
+		const h = await harness(fullConfig);
+		h.setHistory([{ type: "message" }]);
+		await h.start("fork");
+		expect(h.sent).toHaveLength(2);
 	});
 
 	it("silently skips when no config file exists", async () => {
