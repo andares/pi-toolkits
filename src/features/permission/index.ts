@@ -3,9 +3,9 @@
  *
  * Design notes:
  *  - Off by default and never persisted. The mode, the modes, and every session
- *    grant live in this closure; `session_start` resets them and
- *    `session_shutdown` clears them. A forgotten toggle cannot follow the
- *    operator into the next session.
+ *    grant live in this closure; `session_start` resets them for a new session
+ *    and keeps them across a rebind of the same session. A forgotten toggle
+ *    cannot follow the operator into the next session.
  *  - Toggling: no arguments flips on→off, off→panel. Arguments configure and
  *    enable in one step (`/ask-perm allow allow allow ask`), which is also the
  *    autostart path and never opens a dialog.
@@ -21,6 +21,7 @@ import type {
 	ExtensionContext,
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { AskRequest, GateHub } from "../../lib/gates.js";
 import {
 	DEFAULT_MODES,
@@ -96,7 +97,37 @@ function toolUnit(
 	};
 }
 
+/**
+ * Chat notices are custom session entries, not `ctx.ui.notify("info")`.
+ *
+ * The host renders every info notice as a `ThemedText` whose builder reads one
+ * shared `lastStatusMessage` field, and `ui.invalidate()` (theme switch, theme
+ * file edit, syntax-grammar load at startup) rebuilds *every* status line from
+ * that field. Any earlier status line — for example `/add-dir`'s — then shows
+ * our text too, so a single command looks like it ran twice. The invalidate is
+ * also why the duplicate depends on startup timing and terminal.
+ *
+ * A custom entry carries its own text and is rendered from that data, so it is
+ * immune to invalidation. Entries stay out of the model context (same pattern
+ * as pi-chrome) and survive the startup chat rebuild instead of being wiped.
+ */
+const NOTICE_ENTRY = "ask-perm:notice";
+
+interface NoticeData {
+	text: string;
+}
+
 export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
+	pi.registerEntryRenderer?.(NOTICE_ENTRY, (entry, _options, theme) => {
+		const text = (entry.data as NoticeData | undefined)?.text;
+		return text === undefined
+			? undefined
+			: new Text(theme.fg("dim", text), 1, 0);
+	});
+	const notice = (text: string): void => {
+		pi.appendEntry<NoticeData>(NOTICE_ENTRY, { text });
+	};
+
 	let enabled = false;
 	let modes: PermissionModes = { ...DEFAULT_MODES };
 	// Session this state belongs to. A runtime rebind can emit `session_start`
@@ -283,10 +314,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				if (changed) rules.clear();
 				enabled = true;
 				syncStatus(ctx);
-				ctx.ui.notify(
-					`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`,
-					"info",
-				);
+				notice(`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`);
 				return;
 			}
 
@@ -294,18 +322,14 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				enabled = false;
 				rules.clear();
 				syncStatus(ctx);
-				ctx.ui.notify(
-					"Permission OFF — no boundary checks in this session.",
-					"info",
-				);
+				notice("Permission OFF — no boundary checks in this session.");
 				return;
 			}
 
 			const chosen = await openPermissionPanel(ctx, modes);
 			if (!chosen) {
-				ctx.ui.notify(
+				notice(
 					"ask-perm: cancelled. Use /ask-perm allow allow allow ask to enable from the argument form.",
-					"info",
 				);
 				return;
 			}
@@ -314,10 +338,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 			rules.clear();
 			enabled = true;
 			syncStatus(ctx);
-			ctx.ui.notify(
-				`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`,
-				"info",
-			);
+			notice(`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`);
 		},
 	});
 

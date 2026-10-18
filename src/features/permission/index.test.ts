@@ -50,6 +50,7 @@ interface Harness {
 	readonly gate: ToolGate;
 	readonly statuses: Array<[string, string | undefined]>;
 	readonly notes: Array<{ message: string; kind?: string }>;
+	readonly entries: Array<{ type: string; data: unknown }>;
 	readonly branch: Array<Record<string, unknown>>;
 	setSessionId(id: string): void;
 	evaluate(event: ToolCallEvent): Promise<unknown>;
@@ -62,6 +63,7 @@ function makeHarness(): Harness {
 	const cwd = realpathSync(mkdtempSync(join(tmpdir(), "pi-perm-test-")));
 	const statuses: Harness["statuses"] = [];
 	const notes: Harness["notes"] = [];
+	const entries: Harness["entries"] = [];
 	const branch: Harness["branch"] = [];
 	let sessionId = "session-1";
 	const ctx = {
@@ -102,6 +104,10 @@ function makeHarness(): Harness {
 		) {
 			if (name === "ask-perm") commandHandler = options.handler;
 		},
+		appendEntry(type: string, data: unknown) {
+			entries.push({ type, data });
+		},
+		registerEntryRenderer() {},
 	} as unknown as ExtensionAPI;
 
 	registerPermission(pi, hub);
@@ -114,6 +120,7 @@ function makeHarness(): Harness {
 		gate,
 		statuses,
 		notes,
+		entries,
 		branch,
 		setSessionId(id: string) {
 			sessionId = id;
@@ -211,7 +218,9 @@ describe("/ask-perm", () => {
 	it("keeps the mode off when the panel is cancelled", async () => {
 		const h = makeHarness();
 		await h.command("");
-		expect(h.notes.at(-1)?.message).toContain("cancelled");
+		expect((h.entries.at(-1)?.data as { text: string }).text).toContain(
+			"cancelled",
+		);
 		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
 	});
 
@@ -296,21 +305,21 @@ describe("/ask-perm", () => {
 		expect(await h.evaluate(customEvent("mcp"))).toBeUndefined();
 	});
 
-	it("is idempotent: repeating the same command notifies once and keeps grants", async () => {
+	it("is idempotent: repeating the same command logs once and keeps grants", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		expect(h.notes).toHaveLength(1);
+		expect(h.entries).toHaveLength(1);
 
 		asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x"))).request.apply(
 			"allow-session",
 		);
 		await h.command("allow allow allow ask");
-		expect(h.notes).toHaveLength(1);
+		expect(h.entries).toHaveLength(1);
 		// The grant collected before the repeat is still in force.
 		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
 	});
 
-	it("notifies and clears session grants when the modes actually change", async () => {
+	it("logs and clears session grants when the modes actually change", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
 		asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x"))).request.apply(
@@ -319,7 +328,7 @@ describe("/ask-perm", () => {
 		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
 
 		await h.command("ask allow allow ask");
-		expect(h.notes).toHaveLength(2);
+		expect(h.entries).toHaveLength(2);
 		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).kind).toBe("ask");
 	});
 });

@@ -356,17 +356,27 @@ src/features/permission/
    我们只加「任意行回车 = 应用」；对话框用 `SelectList` + a/s/d/f 热键。
    非 TUI（rpc/print）无法挂自定义组件，回落 `ctx.ui.select`；`hasUI === false` 直接拒绝（fail closed）。
 10. **提示字串一律英文**（崔总要求）：panel/prompt/notify/banner/拒绝理由。
-11. **带参数开启是幂等的**：模式与当前一致时直接返回——不重复 notify，也不清空会话授权。
-    这条是被实际使用逼出来的：`/ask-perm` 既可能被两个 autostart 来源各跑一次，
-    也可能在配置里写了两行；旧实现每条都会 `rules.clear()` 并提示一次，
-    用户看到的就是「Permission ON」出现两遍，且此前的授权被静默清掉。
-    现在只有模式**真的变化**才提示并清空授权（旧授权是按旧策略给的）。
+11. **带参数开启是幂等的**：模式与当前一致时直接返回——不重复记录，也不清空会话授权。
+    `ask-perm` 既可能被两个 autostart 来源各跑一次，也可能在配置里写了两行；
+    旧实现每条都会 `rules.clear()` 并记一次，用户会看到授权被静默清掉。
+    现在只有模式**真的变化**才记录并清空授权（旧授权是按旧策略给的）。
+12. **模式提示用自定义会话条目，不用 `ctx.ui.notify("info")`**：
+    宿主把每条 info 提示渲染成一个 `ThemedText`，而它的 builder 读的是**共享的**
+    `lastStatusMessage` 字段（`interactive-mode.js#showStatus`）；`ui.invalidate()`
+    （切换主题、主题文件变更、启动期语法加载完成）会重建**所有**旧状态行。于是
+    `/add-dir` 那行也会显示我们的文案，一条命令看起来像执行了两次。这正是
+    「Permission ON 出现两遍、且与终端/启动时序有关」的根因——不是重复执行，
+    也不是 API 用错（add-dir 的 info 提示同样会被改写）。
+    现在 `ask-perm:notice` 条目自带文本、由 `registerEntryRenderer` 渲染，
+    不受 invalidate 影响，且不进模型上下文（与 pi-chrome 同款用法）；启动期的
+    chat 重建也会从会话历史重新渲染条目，不会像 notify 那样被冲掉。
 
 ### 已实现并验证
 
-- 会话生命周期：`session_start` 重置（`enabled=false`、默认模式、清空授权），
-  `session_shutdown` 再清一次；`src/index.ts` 里 permission 的 `session_start` 注册顺序
-  排在 autostart **之前**，保证 autostart 派发的 `/ask-perm ...` 面对的是干净状态。
+- 会话生命周期：新会话的 `session_start` 重置（`enabled=false`、默认模式、清空授权）；
+  同一 session id 的重复 emission（启动重绑定）保持状态。`src/index.ts` 里 permission 的
+  `session_start` 注册顺序排在 autostart **之前**，保证 autostart 派发的 `/ask-perm ...`
+  面对的是干净状态。
 - 项目内定义 = `ctx.cwd` + pi-add-dir 会话条目 `add-dir:state` 里的目录
   （pi 无目录列表 API，读它的私有条目是软依赖，读不到就只用 cwd；
   `getBranch()` 按长度缓存，只在分支增长时重扫）。
