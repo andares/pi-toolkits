@@ -106,6 +106,8 @@ Enter with `/ask` (press it again to exit). Meant for the case where you only wa
 - `/ask-perm allow allow allow ask` — positional form (`in-read in-write out-read out-write`), enables immediately without a dialog. Missing arguments fall back to the defaults. This is the form autostart uses.
 - `/ask-perm` again — turns it off.
 
+Repeating the argument form with the modes already in force is a **no-op**: no second "ON" notice and no loss of the session grants collected so far. Changing any mode notifies and clears those grants, because they were made under the old policy.
+
 **Defaults**: in-project read/write allowed, outside read allowed, outside write asks.
 
 | Scope | reads | writes / exec |
@@ -306,6 +308,8 @@ No file = feature disabled, zero overhead, silently skipped.
 | project | `<project root>/.pi/autostart.toml` | requires project trust |
 
 The global list runs first, so a project can override an earlier setting (for example a later `/ask-perm` with different arguments). Use the global file only when you want the same commands in every project; per-project files remain the recommended default.
+
+An **identical command line** declared by both sources runs once: a duplicate is skipped for that replay, so a global `/ask-perm ...` copied into a project does not run (or announce itself) twice. Different commands still both run, which is what keeps a project override working.
 
 **When it runs**:
 

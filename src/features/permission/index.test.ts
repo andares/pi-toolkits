@@ -269,7 +269,21 @@ describe("/ask-perm", () => {
 		expect(await h.evaluate(customEvent("mcp"))).toBeUndefined();
 	});
 
-	it("clears session grants when the mode is reconfigured", async () => {
+	it("is idempotent: repeating the same command notifies once and keeps grants", async () => {
+		const h = makeHarness();
+		await h.command("allow allow allow ask");
+		expect(h.notes).toHaveLength(1);
+
+		asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x"))).request.apply(
+			"allow-session",
+		);
+		await h.command("allow allow allow ask");
+		expect(h.notes).toHaveLength(1);
+		// The grant collected before the repeat is still in force.
+		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
+	});
+
+	it("notifies and clears session grants when the modes actually change", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
 		asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x"))).request.apply(
@@ -277,7 +291,8 @@ describe("/ask-perm", () => {
 		);
 		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
 
-		await h.command("allow allow allow ask");
+		await h.command("ask allow allow ask");
+		expect(h.notes).toHaveLength(2);
 		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).kind).toBe("ask");
 	});
 });

@@ -80,3 +80,13 @@ export function shortMode(mode: TriMode | "allow"): string {
 			return "D";
 	}
 }
+
+/** Structural equality for the four modes. */
+export function sameModes(a: PermissionModes, b: PermissionModes): boolean {
+	return (
+		a.inRead === b.inRead &&
+		a.inWrite === b.inWrite &&
+		a.outRead === b.outRead &&
+		a.outWrite === b.outWrite
+	);
+}

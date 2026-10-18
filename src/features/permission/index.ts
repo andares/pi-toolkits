@@ -31,6 +31,7 @@ import {
 import {
 	formatModes,
 	parsePermissionArgs,
+	sameModes,
 	shortMode,
 } from "./modes.js";
 import { openPermissionPanel } from "./panel.js";
@@ -253,9 +254,16 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 					ctx.ui.notify(`ask-perm: ${parsed.error}`, "error");
 					return;
 				}
+				// Idempotent: the same command may arrive twice in one session start
+				// (both autostart sources declaring it, a duplicated config line, …).
+				// Re-applying an unchanged policy is a no-op — no second "ON" notice,
+				// and no loss of the session grants collected so far.
+				if (enabled && sameModes(modes, parsed.modes)) return;
+
+				const changed = !sameModes(modes, parsed.modes);
 				modes = parsed.modes;
-				// A new policy invalidates grants made under the old one.
-				rules.clear();
+				// A changed policy invalidates grants made under the old one.
+				if (changed) rules.clear();
 				enabled = true;
 				syncStatus(ctx);
 				ctx.ui.notify(
@@ -284,7 +292,9 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				);
 				return;
 			}
+			// The panel only opens while off, so this always transitions on.
 			modes = chosen;
+			rules.clear();
 			enabled = true;
 			syncStatus(ctx);
 			ctx.ui.notify(

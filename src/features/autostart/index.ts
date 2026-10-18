@@ -163,6 +163,13 @@ export function registerAutostart(
 				),
 		);
 
+		// The same line may be declared by both sources (global defaults plus a
+		// project copy). Running an identical command twice in one replay is
+		// never meaningful — a repeated `/ask-perm` would re-notify, and a
+		// repeated `/add-dir` is pure noise — so identical text runs once.
+		// Different commands still both run, which keeps the project's override.
+		const dispatched = new Set<string>();
+
 		for (const source of sources) {
 			const commands = await readCommands(ctx, source);
 			if (commands === undefined || commands.length === 0) continue;
@@ -184,6 +191,8 @@ export function registerAutostart(
 					);
 					continue;
 				}
+				if (dispatched.has(command)) continue;
+				dispatched.add(command);
 				// One failing command must not cancel the rest of the list.
 				try {
 					await pi.sendUserMessage(command, { expandPromptTemplates: true });

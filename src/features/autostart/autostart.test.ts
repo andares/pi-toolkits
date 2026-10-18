@@ -418,6 +418,29 @@ describe("registerAutostart", () => {
 		expect(h.notifications[0]?.type).toBe("warning");
 	});
 
+	it("runs an identical command only once across sources", async () => {
+		const h = await harness(
+			"[command]\nrun = [\"/ask on\"]",
+			false,
+			"[command]\nrun = [\"/ask on\"]",
+		);
+		await h.start("startup");
+		expect(h.sent.map((entry) => entry.command)).toEqual(["/ask on"]);
+	});
+
+	it("still runs different commands from both sources", async () => {
+		const h = await harness(
+			"[command]\nrun = [\"/ask on\", \"/add-dir ../p\"]",
+			false,
+			"[command]\nrun = [\"/ask on\"]",
+		);
+		await h.start("startup");
+		expect(h.sent.map((entry) => entry.command)).toEqual([
+			"/ask on",
+			"/add-dir ../p",
+		]);
+	});
+
 	it("keeps running the project config when the global one is absent", async () => {
 		const h = await harness('[command]\nrun = ["/ask on"]', false, null);
 		await h.start("startup");
