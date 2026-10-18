@@ -12,9 +12,9 @@
 [![pi >= 1.0](https://img.shields.io/badge/pi-%3E%3D1.0.0%20%3C1.12.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: six ready-to-use capabilities — **read-only consult mode** `ask`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model` and **session startup automation** `autostart` — with more to come.
+In a nutshell: seven ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model` and **session startup automation** `autostart` — with more to come.
 
-**Requirements**: pi `>=1.0.0 <1.12.0` — the four most recently released minor lines (1.0.x / 1.1.x / 1.2.x / 1.3.x) are supported best-effort, and the upper bound encodes the forward probe: on every host release we check up to **8 minor lines** beyond the newest one (now 1.4 … 1.11) and never claim past that cap. **Measured natural compatibility: 1.3.0** (the newest release at the time of writing — nothing newer exists to probe yet). A single command, `pnpm check:compat`, derives that version set from the registry and runs, per version, in a sandbox under the system temp dir with the whole `@earendil-works/*` family pinned to the version under test: install → `tsc --noEmit` → full test suite → keybinding audit → hash-compare of the host `dist` files this package patches or mirrors. Results over 1.0.0 → 1.3.0 (all 8 published versions): typecheck, 289 tests and the keybinding audit pass on every one; the tracked host files drift only in `core/agent-session.js` (1.3.0 changed the tool-restore path; `cycleModel` untouched), `core/keybindings.js` and `core/compaction/utils.js` (both changed in 1.2.0, table semantics for our keys unchanged), and `extensions/types.d.ts` (additive) — `ModelSelectorComponent`, `core/compaction/compaction.js` and `core/usage-totals.js` are byte-identical across the whole window. Smoke-loading on real pi 1.3.0 produces no warnings. Note: pi ≥ 0.99 hosts require `@earendil-works/pi-tui` to be declared in `peerDependencies` as `"*"` (provided by the host); this package declares it as required.
+**Requirements**: pi `>=1.0.0 <1.12.0` — the four most recently released minor lines (1.0.x / 1.1.x / 1.2.x / 1.3.x) are supported best-effort, and the upper bound encodes the forward probe: on every host release we check up to **8 minor lines** beyond the newest one (now 1.4 … 1.11) and never claim past that cap. **Measured natural compatibility: 1.3.0** (the newest release at the time of writing — nothing newer exists to probe yet). A single command, `pnpm check:compat`, derives that version set from the registry and runs, per version, in a sandbox under the system temp dir with the whole `@earendil-works/*` family pinned to the version under test: install → `tsc --noEmit` → full test suite → keybinding audit → hash-compare of the host `dist` files this package patches or mirrors. Results over 1.0.0 → 1.3.0 (all 8 published versions): typecheck, 397 tests and the keybinding audit pass on every one; the tracked host files drift only in `core/agent-session.js` (1.3.0 changed the tool-restore path; `cycleModel` untouched), `core/keybindings.js` and `core/compaction/utils.js` (both changed in 1.2.0, table semantics for our keys unchanged), and `extensions/types.d.ts` (additive) — `ModelSelectorComponent`, `core/compaction/compaction.js` and `core/usage-totals.js` are byte-identical across the whole window. Smoke-loading on real pi 1.3.0 produces no warnings. Note: pi ≥ 0.99 hosts require `@earendil-works/pi-tui` to be declared in `peerDependencies` as `"*"` (provided by the host); this package declares it as required.
 
 ---
 
@@ -48,6 +48,7 @@ After installing, verify in any pi session:
 - [Installation](#install)
 - [Features at a glance](#features)
   - [🛡️ ask — read-only consult mode](#ask)
+  - [🔐 permission — session-scoped boundary checks](#permission)
   - [⭐ favorites — model favorites](#favorites)
   - [📥 stash — prompt stash](#stash)
   - [🔎 review — third-party code review](#review)
@@ -66,6 +67,7 @@ After installing, verify in any pi session:
 | Feature | Entry point | One-line description |
 | --- | --- | --- |
 | 🛡️ **ask** read-only consult mode | `/ask` | enter read-only Q&A mode: `write`/`edit`/`powershell` hard-disabled, `bash` runs in a read-only sandbox, `grep`/`find`/`ls` activated |
+| 🔐 **permission** session-scoped boundary checks | `/ask-perm` | four in/out × read/write modes, off by default and never persisted; outside writes ask, credentials are denied, destructive commands always ask; composes with `/ask` |
 | ⭐ **favorites** model favorites | `ctrl+A` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/third-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
@@ -89,6 +91,55 @@ Enter with `/ask` (press it again to exit). Meant for the case where you only wa
 - **Grey `ask` footer status** — a permanent reminder that read-only mode is on
 
 **Exit**: press `/ask` again; the tool-set snapshot taken on entry is fully restored (read-only helpers included).
+
+---
+
+## 🔐 permission — session-scoped boundary checks
+
+<a name="permission"></a>
+
+`/ask-perm` turns on boundary checks for the **current session only**. Every piece of state — the on/off flag, the four modes, the session grants — lives in the extension's memory. Nothing is written to disk, the feature is off by default, and it leaves no status behind when disabled. Toggling it on can never silently follow you into the next session.
+
+**Enable**
+
+- `/ask-perm` — opens the mode panel. The first row applies on Enter; the four rows cycle with space. Cursor starts at the top, so `/ask-perm` + Enter enables the defaults.
+- `/ask-perm allow allow allow ask` — positional form (`in-read in-write out-read out-write`), enables immediately without a dialog. Missing arguments fall back to the defaults. This is the form autostart uses.
+- `/ask-perm` again — turns it off.
+
+**Defaults**: in-project read/write allowed, outside read allowed, outside write asks.
+
+| Scope | reads | writes / exec |
+| --- | --- | --- |
+| inside the project (working directory + `/add-dir` directories) | `in read` | `in write` |
+| outside the project | `out read` | `out write` |
+
+`exec` is folded into `write`: any command that changes state counts as a write.
+
+**What is inspected**
+
+- **bash** is decomposed into simple commands — `&&`, `||`, `;`, pipes, `$(…)`, backticks, `bash -c`, `eval`, the common indirection wrappers (`sudo`, `env`, `xargs`, `find -exec`, …), heredocs — and judged per command. `cd` folds into the commands after it; the strictest result wins, so `cd /tmp && rm x` cannot ride on the first segment.
+- **path-bearing tools** (`read` / `write` / `edit` / `grep` / `find` / `ls`) are judged by their own path; every other tool is judged by the working directory.
+- **unresolvable input** — a non-literal `cd` or `git -C`, an unknown shell variable in a path, an unterminated heredoc or substitution — is asked about regardless of mode (fail closed), never guessed.
+- **`git -C <dir>`** is resolved like a local `cd`: relative path arguments (and the repository) are judged against `<dir>`, not the working directory.
+
+**Answers**: `a` allow once · `s` allow this directory for the session · `d` deny · `f` deny this directory for the session. Session grants are kept in memory as `(read|write, directory)`, matched by containment, and cleared when the mode is turned off or the session ends. A session grant outranks the destructive table — once you have allowed an operation for the session, repeating it does not ask again. A command the parser cannot resolve is granted by its exact text instead, so repeating the same opaque command does not ask again.
+
+**Fixed safety tables** (independent of the four modes):
+
+- **credentials are denied in every mode** — `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.pi/agent/auth*.json`, `.env` files (templates excepted). Without this, `out read = allow` would hand out `~/.ssh/id_rsa`.
+- **destructive commands always ask** — `rm` of `/`, the home directory, or the working directory; `git reset --hard`; `git clean -f`; `git push --force`; package `publish`; `dd` to a raw device; `mkfs*`; shutdown/reboot; `chmod -R 777`; anything through `sudo`. Scope alone cannot express "destructive".
+
+**Composition with `/ask`**: the two features are independent gates on one bus. Each answers only its own question — ask: "does this mutate?", permission: "does this cross the boundary?" — and either can block. Ask mode still denies credential reads, and permission still applies while the read-only sandbox is active. Neither feature needs to know the other exists.
+
+**Enable it for every session** (the state itself is never persisted — this is the opt-in):
+
+```toml
+# <project>/.pi/autostart.toml, or <agent-dir>/autostart.toml for all projects
+[command]
+run = ["/ask-perm allow allow allow ask"]
+```
+
+> **Implementation notes**: state is reset on `session_start` and cleared on `session_shutdown`; the footer shows `perm i:A/A o:A/ask` while on (`A` allow, `a` ask, `D` deny). Subagent sessions start with their own state and do not inherit the parent's mode — when child sessions must be gated too, enable it through the project's autostart file. POSIX hosts (Linux / macOS / WSL) are the tested target; native Windows Git-Bash path spellings are approximated, not verified. bash decomposition uses `shell-quote`; unknown variables expand to a sentinel that makes the unit ask instead of silently becoming an empty path. Added directories are read from pi-add-dir's session entry (`add-dir:state`). Heuristic, not a sandbox: project-internal destructive commands are covered by the fixed table, not by a sandbox. One known blind spot: a *read* command's bare filename operand (`cat notes.txt`) is not collected as a target, so with `out read = ask` only absolute-path-shaped read operands are questioned — reads never write, so the four modes' write side is unaffected.
 
 ---
 
@@ -247,6 +298,15 @@ run = [
 
 No file = feature disabled, zero overhead, silently skipped.
 
+**Two sources, executed in order, never merged**:
+
+| Source | Path | Trust gate |
+| --- | --- | --- |
+| global (operator defaults) | `<agent-dir>/autostart.toml` (default `~/.pi/agent/autostart.toml`) | none — the file belongs to the operator |
+| project | `<project root>/.pi/autostart.toml` | requires project trust |
+
+The global list runs first, so a project can override an earlier setting (for example a later `/ask-perm` with different arguments). Use the global file only when you want the same commands in every project; per-project files remain the recommended default.
+
 **When it runs**:
 
 | session_start reason | Replayed | Why |
@@ -288,6 +348,7 @@ pnpm check:compat        # verify the declared pi range: last 4 minor lines + 8-
 src/
 ├── index.ts              # entry point: aggregates feature modules
 ├── lib/                  # shared infrastructure (tool-set snapshot/restore,
+│                         # gate bus composing tool_call policies,
 │                         # model-key resolution shared by review & compact)
 └── features/             # feature modules — one directory per feature
     ├── ask/              # ask mode: command + state machine, bash sandbox,
@@ -299,6 +360,9 @@ src/
     │                     #           tests
     ├── favorites/        # model favorites: selector + cycle patches,
     │                     #           persisted store, tests
+    ├── permission/       # session-scoped boundary permission: modes, panel,
+    │                     #           bash units, policy, session grants, prompt,
+    │                     #           tests
     ├── review/           # third-party review: input/command triggers,
     │                     #           review-model config store, prompt, tests
     └── stash/            # prompt stash: hotkey state machine + tests

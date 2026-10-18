@@ -12,9 +12,9 @@
 [![pi >= 1.0](https://img.shields.io/badge/pi-%3E%3D1.0.0%20%3C1.12.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含六个开箱即用的功能——**只读咨询模式** `ask`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`,后续持续追加。
+一句话介绍:目前包含七个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`,后续持续追加。
 
-**版本要求**:pi `>=1.0.0 <1.12.0` —— 最近 4 个中版本线(1.0.x / 1.1.x / 1.2.x / 1.3.x)尽力支持,上界编码「向后探针」的硬上限:宿主每发一版,我们最多向后查 **8 条中版本线**(当前 1.4 … 1.11),再晚不宣称。**实测自然兼容最高 1.3.0**(写此文时的最新版本,更新的还没发布、无物可探)。一条命令 `pnpm check:compat` 从 registry 推导目标集合,逐版本在系统临时目录沙箱中(把整个 `@earendil-works/*` 家族钉在待测版本)跑:安装 → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch/mirror 的宿主 `dist` 文件做哈希比对。1.0.0 → 1.3.0 全部 8 个已发布版本:typecheck、289 个测试、键位审计全绿;被跟踪的宿主文件仅在 `core/agent-session.js`(1.3.0 改了 tool-restore 路径,`cycleModel` 未动)、`core/keybindings.js` 与 `core/compaction/utils.js`(二者都是 1.2.0 变的,我们按键的解析结果不变)、`extensions/types.d.ts`(纯增量)上有差异 —— `ModelSelectorComponent`、`core/compaction/compaction.js` 与 `core/usage-totals.js` 在窗口内字节级不变。真实 pi 1.3.0 冒烟加载无警告。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
+**版本要求**:pi `>=1.0.0 <1.12.0` —— 最近 4 个中版本线(1.0.x / 1.1.x / 1.2.x / 1.3.x)尽力支持,上界编码「向后探针」的硬上限:宿主每发一版,我们最多向后查 **8 条中版本线**(当前 1.4 … 1.11),再晚不宣称。**实测自然兼容最高 1.3.0**(写此文时的最新版本,更新的还没发布、无物可探)。一条命令 `pnpm check:compat` 从 registry 推导目标集合,逐版本在系统临时目录沙箱中(把整个 `@earendil-works/*` 家族钉在待测版本)跑:安装 → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch/mirror 的宿主 `dist` 文件做哈希比对。1.0.0 → 1.3.0 全部 8 个已发布版本:typecheck、397 个测试、键位审计全绿;被跟踪的宿主文件仅在 `core/agent-session.js`(1.3.0 改了 tool-restore 路径,`cycleModel` 未动)、`core/keybindings.js` 与 `core/compaction/utils.js`(二者都是 1.2.0 变的,我们按键的解析结果不变)、`extensions/types.d.ts`(纯增量)上有差异 —— `ModelSelectorComponent`、`core/compaction/compaction.js` 与 `core/usage-totals.js` 在窗口内字节级不变。真实 pi 1.3.0 冒烟加载无警告。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
 
 ---
 
@@ -48,6 +48,7 @@ pi -e ./src/index.ts
 - [安装](#install)
 - [功能总览](#features)
   - [🛡️ ask — 只读咨询模式](#ask)
+  - [🔐 permission — 会话级边界权限](#permission)
   - [⭐ favorites — 模型收藏](#favorites)
   - [📥 stash — 提示词暂存](#stash)
   - [🔎 review — 第三方代码评审](#review)
@@ -66,6 +67,7 @@ pi -e ./src/index.ts
 | 功能 | 入口 | 一句话说明 |
 | --- | --- | --- |
 | 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit`/`powershell` 硬禁用,`bash` 只读沙箱,临时启用 `grep`/`find`/`ls` |
+| 🔐 **permission** 会话级边界权限 | `/ask-perm` | 项目内/外 × 读/写四格模式,默认关闭且从不落盘;项目外写询问、凭据路径硬拒、破坏性命令必问;与 `/ask` 并行组合 |
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+A` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
@@ -89,6 +91,55 @@ pi -e ./src/index.ts
 - **灰色 `ask` footer 状态** —— 常驻提示当前处于只读模式
 
 **退出**:再按 `/ask`,完整恢复进入前的工具集快照(含临时启用的只读工具)。
+
+---
+
+## 🔐 permission — 会话级边界权限
+
+<a name="permission"></a>
+
+`/ask-perm` 只在**当前会话**开启边界检查。开关状态、四项模式、会话授权全部只存在扩展内存里:不落盘、默认关闭、关闭后不留任何状态。开启一次不会悄悄跟到下一个会话。
+
+**开启**
+
+- `/ask-perm` —— 打开模式面板。顶行按回车即应用,四行用空格循环、↑↓ 移动;光标默认在最上面,所以「输入指令 + 回车」就是按默认值开启
+- `/ask-perm allow allow allow ask` —— 位置参数形式(`in-read in-write out-read out-write`),不弹窗直接开启;没给全的参数回落到默认值。这也是 autostart 使用的形式
+- 再输入一次 `/ask-perm` —— 关闭
+
+**默认值**:项目内读/写全放行,项目外读放行,项目外写询问。
+
+| 作用域 | 读 | 写 / 执行 |
+| --- | --- | --- |
+| 项目内(工作目录 + `/add-dir` 加入的目录) | `in read` | `in write` |
+| 项目外 | `out read` | `out write` |
+
+`exec` 折进 `write`:任何产生变更的执行都算写。
+
+**检查方式**
+
+- **bash** 先拆成简单命令 —— `&&`、`||`、`;`、管道、`$(…)`、反引号、`bash -c`、`eval`、常见间接包装(`sudo`、`env`、`xargs`、`find -exec`…)、heredoc —— 再逐条判定;`cd` 向前折叠,取最严格的结果,所以 `cd /tmp && rm x` 不会靠第一段蒙混过关
+- **带路径的工具**(`read` / `write` / `edit` / `grep` / `find` / `ls`)按自己的路径判定;其它工具按工作目录判定
+- **无法解析的输入** —— 非字面量 `cd` 或 `git -C`、路径里的未知 shell 变量、未闭合的 heredoc/命令替换 —— 一律询问,不看模式(fail closed),绝不猜测
+- **`git -C <dir>`** 按局部 `cd` 处理:相对路径参数(和仓库本身)按 `<dir>` 判定,而不是工作目录
+
+**回答**:`a` 本次允许 · `s` 本会话允许该目录 · `d` 拒绝 · `f` 本会话拒绝该目录。会话授权在内存中按 `(读|写, 目录)` 保存、按包含关系匹配,关闭模式或会话结束时清空;**会话授权优先于破坏性表**——你按了 `s` 之后,重复同一操作不会再弹;解析不了完整路径的命令则按**完整命令文本**授权,重复同一条命令不会再问。
+
+**固定安全表**(与四格模式无关):
+
+- **凭据路径任何模式都拒绝** —— `~/.ssh`、`~/.gnupg`、`~/.aws`、`~/.pi/agent/auth*.json`、`.env` 文件(模板除外)。没有这一条,默认的「项目外读放行」就等于把 `~/.ssh/id_rsa` 交出去
+- **破坏性命令永远询问** —— 对 `/`、家目录或工作目录的 `rm`;`git reset --hard`;`git clean -f`;`git push --force`;包 `publish`;`dd` 写裸设备;`mkfs*`;关机/重启;`chmod -R 777`;任何经 `sudo` 的命令。作用域本身表达不了「破坏性」
+
+**与 `/ask` 的组合**:两者是同一总线上的独立闸门,各自只回答自己的问题 —— ask 回答「会不会产生变更」,permission 回答「有没有越过边界」,任一拦截都生效。所以 ask 模式下凭据仍然读不到,permission 在只读沙箱下也照常工作;两个功能互不需要知道对方存在。
+
+**每个会话自动开启**(状态本身不落盘,这就是持久化的替身):
+
+```toml
+# <项目>/.pi/autostart.toml;想对所有项目生效则用 <agent-dir>/autostart.toml
+[command]
+run = ["/ask-perm allow allow allow ask"]
+```
+
+> **实现说明**:状态在 `session_start` 重置、`session_shutdown` 清空;开启时 footer 显示 `perm i:A/A o:A/ask`(`A` allow、`a` ask、`D` deny)。子代理会话有自己的状态、不继承父会话的模式;需要子会话也受控时,通过项目 autostart 再开启一次。实测目标是 POSIX 宿主(Linux/macOS/WSL);原生 Windows Git-Bash 的路径拼写只做了近似,未验证。bash 拆解使用 `shell-quote`;未知变量会展开成哨兵而不是空字符串,使该命令转为询问而不是被悄悄当成空路径。add-dir 目录从 pi-add-dir 的会话条目 `add-dir:state` 读取。启发式,不是沙箱:项目内的破坏性操作由固定表兜底,而不是靠沙箱。已知盲区一处:**读命令的裸文件名参数**(`cat notes.txt`)不被收集为目标,所以把 `out read` 调成 `ask` 时只有绝对路径形状的读目标会被问——读本身不会写,四格模式的写侧不受影响。
 
 ---
 
@@ -247,6 +298,15 @@ run = [
 
 无文件 = 功能未启用,零开销、静默跳过。
 
+**两个来源,按序执行,不做合并**:
+
+| 来源 | 路径 | project trust |
+| --- | --- | --- |
+| 全局(操作者默认) | `<agent-dir>/autostart.toml`(默认 `~/.pi/agent/autostart.toml`) | 不需要 —— 文件属于操作者本人 |
+| 项目 | `<项目根>/.pi/autostart.toml` | 需要 |
+
+全局列表先执行,项目列表后执行,因此项目可以覆盖此前的设置(例如后面再执行一条不同参数的 `/ask-perm`)。只有希望所有项目都用同一套命令时才用全局文件;仍然建议以项目级配置为主。
+
 **执行时机**:
 
 | session_start reason | 是否重放 | 原因 |
@@ -288,6 +348,7 @@ pnpm check:compat        # 校验声明的 pi 区间:最近 4 条中版本线 + 
 src/
 ├── index.ts              # 入口:聚合各功能模块
 ├── lib/                  # 共享基础设施(工具集快照/恢复、
+│                         # 组合 tool_call 策略的闸门总线、
 │                         # review 与 compact 共用的模型 key 解析)
 └── features/             # 功能模块 —— 一个功能一个目录
     ├── ask/              # ask 模式:命令 + 状态机、bash 沙箱、
@@ -298,6 +359,8 @@ src/
     │                     #           /compact-model、配置存储、prompt、测试
     ├── favorites/        # 模型收藏:选择器与循环 patch、
     │                     #           持久化存储、测试
+    ├── permission/       # 会话级边界权限:模式、面板、bash 拆解、
+    │                     #           策略、会话授权、确认对话框、测试
     ├── review/           # 第三方评审:输入/指令触发、
     │                     #           评审模型配置存储、提示词、测试
     └── stash/            # 提示词暂存:热键状态机 + 测试
