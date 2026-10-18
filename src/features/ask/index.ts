@@ -8,7 +8,10 @@
  *  - Read-only helper tools (grep/find/ls) are activated for the duration so
  *    the model gets proper search tools; the entry snapshot restores exactly.
  *  - bash stays available but is gated by a read-only sandbox
- *    (see bash-sandbox.ts) via the tool_call hook.
+ *    (see bash-sandbox.ts) through the shared gate bus (lib/gates.ts), so
+ *    another feature's gate (`permission`) runs alongside it rather than
+ *    replacing it: each feature owns its own concern and the call is blocked
+ *    when either objects.
  *  - Mode banner appended to the system prompt via before_agent_start
  *    chained systemPrompt (see prompt.ts), listing blocked -> alternative.
  */
@@ -16,6 +19,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import type { GateHub } from "../../lib/gates.js";
 import {
 	restoreActiveTools,
 	snapshotActiveTools,
@@ -31,7 +35,7 @@ import { isReadOnlyCommand } from "./bash-sandbox.js";
 import { appendAskBanner } from "./prompt.js";
 import { blockedBashReason, blockedToolReason } from "./reasons.js";
 
-export function registerAsk(pi: ExtensionAPI): void {
+export function registerAsk(pi: ExtensionAPI, gates: GateHub): void {
 	let enabled = false;
 	/** Active tools before ask mode was entered (for exact restore on exit). */
 	let snapshot: string[] = [];
@@ -102,20 +106,34 @@ export function registerAsk(pi: ExtensionAPI): void {
 	//  - bash is kept available but only read-only commands pass the sandbox.
 	// The rejection `reason` reaches the model as the tool result, so it names
 	// the nearest allowed alternative (see reasons.ts).
-	pi.on("tool_call", (event) => {
-		if (!enabled) return;
+	//
+	// Registered through the gate bus so the permission gate composes with it:
+	// ask answers "does this mutate?", permission answers "does this cross the
+	// project boundary?". A denied outside read still applies in ask mode, and
+	// a blocked write never reaches permission's dialog because a block
+	// short-circuits the bus.
+	gates.register({
+		name: "ask",
+		order: 10,
+		evaluate(event) {
+			if (!enabled) return undefined;
 
-		if (ASK_BLOCKED_TOOLS.has(event.toolName)) {
-			return { block: true, reason: blockedToolReason(event.toolName) };
-		}
-
-		if (event.toolName === "bash") {
-			const command =
-				typeof event.input.command === "string" ? event.input.command : "";
-			if (!isReadOnlyCommand(command)) {
-				return { block: true, reason: blockedBashReason(command) };
+			if (ASK_BLOCKED_TOOLS.has(event.toolName)) {
+				return {
+					kind: "block",
+					reason: blockedToolReason(event.toolName),
+				};
 			}
-		}
+
+			if (event.toolName === "bash") {
+				const command =
+					typeof event.input.command === "string" ? event.input.command : "";
+				if (!isReadOnlyCommand(command)) {
+					return { kind: "block", reason: blockedBashReason(command) };
+				}
+			}
+			return undefined;
+		},
 	});
 
 	// Mode banner: chained append to the current system prompt while enabled.
