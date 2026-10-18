@@ -51,6 +51,7 @@ interface Harness {
 	readonly statuses: Array<[string, string | undefined]>;
 	readonly notes: Array<{ message: string; kind?: string }>;
 	readonly branch: Array<Record<string, unknown>>;
+	setSessionId(id: string): void;
 	evaluate(event: ToolCallEvent): Promise<unknown>;
 	command(args: string): Promise<void>;
 	sessionStart(): Promise<void>;
@@ -62,6 +63,7 @@ function makeHarness(): Harness {
 	const statuses: Harness["statuses"] = [];
 	const notes: Harness["notes"] = [];
 	const branch: Harness["branch"] = [];
+	let sessionId = "session-1";
 	const ctx = {
 		cwd,
 		hasUI: true,
@@ -73,7 +75,10 @@ function makeHarness(): Harness {
 			custom: async () => undefined,
 			select: async () => undefined,
 		},
-		sessionManager: { getBranch: () => branch },
+		sessionManager: {
+			getBranch: () => branch,
+			getSessionId: () => sessionId,
+		},
 	} as unknown as ExtensionContext;
 
 	const captured: ToolGate[] = [];
@@ -110,6 +115,9 @@ function makeHarness(): Harness {
 		statuses,
 		notes,
 		branch,
+		setSessionId(id: string) {
+			sessionId = id;
+		},
 		async evaluate(event) {
 			return gate.evaluate(event, ctx);
 		},
@@ -211,6 +219,25 @@ describe("/ask-perm", () => {
 		const h = makeHarness();
 		await h.command("deny");
 		expect(h.notes.at(-1)?.kind).toBe("error");
+		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
+	});
+
+	it("keeps the state when the same session emits session_start again", async () => {
+		const h = makeHarness();
+		await h.sessionStart(); // the real first emission
+		await h.command("allow allow allow ask");
+		// A startup rebind reports the same session again; state must survive.
+		await h.sessionStart();
+		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).kind).toBe(
+			"ask",
+		);
+	});
+
+	it("resets on session_start for a different session", async () => {
+		const h = makeHarness();
+		await h.command("allow allow allow ask");
+		h.setSessionId("session-2");
+		await h.sessionStart();
 		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
 	});
 

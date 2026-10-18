@@ -145,7 +145,10 @@ type SessionStartHandler = (
 		cwd: string;
 		isProjectTrusted: () => boolean;
 		ui: { notify: (message: string, type?: string) => void };
-		sessionManager: { buildContextEntries: () => Array<{ type: string }> };
+		sessionManager: {
+			buildContextEntries: () => Array<{ type: string }>;
+			getSessionId: () => string;
+		};
 	},
 ) => Promise<void>;
 
@@ -159,6 +162,7 @@ interface Harness {
 	setTrusted(trusted: boolean): void;
 	/** Simulate a session that already had a conversation (resumed process). */
 	setHistory(entries: Array<{ type: string }>): void;
+	setSessionId(id: string): void;
 	start(reason: string): Promise<void>;
 }
 
@@ -190,6 +194,7 @@ async function makeHarness(
 		{ type: "model_change" },
 		{ type: "thinking_level_change" },
 	];
+	let sessionId = "session-1";
 	let handler: SessionStartHandler = async () => {};
 	const sent: Harness["sent"] = [];
 	const notifications: Harness["notifications"] = [];
@@ -226,6 +231,9 @@ async function makeHarness(
 		setHistory(entries) {
 			history = entries;
 		},
+		setSessionId(id) {
+			sessionId = id;
+		},
 		async start(reason: string) {
 			await handler({ reason }, {
 				cwd,
@@ -235,7 +243,10 @@ async function makeHarness(
 						notifications.push({ message, type });
 					},
 				},
-				sessionManager: { buildContextEntries: () => history },
+				sessionManager: {
+					buildContextEntries: () => history,
+					getSessionId: () => sessionId,
+				},
 			});
 		},
 		cwd,
@@ -286,6 +297,8 @@ describe("registerAutostart", () => {
 	it("replays on new and fork", async () => {
 		const h = await harness('[command]\nrun = ["/ask on"]');
 		await h.start("new");
+		// A fork is a different session, so it replays again.
+		h.setSessionId("forked-session");
 		await h.start("fork");
 		expect(h.sent).toEqual([
 			{ command: "/ask on", options: { expandPromptTemplates: true } },
@@ -300,6 +313,21 @@ describe("registerAutostart", () => {
 		await h.start("reload");
 		expect(h.sent).toEqual([]);
 		expect(h.notifications).toEqual([]);
+	});
+
+	it("replays once per session even if session_start is emitted twice", async () => {
+		const h = await harness(fullConfig);
+		await h.start("startup");
+		await h.start("startup");
+		expect(h.sent).toHaveLength(2);
+	});
+
+	it("replays again for a new session id", async () => {
+		const h = await harness(fullConfig);
+		await h.start("startup");
+		h.setSessionId("session-2");
+		await h.start("startup");
+		expect(h.sent).toHaveLength(4);
 	});
 
 	it("skips a process started on an existing session (pi -c reports startup)", async () => {

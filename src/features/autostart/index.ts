@@ -87,6 +87,15 @@ const HISTORY_ENTRY_TYPES: ReadonlySet<string> = new Set([
  * session manager counts as new, which keeps the feature working in hosts where
  * the session surface is unavailable.
  */
+/** Session id, or `undefined` when the host exposes none. */
+function sessionIdOf(ctx: ExtensionContext): string | undefined {
+	try {
+		return ctx.sessionManager.getSessionId();
+	} catch {
+		return undefined;
+	}
+}
+
 function hasConversationHistory(ctx: ExtensionContext): boolean {
 	try {
 		return ctx.sessionManager
@@ -102,6 +111,11 @@ export function registerAutostart(
 	options: AutostartOptions = {},
 ): void {
 	const agentDir = options.agentDir ?? getAgentDir();
+	// One replay per session. The host can emit `session_start` more than once
+	// for the same session (a runtime rebind during startup reports `startup`
+	// again), and replaying on the second emission would announce everything
+	// twice.
+	const replayedSessions = new Set<string>();
 
 	async function readCommands(
 		ctx: ExtensionContext,
@@ -139,6 +153,12 @@ export function registerAutostart(
 		// that already has history; the content is what tells them apart. See
 		// shouldReplay in autostart.ts for the host-side evidence.
 		if (!shouldReplay(event.reason, hasConversationHistory(ctx))) return;
+
+		const sessionId = sessionIdOf(ctx);
+		if (sessionId !== undefined) {
+			if (replayedSessions.has(sessionId)) return;
+			replayedSessions.add(sessionId);
+		}
 
 		const sources: Source[] = [
 			{

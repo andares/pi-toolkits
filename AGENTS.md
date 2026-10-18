@@ -378,6 +378,15 @@ src/features/permission/
   全部 8 个已发布版本上 install + typecheck + 397 测试 + 键位审计全绿；
   真实 pi 1.3.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
+### 补充：同一会话的 `session_start` 可能发多次
+
+宿主的 runtime 重绑定（启动期出现 `session_shutdown` → `session_start(reason=startup)`
+的序列）会让同一会话再次收到 `session_start`。若按「每次 emission 都重置/重放」处理，
+autostart 会重放第二遍（提示出两次），permission 会把刚开启的状态清掉。
+两个功能现在都**按 session id 去重**：同一 id 的再次 emission 不重放、不复位
+（`autostart` 的 `replayedSessions` / `permission` 的 `currentSessionId`）；
+`/new`、`fork`、`/resume` 等真正换会话的路径 id 会变，行为不变。
+
 ### 已知边界（有意为之，README 已声明）
 
 - 读命令的**裸文件名参数**不判定（`cat notes.txt`）：默认模式下无影响，

@@ -99,6 +99,10 @@ function toolUnit(
 export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 	let enabled = false;
 	let modes: PermissionModes = { ...DEFAULT_MODES };
+	// Session this state belongs to. A runtime rebind can emit `session_start`
+	// again for the same session; resetting then would wipe a mode that the
+	// autostart replay had just enabled, so only a different session resets.
+	let currentSessionId: string | undefined;
 	const rules = new SessionRules();
 	let rootsCache:
 		| { cwd: string; branchLength: number; roots: string[] }
@@ -109,6 +113,15 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 		modes = { ...DEFAULT_MODES };
 		rules.clear();
 		rootsCache = undefined;
+	}
+
+	/** Session id, or `undefined` when the host exposes none. */
+	function sessionIdOf(ctx: ExtensionContext): string | undefined {
+		try {
+			return ctx.sessionManager.getSessionId();
+		} catch {
+			return undefined;
+		}
 	}
 
 	function syncStatus(ctx: ExtensionContext): void {
@@ -233,11 +246,15 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 	// ── Lifecycle ──────────────────────────────────────────────────────────
 
 	pi.on("session_start", (_event, ctx) => {
+		const sessionId = sessionIdOf(ctx);
+		// Same session, repeated emission (a startup rebind): keep the state.
+		if (sessionId !== undefined && sessionId === currentSessionId) {
+			syncStatus(ctx);
+			return;
+		}
+		currentSessionId = sessionId;
 		reset();
 		syncStatus(ctx);
-	});
-	pi.on("session_shutdown", () => {
-		reset();
 	});
 
 	// ── Command ────────────────────────────────────────────────────────────
