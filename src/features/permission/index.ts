@@ -23,6 +23,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import type { AskRequest, GateHub } from "../../lib/gates.js";
+import { isJailedTool } from "../../lib/tools.js";
 import { consumeStartupCommand } from "../../lib/startup.js";
 import {
 	DEFAULT_MODES,
@@ -356,6 +357,11 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 		order: 20,
 		evaluate(event, ctx) {
 			if (!enabled) return undefined;
+			// A self-jailed tool (ask's `scratchpad`) can only reach the temp directory
+			// it owns: there is no boundary to judge, and the operator sanctioned that
+			// space by entering the mode that activates the tool. The owning feature
+			// marks it only while active, so an inactive tool is judged normally.
+			if (isJailedTool(event.toolName)) return undefined;
 			const units = unitsFor(event, ctx.cwd);
 			if (units.length === 0) return undefined;
 			const decision = decideProgram(units, {

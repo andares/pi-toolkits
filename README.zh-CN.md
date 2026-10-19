@@ -15,7 +15,7 @@
 
 一句话介绍:目前包含七个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`,后续持续追加。
 
-**版本要求**:pi `>=1.0.0 <1.12.0` —— 最近 4 个中版本线(1.0.x / 1.1.x / 1.2.x / 1.3.x)尽力支持,上界编码「向后探针」的硬上限:宿主每发一版,我们最多向后查 **8 条中版本线**(当前 1.4 … 1.11),再晚不宣称。**实测自然兼容最高 1.3.0**(写此文时的最新版本,更新的还没发布、无物可探)。一条命令 `pnpm check:compat` 从 registry 推导目标集合,逐版本在系统临时目录沙箱中(把整个 `@earendil-works/*` 家族钉在待测版本)跑:安装 → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch/mirror 的宿主 `dist` 文件做哈希比对。1.0.0 → 1.3.0 全部 8 个已发布版本:typecheck、397 个测试、键位审计全绿;被跟踪的宿主文件仅在 `core/agent-session.js`(1.3.0 改了 tool-restore 路径,`cycleModel` 未动)、`core/keybindings.js` 与 `core/compaction/utils.js`(二者都是 1.2.0 变的,我们按键的解析结果不变)、`extensions/types.d.ts`(纯增量)上有差异 —— `ModelSelectorComponent`、`core/compaction/compaction.js` 与 `core/usage-totals.js` 在窗口内字节级不变。真实 pi 1.3.0 冒烟加载无警告。注:pi ≥ 0.99 的宿主要求 `@earendil-works/pi-tui` 声明为 peerDependencies `"*"`(由宿主提供),本包已按要求声明。
+**版本要求**:pi `>=1.0.0 <1.12.0` —— 最近 4 个中版本线(1.0.x / 1.1.x / 1.2.x / 1.3.x)尽力支持,上界编码「向后探针」的硬上限:宿主每发一版,我们最多向后查 **8 条中版本线**(当前 1.4 … 1.11),再晚不宣称。**实测自然兼容最高 1.3.0**(写此文时的最新版本,更新的还没发布、无物可探)。一条命令 `pnpm check:compat` 从 registry 推导目标集合,逐版本在系统临时目录沙箱中(把整个 `@earendil-works/*` 家族钉在待测版本)跑:安装 → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch/mirror 的宿主 `dist` 文件做哈希比对。1.0.0 → 1.3.0 全部 8 个已发布版本:typecheck、473 个测试、键位审计全绿;被跟踪的宿主文件仅在 `core/agent-session.js`(1.3.0 改了 tool-restore 路径,`cycleModel` 未动)、`core/keybindings.js` 与 `core/compaction/utils.js`(二者都是 1.2.0 变的,我们按键的解析结果不变)、`extensions/types.d.ts`(纯增量)上有差异 —— `ModelSelectorComponent`、`core/compaction/compaction.js` 与 `core/usage-totals.js` 在窗口内字节级不变。真实 pi 1.3.0 冒烟加载无警告。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
 ---
 
@@ -37,7 +37,7 @@ pi -e ./src/index.ts
 
 安装后在任意 pi 会话中验证:
 
-- `/ask` → footer 出现灰色 `ask` 状态,`write`/`edit` 被硬禁用
+- `/ask` → footer 出现灰色 `ask` 状态,`write`/`edit` 被硬禁用,同时出现 `scratchpad` 工具用于草稿笔记
 - `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行;对选中模型按 `ctrl+A` → 文字变**加粗亮黄**、收藏计数 +1(这一步同时就是真机按键检查,见「键位」约定)
 - 输入框内按 `ctrl+alt+y` → 当前提示词被暂存并清空输入框
 - 完成一个开发任务后输入 `/third-review` → 切换到评审模型执行查+修
@@ -68,7 +68,7 @@ pi -e ./src/index.ts
 
 | 功能 | 入口 | 一句话说明 |
 | --- | --- | --- |
-| 🛡️ **ask** 只读咨询模式 | `/ask` | 进入只读问答模式,`write`/`edit`/`powershell` 硬禁用,`bash` 只读沙箱,临时启用 `grep`/`find`/`ls` |
+| 🛡️ **ask** 只读咨询模式 | `/ask` | 进入咨询模式:`write`/`edit`/`powershell` 硬禁用,`bash` 只读沙箱,临时启用 `grep`/`find`/`ls`,并开放 `scratchpad` 把草稿写进会话临时目录 |
 | 🔐 **permission** 会话级边界权限 | `/ask-perm` | 项目内/外 × 读/写四格模式,默认关闭且从不落盘;项目外写询问、凭据路径硬拒、破坏性命令必问;与 `/ask` 并行组合 |
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+A` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
@@ -82,17 +82,21 @@ pi -e ./src/index.ts
 
 <a name="ask"></a>
 
-用 `/ask` 进入(再按一次退出)。适合只想要"问问题、读代码",绝不希望模型改动任何文件的场景。
+用 `/ask` 进入(再按一次退出)。适合只想要「问问题、读代码」的场景:模型不能改项目,但不会被剥夺思考的落点。
 
 **进入后**:
 
-- **`write` / `edit` / `powershell` 硬禁用** —— 从活跃工具集中移除,pi 运行时对未激活工具的调用直接拒绝("Tool not found"),文件修改在机制上不可能发生
+- **项目文件写入仍然机制上不可能** —— `write` / `edit` / `powershell` 从活跃工具集中移除,pi 对未激活工具的调用直接拒绝("Tool not found");闸门还会二次拦截,防止有东西把它们重新打开
+- **只留一个写通道:`scratchpad`** —— 参数是**相对**笔记名(`plan.md`、`notes/api.md`),只能落到 `<os.tmpdir()>/pi-ask/<session-id>`。它注册时处于未激活状态(`defaultActive: false`),只在 ask 模式里启用,所以它的声明与「笔记不是交付物」的 guidelines 恰好在适用时才进入请求。单文件上限 256 KiB,路径上已存在的符号链接会被拒绝,里面的东西永不被执行—— bash 沙箱因此完全不需要写权限。宿主没有可写临时目录时工具保持未激活,模式降级为旧的纯只读(进入时的提示会说清楚,不做半开)
 - **临时启用只读检索工具** —— `grep` / `find` / `ls`(宿主已注册但默认不激活)在 ask 期间打开,让模型有正规搜索工具而不是只能走 bash;退出时按进入前快照完整恢复
 - **`bash` 保留但只读沙箱** —— shell 分词 + 逐段校验 + 写盘意图检测。除常见读取命令外,放行 git 考古族(`blame`、`grep`、`rev-parse`、`describe`、`shortlog`、`reflog show`、`stash list`、`tag -l`、`cat-file` 等)、包元数据查询(`pnpm view`、`pip show/list`、`python -m json.tool`),以及网络读取 `curl -s <url>` / `wget -O - <url>`。仍拦截:重定向、`tee`、`dd`、`sed -i`、安装/构建、git 变更类命令、命令替换、会启动其它程序的选项(`find -exec`、`git grep -O`、`rg --pre`),以及一切写盘目标(`curl -o`、`wget -O file`、`git diff --output=`、`tree -o`)。启发式,非安全边界
-- **系统提示词给出替代方案** —— 追加的模式说明不仅列限制,还写明被拦后用什么替代(读文件用 `read`、取网页用 `curl -s`、要改动则 `/ask` 退出);被拒的工具调用返回分类原因,直接指向最近的可用替代,模型不会盲目重试
-- **灰色 `ask` footer 状态** —— 常驻提示当前处于只读模式
+- **短横幅而不是清单** —— 系统提示词只追加三行:咨询模式、草稿通道、退出方式。**不再重述 bash 白名单** —— 那是沙箱的职责,被拦时的拒绝理由会直接指出可用的替代,所以细节只在真用到的那一轮付费(旧横幅每个请求都要重申一遍,约 300 token)。横幅不含路径与时间戳,会话内字节稳定,可以稳定命中 provider 的提示词缓存
+- **拒绝理由指向下一步** —— 被拦的 `write` / `edit` 会说明草稿用 `scratchpad`、真正改动要 `/ask` 退出;被拦的重定向也同样指路,而不是只说「不能写」
+- **灰色 `ask` footer 状态** —— 常驻提示当前处于咨询模式
 
-**退出**:再按 `/ask`,完整恢复进入前的工具集快照(含临时启用的只读工具)。
+**草稿生命周期**:每个会话一个目录,位于系统临时目录(`os.tmpdir()`,所以 Windows 的 `%TEMP%` 也适用);进入时创建、退出时**不删**——续会话(`pi -c`)还能找回笔记,进程内切换会话(/new、/resume、fork)会重新绑定到新会话的目录;进入时清掉超过 7 天的旧目录。开启提示会打印路径;里面的内容不属于项目,也不会出现在 `git status` 里。
+
+**退出**:再按 `/ask`,完整恢复进入前的工具集快照(含 scratch 工具与临时启用的只读工具)。
 
 ---
 
@@ -358,9 +362,11 @@ src/
 ├── index.ts              # 入口:聚合各功能模块
 ├── lib/                  # 共享基础设施(工具集快照/恢复、
 │                         # 组合 tool_call 策略的闸门总线、
+│                         # 边界闸门会查询的自封闭工具登记表、
 │                         # review 与 compact 共用的模型 key 解析)
 └── features/             # 功能模块 —— 一个功能一个目录
     ├── ask/              # ask 模式:命令 + 状态机、bash 沙箱、
+    │                     #           草稿空间(临时目录 + scratchpad 工具)、
     │                     #           系统提示词横幅、测试
     ├── autostart/        # 会话启动自动化:autostart.toml 解析、
     │                     #           命令预校验 + 重放、测试

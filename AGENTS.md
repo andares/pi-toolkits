@@ -30,6 +30,10 @@
   其中 `pi-tui` 用 `"*"`（运行时由宿主 virtual modules 重定向到宿主副本，值导入
   也不需要 `dependencies`）；`pi-coding-agent` 用实测支持区间——pi 托管安装禁用
   peer 解析（`--legacy-peer-deps` / `--omit=peer`），区间不参与安装求解，只作兼容声明。
+  **`typebox` 同样是宿主提供包**（`resource-loader.js` 的 `HOST_PROVIDED_EXTENSION_PACKAGES`
+  同时含 `typebox` 与 `@sinclair/typebox`）：`peerDependencies: "*"` + `devDependencies`
+  放具体版本供 typecheck，进 `dependencies` 会触发同一条告警（2026-10-19 按 1.3.0 源码
+  核实；ask 的 `scratchpad` 用它声明参数 schema）。
   该区间的值不要手工推演：下限 = 窗口最旧版本、上界 = 最新线下一条 + 8 条线的下一条，
   由 `pnpm check:compat` 校验（不一致直接判失败）。
   （规则按 pi 1.3.0 源码核实：`resource-loader.js` 只校验 `dependencies` 成员，
@@ -195,6 +199,74 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
   https://pi.dev/packages?name=toolkits 能否搜到；爬虫是小时/天级，不是即时。
 - qualisero/awesome-pi-agent（1.1k★）**已归档**（最后更新 2026-06），不要往那儿提 PR；
   BubblePtr/awesome-pi → https://piindex.dev/ 仍活跃，可提 PR。
+
+## Feature: ask（`/ask` 咨询模式，2026-10-19 重构）
+
+旧版 ask 把「写临时文件」也一并禁掉：`write`/`edit`/`powershell` 摘除 + bash 只读白名单。
+本意是安全的规划环境，实际代价是 AI 连写个提纲、存个草稿都不行，只能把中间产物塞进回复
+或绕路；崔总于是干脆改用「提示一句只讨论」，指令本身几乎不用。结论：**ask 该禁止的是
+「改项目」，不是「写文件」**。
+
+### 决策（崔总 2026-10-19 定稿）
+
+- 形态取 **scratch 工具**：`scratchpad` 只写会话临时目录；`write`/`edit`/`powershell`
+  仍然硬禁、bash 仍然只读（不新增写通道）
+- **不保留**旧版「完全无写」行为（不留 `/ask hard` 之类的第二档）
+- 模式仍然**粘性**到手动 `/ask` 退出（不做「一次一轮」）
+- 评估过但没做的两条：**路径闸门**（保留 `write`/`edit` 只放行临时目录——接口不变、
+  TUI 有 diff，但要做 realpath/symlink 判断，bash 想放行重定向还得复制 permission 的
+  `units` 拆解（cd 折叠 + 重定向位置语义），代码翻倍、逃逸面最大）；**确认门**
+  （不撤工具、写操作弹 a/s/d/f——最软，但对话被打断、工具在手模型更爱尝试，留作将来
+  `/ask soft` 的选项）。
+
+### 实现要点
+
+- `src/features/ask/scratch.ts` —— 会话级目录 `<os.tmpdir()>/pi-ask/<sessionId>`
+  （Windows 走 `%TEMP%`，所以「没有 /tmp 的系统」天然可用）。
+  - 名字只接受相对名：至多两级、逐段 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`，拒绝 `..`、
+    绝对路径、盘符、反斜杠、前导点；拼好后**再做一次包含判断**（纵深防御）。
+  - 已存在的路径分量若是符号链接 → 拒绝（防止临时目录里预先埋的链接把笔记写到别处）。
+  - 单文件 256 KiB 上限（笔记不是仓库备份，也防止模型读回时淹掉上下文）。
+  - 创建时写一个探针文件再删——`mkdir -p` 在只读 TMPDIR 上会假成功；探针失败就抛错，
+    由 ask **整体降级**为纯只读（不做半开）。
+  - 进入时清理 >7 天的旧目录；退出**不删**（`pi -c` 续会话还能找回笔记）。
+- `src/features/ask/scratch-tool.ts` —— `scratchpad`，`op = write|append|read|list|delete`，
+  `defaultActive: false`，只在 ask 期间激活。软约束的载体是工具自己的 `description` +
+  `promptGuidelines`（这两个字段 1.0.0 起就有，实测全窗口可用），因此「笔记不是交付物、
+  真改动要说出来让用户 `/ask` 退出」只在适用时进入系统提示。工具**不接收路径**，模型
+  不需要知道绝对路径，也不需要任何路径解析。
+- `src/features/ask/prompt.ts` —— 横幅压到 3 行（状态 + 草稿通道 + 退出），**删掉整段 bash
+  白名单**：那是沙箱的职责，拒绝理由已按分类指路（`reasons.ts`），细节只在真用到的那轮付费。
+  横幅不含路径与时间戳、会话内字节稳定，才能稳定命中 provider 的 prompt 缓存；旧横幅
+  1248 字符 ≈ 310 tok/请求，新版 < 500 字符。
+- `src/features/ask/reasons.ts` —— write/edit/redirect/write/download 类拒绝理由统一指
+  `scratchpad`（草稿）与 `/ask`（真改动）；**降级模式（无 scratch）下不再指向
+  `scratchpad`**（`ReasonOptions.scratch`，闸门按当前状态传入）。
+- **进程内切换会话重绑定**：`/new`、`/resume`、fork 在 ask 开启时触发 `session_start`，
+  会话 id 变化即重建 scratch store 绑到新会话目录并通知；同 id 重复 emission 不动
+  （`scratchSessionId` 比对）。退出 /ask 时清除绑定。
+- `src/lib/tools.ts` 增加**自封闭工具登记表**（`markJailedTool`/`clearJailedTool`/
+  `isJailedTool`）：ask 启用 `scratchpad` 时标记、退出时清除；permission 的闸门看到标记
+  直接跳过——该工具只能写自己的临时目录，没有「边界」可判（否则 `out-write=ask` 会为
+  每份草稿弹框）。这是**按工具名**放行，只有「调用方无法让它指向任意路径」的工具才能登记；
+  忘记清除会放宽边界，所以由拥有者在退出时清。
+
+### 已知边界（有意为之）
+
+- scratch 里的东西**永不执行**（bash 只读白名单不因 ask 放宽），所以往 scratch 里写脚本
+  只是文本，不是执行通道。
+- 不是沙箱：临时目录里若被别的进程放了符号链接，我们**拒绝**而不是跟随（拒绝不等于隔离）。
+- 原生 Windows 路径拼写只做近似，实测目标仍是 POSIX 宿主。
+
+### 已验证
+
+- 测试：`pnpm test` 20 个文件 / 473 测试全绿；`pnpm check:compat` 在 1.0.0–1.3.0
+  全部 8 个已发布版本上 install + typecheck + 473 测试 + 键位审计全绿（dist 漂移与上一版一致）。
+- 真实 pi 1.3.0 冒烟（项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
+  第一轮的工具集里就含 `scratchpad`，`plan.md` 写入 `/tmp/pi-ask/<session>/` 成功。
+  **冒烟发现并修掉两处**：① 在 `session_start` 里 `setActiveTools` 会被该轮 loadout
+  准备覆盖 → 改为在 `before_agent_start` 里重新断言工具集；② 异步建目录会让第一轮
+  看不到 `scratchpad` → 建目录/清理改为同步 fs，`enter()` 内无 await。
 
 ## Feature: autostart（已实现并发布）
 

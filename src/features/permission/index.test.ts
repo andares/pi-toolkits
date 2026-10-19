@@ -8,13 +8,18 @@
 import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { AskDecision, GateHub, ToolGate } from "../../lib/gates.js";
+import {
+	clearJailedTool,
+	markJailedTool,
+	resetJailedTools,
+} from "../../lib/tools.js";
 import { markStartupCommand } from "../../lib/startup.js";
 import { registerPermission } from "./index.js";
 
@@ -391,8 +396,7 @@ describe("model-facing banner", () => {
 	});
 });
 
-describe("session grants cover repeat asks", () => {
-	it("stops asking for a destructive in-project command once allowed", async () => {
+describe("session grants cover repeat asks", () => {	it("stops asking for a destructive in-project command once allowed", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
 		const first = asAsk(await h.evaluate(bashEvent("rm -rf .")));
@@ -409,5 +413,25 @@ describe("session grants cover repeat asks", () => {
 		expect(first.request.details.join("\n")).toContain("this exact command");
 		first.request.apply("allow-session");
 		expect(await h.evaluate(bashEvent(command))).toBeUndefined();
+	});
+});
+
+describe("self-jailed tools", () => {
+	beforeEach(() => {
+		resetJailedTools();
+	});
+
+	it("skips the boundary check only while the owning feature marks the tool", async () => {
+		const h = makeHarness();
+		// Make the judgement observable: with in-project writes set to ask, an
+		// unmarked pathless tool would raise a dialog.
+		await h.command("ask ask ask ask");
+		expect(asAsk(await h.evaluate(customEvent("scratchpad"))).kind).toBe("ask");
+
+		markJailedTool("scratchpad");
+		expect(await h.evaluate(customEvent("scratchpad"))).toBeUndefined();
+
+		clearJailedTool("scratchpad");
+		expect(asAsk(await h.evaluate(customEvent("scratchpad"))).kind).toBe("ask");
 	});
 });

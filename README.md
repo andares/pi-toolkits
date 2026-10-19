@@ -15,7 +15,7 @@
 
 In a nutshell: seven ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model` and **session startup automation** `autostart` — with more to come.
 
-**Requirements**: pi `>=1.0.0 <1.12.0` — the four most recently released minor lines (1.0.x / 1.1.x / 1.2.x / 1.3.x) are supported best-effort, and the upper bound encodes the forward probe: on every host release we check up to **8 minor lines** beyond the newest one (now 1.4 … 1.11) and never claim past that cap. **Measured natural compatibility: 1.3.0** (the newest release at the time of writing — nothing newer exists to probe yet). A single command, `pnpm check:compat`, derives that version set from the registry and runs, per version, in a sandbox under the system temp dir with the whole `@earendil-works/*` family pinned to the version under test: install → `tsc --noEmit` → full test suite → keybinding audit → hash-compare of the host `dist` files this package patches or mirrors. Results over 1.0.0 → 1.3.0 (all 8 published versions): typecheck, 397 tests and the keybinding audit pass on every one; the tracked host files drift only in `core/agent-session.js` (1.3.0 changed the tool-restore path; `cycleModel` untouched), `core/keybindings.js` and `core/compaction/utils.js` (both changed in 1.2.0, table semantics for our keys unchanged), and `extensions/types.d.ts` (additive) — `ModelSelectorComponent`, `core/compaction/compaction.js` and `core/usage-totals.js` are byte-identical across the whole window. Smoke-loading on real pi 1.3.0 produces no warnings. Note: pi ≥ 0.99 hosts require `@earendil-works/pi-tui` to be declared in `peerDependencies` as `"*"` (provided by the host); this package declares it as required.
+**Requirements**: pi `>=1.0.0 <1.12.0` — the four most recently released minor lines (1.0.x / 1.1.x / 1.2.x / 1.3.x) are supported best-effort, and the upper bound encodes the forward probe: on every host release we check up to **8 minor lines** beyond the newest one (now 1.4 … 1.11) and never claim past that cap. **Measured natural compatibility: 1.3.0** (the newest release at the time of writing — nothing newer exists to probe yet). A single command, `pnpm check:compat`, derives that version set from the registry and runs, per version, in a sandbox under the system temp dir with the whole `@earendil-works/*` family pinned to the version under test: install → `tsc --noEmit` → full test suite → keybinding audit → hash-compare of the host `dist` files this package patches or mirrors. Results over 1.0.0 → 1.3.0 (all 8 published versions): typecheck, 473 tests and the keybinding audit pass on every one; the tracked host files drift only in `core/agent-session.js` (1.3.0 changed the tool-restore path; `cycleModel` untouched), `core/keybindings.js` and `core/compaction/utils.js` (both changed in 1.2.0, table semantics for our keys unchanged), and `extensions/types.d.ts` (additive) — `ModelSelectorComponent`, `core/compaction/compaction.js` and `core/usage-totals.js` are byte-identical across the whole window. Smoke-loading on real pi 1.3.0 produces no warnings. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
 ---
 
@@ -37,7 +37,7 @@ pi -e ./src/index.ts
 
 After installing, verify in any pi session:
 
-- `/ask` → a grey `ask` status appears in the footer, `write`/`edit` are hard-disabled
+- `/ask` → a grey `ask` status appears in the footer, `write`/`edit` are hard-disabled, and a `scratchpad` tool appears for throwaway notes
 - `/model` (or `ctrl+l`) → a favorites hint line appears at the top of the selector; `ctrl+A` on the selected model → it turns bold bright yellow and the favorites counter goes up (this step is also the real-machine keypress check — see Keybindings)
 - press `ctrl+alt+y` in the input box → the current prompt is stashed and the input box is cleared
 - after finishing a development task, type `/third-review` → switches to the review model and runs check + fix
@@ -68,7 +68,7 @@ After installing, verify in any pi session:
 
 | Feature | Entry point | One-line description |
 | --- | --- | --- |
-| 🛡️ **ask** read-only consult mode | `/ask` | enter read-only Q&A mode: `write`/`edit`/`powershell` hard-disabled, `bash` runs in a read-only sandbox, `grep`/`find`/`ls` activated |
+| 🛡️ **ask** read-only consult mode | `/ask` | enter consult mode: `write`/`edit`/`powershell` hard-disabled, `bash` runs in a read-only sandbox, `grep`/`find`/`ls` activated, and `scratchpad` allowed to write throwaway notes into the session's temp directory |
 | 🔐 **permission** session-scoped boundary checks | `/ask-perm` | four in/out × read/write modes, off by default and never persisted; outside writes ask, credentials are denied, destructive commands always ask; composes with `/ask` |
 | ⭐ **favorites** model favorites | `ctrl+A` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
@@ -82,17 +82,21 @@ After installing, verify in any pi session:
 
 <a name="ask"></a>
 
-Enter with `/ask` (press it again to exit). Meant for the case where you only want to "ask questions and read code", and absolutely never want the model to modify any file.
+Enter with `/ask` (press it again to exit). Meant for the case where you only want to "ask questions and read code": the model may not change the project, but it is not starved of a place to think.
 
 **While active**:
 
-- **`write` / `edit` / `powershell` hard-disabled** — removed from the active tool set; pi rejects calls to inactive tools outright ("Tool not found"), so file modification becomes mechanically impossible
+- **Project writes stay mechanically impossible** — `write` / `edit` / `powershell` are removed from the active tool set, so pi rejects calls to inactive tools outright ("Tool not found"); the gate blocks them again as defence in depth
+- **One write channel: `scratchpad`** — a tool that takes a *relative* note name (`plan.md`, `notes/api.md`) and can only reach `<os.tmpdir()>/pi-ask/<session-id>`. It is registered inactive (`defaultActive: false`) and activated only in ask mode, so its declaration and its "notes are not deliverables" guidelines are part of the request exactly when they apply. Notes are capped at 256 KiB each, a pre-existing symlinked path component is refused, and nothing written there is ever executed — the bash sandbox needs no write allowance at all. On a host with no writable temp dir the tool stays inactive and the mode degrades to the old fully read-only behaviour (the entry notice says so instead of half-opening the mode)
 - **Read-only helper tools activated** — `grep` / `find` / `ls` (registered by pi but inactive by default) are switched on for the duration, so the model gets proper search tools instead of bash-only search; the entry snapshot is restored exactly on exit
 - **`bash` kept, but sandboxed to read-only** — shell tokenization, per-segment validation plus write-intent detection. Allowed beyond the obvious readers: git archaeology (`blame`, `grep`, `rev-parse`, `describe`, `shortlog`, `reflog show`, `stash list`, `tag -l`, `cat-file`, ...), package metadata queries (`pnpm view`, `pip show/list`, `python -m json.tool`) and network reads through `curl -s <url>` / `wget -O - <url>`. Still blocked: redirections, `tee`, `dd`, `sed -i`, installs/builds, git mutations, command substitution, command runners (`find -exec`, `git grep -O`, `rg --pre`), and every write target (`curl -o`, `wget -O file`, `git diff --output=`, `tree -o`). Heuristic, not a security boundary
-- **System prompt appendix names the alternatives** — the appended mode description states what is blocked *and what to use instead* (`read` for file contents, `curl -s` for URLs, `/ask` to exit). Rejected tool calls come back with a classified reason that points at the nearest allowed alternative, so the model does not retry blind variants
-- **Grey `ask` footer status** — a permanent reminder that read-only mode is on
+- **A short system-prompt banner** — three lines: consult only, the scratch channel, the exit path. The bash allowlist is deliberately *not* restated there: the sandbox enforces it and a rejection names the allowed alternative, so that detail costs tokens only on the turn it is needed (the old banner restated it on every request, ~300 tokens). The banner carries no path and no timestamp, so it stays byte-identical for the session and remains a cacheable prefix
+- **Rejections point at the next step** — a blocked `write` / `edit` names `scratchpad` for throwaway notes and `/ask` for a real change; a blocked redirect says the same instead of only "cannot write"
+- **Grey `ask` footer status** — a permanent reminder that consult mode is on
 
-**Exit**: press `/ask` again; the tool-set snapshot taken on entry is fully restored (read-only helpers included).
+**Scratch lifecycle**: one directory per session under the OS temp dir (`os.tmpdir()`, so Windows `%TEMP%` works too), created on entry and kept on exit — a resumed session finds its notes again, and an in-process session switch (/new, /resume, fork) rebinds the directory to the new session id. Directories older than seven days are removed when a session enters ask mode. The ON notice prints the path; nothing in it is part of the project and it never shows up in `git status`.
+
+**Exit**: press `/ask` again; the tool-set snapshot taken on entry is fully restored (scratch tool and read-only helpers included).
 
 ---
 
@@ -133,7 +137,7 @@ Repeating the argument form with the modes already in force is a **no-op**: no s
 - **credentials are denied in every mode** — `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.pi/agent/auth*.json`, `.env` files (templates excepted). Without this, `out read = allow` would hand out `~/.ssh/id_rsa`.
 - **destructive commands always ask** — `rm` of `/`, the home directory, or the working directory; `git reset --hard`; `git clean -f`; `git push --force`; package `publish`; `dd` to a raw device; `mkfs*`; shutdown/reboot; `chmod -R 777`; anything through `sudo`. Scope alone cannot express "destructive".
 
-**Composition with `/ask`**: the two features are independent gates on one bus. Each answers only its own question — ask: "does this mutate?", permission: "does this cross the boundary?" — and either can block. Ask mode still denies credential reads, and permission still applies while the read-only sandbox is active. Neither feature needs to know the other exists.
+**Composition with `/ask`**: the two features are independent gates on one bus. Each answers only its own question — ask: "does this mutate?", permission: "does this cross the boundary?" — and either can block. Ask mode still denies credential reads, and permission still applies while the read-only sandbox is active. Neither feature needs to know the other exists. The one exception is ask's `scratchpad`: that tool is self-jailed (relative names only, one temp directory), so ask marks it while active and permission skips the boundary dialog that would otherwise fire for an "outside write" on every note.
 
 **Enable it for every session** (the state itself is never persisted — this is the opt-in):
 
@@ -357,10 +361,12 @@ pnpm check:compat        # verify the declared pi range: last 4 minor lines + 8-
 src/
 ├── index.ts              # entry point: aggregates feature modules
 ├── lib/                  # shared infrastructure (tool-set snapshot/restore,
-│                         # gate bus composing tool_call policies,
+│                         # gate bus composing tool_call policies, jailed-tool
+│                         # registry the boundary gate consults,
 │                         # model-key resolution shared by review & compact)
 └── features/             # feature modules — one directory per feature
     ├── ask/              # ask mode: command + state machine, bash sandbox,
+    │                     #           scratch notes (temp dir + scratchpad tool),
     │                     #           system prompt banner, tests
     ├── autostart/        # session startup automation: autostart.toml parsing,
     │                     #           command pre-validation + replay, tests
