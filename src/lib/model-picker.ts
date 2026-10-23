@@ -9,7 +9,7 @@
  *
  * The component is driven through a small ModelRuntime facade backed by
  * ctx.modelRegistry (pi's extension-facing wrapper). SAFETY: verified
- * against pi 1.0.0–1.3.0 dist (modes/interactive/components/model-selector.js +
+ * against pi 1.1.0–1.4.0 dist (modes/interactive/components/model-selector.js +
  * model-catalog-refresh.js — byte-identical across that span) — the
  * component only calls getAvailableSnapshot, getModel, getError and refresh
  * on modelRuntime, and ModelRegistry provides exactly those

@@ -10,12 +10,12 @@
 [![Pi package gallery](https://img.shields.io/badge/pi.dev-package%20gallery-6f42c1)](https://pi.dev/packages/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
-[![pi >= 1.0](https://img.shields.io/badge/pi-%3E%3D1.0.0%20%3C1.12.0-blueviolet)](https://github.com/earendil-works/pi)
+[![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
 In a nutshell: seven ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model` and **session startup automation** `autostart` — with more to come.
 
-**Requirements**: pi `>=1.0.0 <1.12.0` — the four most recently released minor lines (1.0.x / 1.1.x / 1.2.x / 1.3.x) are supported best-effort, and the upper bound encodes the forward probe: on every host release we check up to **8 minor lines** beyond the newest one (now 1.4 … 1.11) and never claim past that cap. **Measured natural compatibility: 1.3.0** (the newest release at the time of writing — nothing newer exists to probe yet). A single command, `pnpm check:compat`, derives that version set from the registry and runs, per version, in a sandbox under the system temp dir with the whole `@earendil-works/*` family pinned to the version under test: install → `tsc --noEmit` → full test suite → keybinding audit → hash-compare of the host `dist` files this package patches or mirrors. Results over 1.0.0 → 1.3.0 (all 8 published versions): typecheck, 473 tests and the keybinding audit pass on every one; the tracked host files drift only in `core/agent-session.js` (1.3.0 changed the tool-restore path; `cycleModel` untouched), `core/keybindings.js` and `core/compaction/utils.js` (both changed in 1.2.0, table semantics for our keys unchanged), and `extensions/types.d.ts` (additive) — `ModelSelectorComponent`, `core/compaction/compaction.js` and `core/usage-totals.js` are byte-identical across the whole window. Smoke-loading on real pi 1.3.0 produces no warnings. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
+**Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.4.0 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
 ---
 
@@ -255,11 +255,11 @@ pi's `/compact` and auto-compact summarize the context **with the current sessio
 | auto-compact threshold reached | summarized by the compaction model |
 | context overflow recovery | summarized by the compaction model, retry behavior unchanged |
 
-**Parts that are identical to pi's built-in behavior after takeover** (the built-in implementation is mirrored verbatim — copied from 0.87.1, byte-identical across every published version of the supported window, 1.0.0 → 1.3.0 — and only the executing model changes; the conversation serializer itself is imported from the host, so it follows whatever the running host does, e.g. 1.2.0 stops feeding assistant thinking back into the summarization request):
+**Parts that are identical to pi's built-in behavior after takeover** (the built-in implementation is mirrored verbatim — copied from 0.87.1, byte-identical across 1.1.0 → 1.4.0 apart from the two 1.4.0 fixes adopted here: summaries request the model's output limit instead of a fixed fraction of `reserveTokens`, and `/compact <instructions>` also reaches the split-turn prefix — and only the executing model changes; the conversation serializer itself is imported from the host, so it follows whatever the running host does, e.g. 1.2.0 stops feeding assistant thinking back into the summarization request):
 
 - **Summary format** — the structured Goal / Progress / Key Decisions checkpoint; when a summary already exists, the iterative-update prompt is used so information carries over instead of being lost
 - **Split behavior** — the `keepRecentTokens` retention policy, and `firstKeptEntryId` / `tokensBefore` passed back unchanged
-- **Output budget** — the same formula as the built-in (history segment 0.8×, split-prefix segment 0.5× of `reserveTokens`, then capped by the model's max output)
+- **Output budget** — summaries ask for the model's own output limit, exactly like the built-in since 1.4.0 (#9512: a fixed 0.8×/0.5× `reserveTokens` cap made long reasoning fail the summary with "generation hit the token cap"); `reserveTokens` only decides when compaction starts
 - **File-list tail** — `<read-files>` / `<modified-files>` tags are appended to the summary as usual, with details maintained in the same shape
 - **Usage accounting** — the compaction model's tokens/cost are counted in the session statistics
 - **Cancellable** — `Esc` during compaction cancels cleanly (the signal is passed through to the underlying call)
@@ -336,7 +336,7 @@ An **identical command line** declared by both sources runs once: a duplicate is
 
 **Key constraint: extension commands only**. Commands registered via `registerCommand` such as `/add-dir` (pi-add-dir) and `/cd` (pi-cd) work; built-in commands (`/compact`, `/reload`, `/resume`, …) are dispatched in the TUI layer and cannot be triggered from the extension layer; skill commands (`/skill:name`) are an expansion mechanism rather than an execution mechanism. The target extension you depend on (e.g. pi-add-dir) must be installed first.
 
-> **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; `sendUserMessage` and `_tryExecuteExtensionCommand` are byte-identical across 1.0.0–1.3.0, see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
+> **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; `sendUserMessage` and `_tryExecuteExtensionCommand` are byte-identical across 1.1.0–1.4.0, see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
 
 ---
 
@@ -352,7 +352,7 @@ pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest (all feature unit tests)
 
 pnpm check:keybindings   # audit this plugin's keys against the host's own dispatch table
-pnpm check:compat        # verify the declared pi range: last 4 minor lines + 8-line forward probe
+pnpm check:compat        # mandatory 4-line window + backward probe (4 more lines) → public floor
 ```
 
 ### Project structure
@@ -414,7 +414,7 @@ PRs and issues welcome. A few conventions:
 - **Built-in patches** (favorites) must stay **version-guarded and idempotent** — verify the target prototype members exist before patching, guard against double-apply, degrade with a `console.warn` instead of breaking the extension
 - **Built-in prompt sync** (compact) — the summarization prompts in `src/features/compact/prompt.ts` are copied verbatim from pi's built-in compaction; when upgrading the pi dependency, diff `dist/core/compaction/compaction.js` (and `utils.js`) and update the strings + assembly helpers to match, keeping takeover output byte-compatible with stock
 - **Keybindings** — before picking a new shortcut, check pi defaults + reserved keys, terminal control chars, and OS/terminal-emulator grabs; prefer `ctrl+alt+<letter>` for cross-platform safety. Do not stop at "it works on my machine in the main screen": in `fullscreen` mode (pi's default since 1.0) the alt-screen layer consumes `tui.altScreen.*` **before** dialogs see the key, and on Windows/WSL several of those bindings differ from the Linux defaults. Run `pnpm check:keybindings [candidate...]` (and `pnpm check:keybindings --all` after a pi upgrade) — it probes the installed host's resolved keybinding table with the host's own `matchesKey`. A key free in the host table can still be taken at the machine layer: Windows Terminal binds `ctrl+v` (paste) and `ctrl+shift+f` (find), and third-party Windows tools commonly grab `ctrl+alt+<letter>` (a screenshot tool once took `ctrl+alt+f`) — so try the key for real on the target machine before shipping it.
-- **Host compatibility** — the peer range is a measured statement, not a wish: the four most recently released pi minor lines are supported best-effort, the upper bound encodes the forward probe cap (newest line + 8 minor lines), and the README annotation must name the highest version actually verified. Re-run `pnpm check:compat` whenever the host dependency moves and read its verdict block (it fails if the declared range drifts from the policy). See the pi 宿主兼容 section of AGENTS.md; keybinding collisions found during an upgrade are reported to the maintainer for a decision, never re-keyed silently.
+- **Host compatibility** — the peer range is a measured statement, not a wish, and it only points backwards: the four most recently released pi minor lines are a mandatory window (fix our code, never raise the floor), below it we probe up to four older lines to find where compatibility actually ends, and the single number users see is the resulting floor (`pi >= <floor>`, no upper bound). Re-run `pnpm check:compat` whenever the host dependency moves and read its verdict block (it fails if the declared floor drifts from the measured one). See the pi 宿主兼容 section of AGENTS.md; keybinding collisions found during an upgrade are reported to the maintainer for a decision, never re-keyed silently.
 - **Quality gate** — `pnpm typecheck && pnpm test` must pass before submitting
 
 ---

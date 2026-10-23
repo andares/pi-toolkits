@@ -8,8 +8,8 @@
  * bindings — only the cycle semantics change (patch-cycle.ts), so no
  * keybinding conflicts arise.
  *
- * Verified against every published version of the supported window
- * (1.0.0 → 1.3.0) keybinding
+ * Verified against every published version of the supported range
+ * (0.99.0 → 1.4.0) keybinding
  * tables + pi-tui input dispatch on WSL2 + Windows Terminal; re-run
  * `pnpm check:keybindings` after every host upgrade before trusting this.
  */
@@ -30,11 +30,12 @@ export const FAVORITES_FILE = "pi-toolkits-favorites.json";
  * Windows/WSL `tui.altScreen.search` resolves to ctrl+f, and
  * `TuiAltScreen.handleViewportInput()` checks it before
  * `shouldDeferViewportInputToOverlay()`, so the keystroke opens transcript
- * search and the selector never sees it (verified in pi-tui 1.3.0
+ * search and the selector never sees it (verified in pi-tui 1.4.0
  * `dist/tui-alt-screen.js`: the search check is the first key branch and
- * returns `{ consume: true }` unconditionally).
+ * returns `{ consume: true }` unconditionally; the 1.4.0 changes to that
+ * file are exit/teardown only).
  *
- * Why ctrl+alt+f was discarded: clean at the pi layer across 1.0–1.3 (only
+ * Why ctrl+alt+f was discarded: clean at the pi layer across 1.1–1.4 (only
  * ctrl+alt+] is taken from that family) and byte-distinguishable without
  * kitty — but grabbed at the OS/app layer on the author's machine by a
  * Windows screenshot tool, so it never reached the terminal. Lesson: a key

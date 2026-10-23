@@ -17,6 +17,10 @@
  *    slot; a second presentation would mount over the first and strand its
  *    promise. The queue serializes our own presentations; the host slot is
  *    still shared with other extensions (pi does not arbitrate globally).
+ *    pi 1.4.0 stacks extension dialogs so a second one no longer strands the
+ *    first (#11166), but the 1.1–1.3 hosts in the supported window still
+ *    replace it — the queue stays, and it also keeps one confirmation visible
+ *    at a time instead of a pile of stacked dialogs on 1.4.0.
  *  - A gate that throws blocks the call (fail closed), matching pi's own
  *    `tool_call` handler contract.
  */

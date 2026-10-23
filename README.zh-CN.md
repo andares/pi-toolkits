@@ -10,12 +10,12 @@
 [![Pi package gallery](https://img.shields.io/badge/pi.dev-package%20gallery-6f42c1)](https://pi.dev/packages/@andares/pi-toolkits)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Package Manager](https://img.shields.io/badge/package%20manager-pnpm-orange?logo=pnpm)](https://pnpm.io)
-[![pi >= 1.0](https://img.shields.io/badge/pi-%3E%3D1.0.0%20%3C1.12.0-blueviolet)](https://github.com/earendil-works/pi)
+[![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
 一句话介绍:目前包含七个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`,后续持续追加。
 
-**版本要求**:pi `>=1.0.0 <1.12.0` —— 最近 4 个中版本线(1.0.x / 1.1.x / 1.2.x / 1.3.x)尽力支持,上界编码「向后探针」的硬上限:宿主每发一版,我们最多向后查 **8 条中版本线**(当前 1.4 … 1.11),再晚不宣称。**实测自然兼容最高 1.3.0**(写此文时的最新版本,更新的还没发布、无物可探)。一条命令 `pnpm check:compat` 从 registry 推导目标集合,逐版本在系统临时目录沙箱中(把整个 `@earendil-works/*` 家族钉在待测版本)跑:安装 → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch/mirror 的宿主 `dist` 文件做哈希比对。1.0.0 → 1.3.0 全部 8 个已发布版本:typecheck、473 个测试、键位审计全绿;被跟踪的宿主文件仅在 `core/agent-session.js`(1.3.0 改了 tool-restore 路径,`cycleModel` 未动)、`core/keybindings.js` 与 `core/compaction/utils.js`(二者都是 1.2.0 变的,我们按键的解析结果不变)、`extensions/types.d.ts`(纯增量)上有差异 —— `ModelSelectorComponent`、`core/compaction/compaction.js` 与 `core/usage-totals.js` 在窗口内字节级不变。真实 pi 1.3.0 冒烟加载无警告。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
+**版本要求**:pi `>=0.99.0`。0.99.0 到 1.4.0 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
 ---
 
@@ -255,11 +255,11 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | auto-compact 阈值触发 | 压缩模型总结 |
 | context overflow 恢复 | 压缩模型总结,重试行为不变 |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在支持区间内全部已发布版本(1.0.0 → 1.3.0)字节级不变,只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在 1.1.0 → 1.4.0 内字节级不变 —— 除了此处采纳的两项 1.4.0 修正:摘要请求使用模型自身的输出上限而非 `reserveTokens` 的固定比例,以及 `/compact <instructions>` 也会进入 split-turn 前缀;只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
 
 - **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
 - **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
-- **输出预算** —— 与内建同公式(历史段 0.8×、切分前缀段 0.5× `reserveTokens`,再按模型输出上限收敛)
+- **输出预算** —— 摘要请求使用模型自身的输出上限,与 1.4.0 起的内建一致(#9512:过去按 0.8×/0.5× `reserveTokens` 设上限,长思考会把摘要顶到 "generation hit the token cap" 而失败);`reserveTokens` 只决定何时开始压缩
 - **文件清单尾部** —— `<read-files>` / `<modified-files>` 标签照常拼在摘要尾部,details 同形状维护
 - **用量统计** —— 压缩模型的 token/cost 计入 session 统计
 - **可取消** —— 压缩进行中 `Esc` 干净取消(信号透传到底层调用)
@@ -336,7 +336,7 @@ run = [
 
 **关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
 
-> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,`sendUserMessage` 与 `_tryExecuteExtensionCommand` 在 1.0.0–1.3.0 全区间字节级一致,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,`sendUserMessage` 与 `_tryExecuteExtensionCommand` 在 1.1.0–1.4.0 全区间字节级一致,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
 
 ---
 
@@ -352,7 +352,7 @@ pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest(全部功能单元测试)
 
 pnpm check:keybindings   # 用宿主自己的分发表审计本插件的按键
-pnpm check:compat        # 校验声明的 pi 区间:最近 4 条中版本线 + 向后 8 条线探针
+pnpm check:compat        # 校验声明的 pi 下限:强制 4 条线窗口 + 向后 4 条线探针 → public floor
 ```
 
 ### 项目结构
@@ -412,7 +412,7 @@ pnpm release:github --audit    # 列出 npm 版本 vs GitHub Release vs 远端 t
 - **内建 patch**(favorites)必须保持**版本守卫 + 幂等** —— 打 patch 前先确认目标原型成员存在,防止重复应用,失败时用 `console.warn` 降级而不是把扩展搞挂
 - **内建提示词同步**(compact) —— `src/features/compact/prompt.ts` 里的总结 prompt 逐字抄自 pi 内建压缩;升级 pi 依赖时 diff `dist/core/compaction/compaction.js`(及 `utils.js`),同步字符串与组装辅助函数,保持接管输出与内建字节级一致
 - **键位** —— 定新快捷键前先查 pi 默认键位 + 保留键、终端控制字符、OS/终端模拟器占用;跨平台安全优先选 `ctrl+alt+<字母>`。**不得只验证「主屏下我这台机器能用」**:自 pi 1.0 起默认 `fullscreen`,alt-screen 层在对话框看到按键**之前**就消费 `tui.altScreen.*`,且 Windows/WSL 上多个绑定与 Linux 默认值不同。用 `pnpm check:keybindings [候选键...]` 核查(pi 升级后跑 `pnpm check:keybindings --all`),它用宿主自己的 `matchesKey` 探测已安装宿主的**已解析**键位表。**宿主表空闲 ≠ 机器层空闲**:Windows Terminal 默认占 `ctrl+v`(粘贴)与 `ctrl+shift+f`(查找),第三方 Windows 工具常绑 `ctrl+alt+<字母>`(截图工具占过 `ctrl+alt+f`)——定键后必须在真机试按,确认按键真的到得了应用。
-- **宿主兼容** —— peer 区间是实测结论而非愿望:最近 4 个已发布中版本线尽力支持,上界编码「向后探 8 条中版本线」的上限,README 必须标注**实测支持到的最高版本**。宿主依赖一动就重跑 `pnpm check:compat`,读它的 verdict 段(区间与策略不一致会直接判失败)。详见 AGENTS.md「pi 宿主兼容」;升级中发现的键位冲突**上报崔总决策**,不得顺手换键。
+- **宿主兼容** —— peer 区间是实测结论而非愿望,而且只往回指:最近 4 个已发布中版本线是**强制窗口**(不兼容就改我们的代码,绝不抬下限),窗口之下再向后探最多 4 条线找出兼容实际停在哪里,对使用者只展示一个数:由此得到的**下限**(`pi >= <floor>`,无上界)。宿主依赖一动就重跑 `pnpm check:compat`,读它的 verdict 段(声明下限与实测不一致会直接判失败)。详见 AGENTS.md「pi 宿主兼容」;升级中发现的键位冲突**上报崔总决策**,不得顺手换键。
 - **质量门禁** —— 提交前必须通过 `pnpm typecheck && pnpm test`
 
 ---

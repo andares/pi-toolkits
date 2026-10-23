@@ -1,21 +1,29 @@
 #!/usr/bin/env node
 /**
- * check-compat — verify the declared pi host support policy against real hosts.
+ * check-compat — verify the pi host-compatibility policy against real hosts.
  *
- * Why this exists: the policy in AGENTS.md ("兼容最近 4 个中版本 + 向后推 8 个
- * 中版本做检查") is a claim about *published* pi releases, and a claim nobody
- * executes decays into folklore. This script derives the version set from the
- * registry, builds one sandbox per version, and runs the same gates the policy
- * names, so "we support X" is a measured statement with a rerunnable proof.
+ * The policy is directional and that direction is the whole point: pi releases
+ * only move forward, so *compatibility can only be proven backwards*. Nothing
+ * about a future release can be measured, and a claim about one would be a
+ * wish, not a measurement.
  *
- * The policy it encodes:
- *   window  — the N most recently released minor lines (default 4). Every
- *             published version in them is best-effort supported and MUST pass.
- *   forward — up to M minor lines beyond the newest released line (default 8),
- *             probed only as far as someone has actually published. A forward
- *             line that passes is the *measured* natural API compatibility; the
- *             peer upper bound encodes the cap (`<newest line + M + 1>.0.0`),
- *             and nothing beyond that cap is ever claimed.
+ *   window (mandatory, default 4 newest minor lines)
+ *     Every published version in the 4 most recently released minor lines MUST
+ *     pass. If it does not, we change OUR code — hardcode for the old shape,
+ *     keep using an API upstream is about to deprecate, whatever it takes.
+ *     Failing a window version is never a reason to raise the floor.
+ *
+ *   probe (detection only, default 4 more older minor lines, 4 + 4 = 8)
+ *     After the window is green, walk further BACK through older minor lines.
+ *     Passing probes extend the *measured* floor; the first failing probe line
+ *     stops the walk and is NOT fixed — no code changes for probe-only hosts.
+ *
+ *   public floor
+ *     The oldest version in the contiguous all-green run from the newest
+ *     release downwards. That single number is what users see ("works with pi
+ *     >= X"); the 4-version promise is an internal policy users need not know.
+ *     The peer range encodes exactly it — `>=<floor>` — and deliberately has
+ *     no upper bound: we do not claim any future release.
  *
  * Sandboxes live under the system temp dir (a Linux local disk) — never under
  * /mnt/*: pnpm/vitest there are two orders of magnitude slower. Every
@@ -25,16 +33,15 @@
  * noise, not host incompatibility, and it poisoned a past matrix run.
  *
  * Per version: install → `tsc --noEmit` → `vitest run` → keybinding audit →
- * hash the host dist files this plugin patches or mirrors. Any window failure,
- * keybinding 🔴, or peer-range inconsistency is fatal (exit 1); a forward
- * failure is reported loudly but is not fatal — it is a finding to decide on,
- * not a broken promise.
+ * hash the host dist files this plugin patches or mirrors. Window failures and
+ * keybinding 🔴 are fatal (exit 1); probe failures are findings that set the
+ * public floor, never a reason to touch the code.
  *
  * Usage:
- *   pnpm check:compat                      # window 4 + forward 8, full gates
+ *   pnpm check:compat                      # window 4 + probe 4, full gates
  *   pnpm check:compat --skip-tests         # install + dist + keys only (fast)
  *   pnpm check:compat --versions 1.2.0,1.3.0
- *   pnpm check:compat --window 4 --forward 8   # explicit policy knobs
+ *   pnpm check:compat --window 4 --probe 4    # explicit policy knobs
  *   pnpm check:compat --no-keys
  *   pnpm check:compat --keep               # keep the sandboxes for inspection
  *   pnpm check:compat --concurrency 2
@@ -82,7 +89,7 @@ const optValue = (name, fallback) => {
 const has = (name) => argv.includes(name);
 const opts = {
 	window: Number(optValue("--window", 4)),
-	forward: Number(optValue("--forward", 8)),
+	probe: Number(optValue("--probe", 4)),
 	versions: optValue("--versions", null),
 	concurrency: Number(optValue("--concurrency", 4)),
 	skipTests: has("--skip-tests"),
@@ -161,9 +168,11 @@ function minorLines(versions) {
 
 // ── policy → target set ──────────────────────────────────────────────────
 /**
- * window = the N newest published minor lines; forward = the M lines after the
- * newest one, restricted to what has actually been published (usually nothing,
- * which is itself the honest answer: there is nothing to measure yet).
+ * window  = the N newest published minor lines (mandatory, all must pass).
+ * probe   = the M published minor lines just below the window (detection only,
+ *           walked newest → oldest, stopping at the first failing line).
+ *           Lines that were never published (0.88–0.98) simply do not exist in
+ *           the list, so the budget always means "M lines that really exist".
  */
 function planTargets(versions) {
 	const lines = minorLines(versions);
@@ -171,24 +180,15 @@ function planTargets(versions) {
 		fatal(`only ${lines.length} minor lines published; window is ${opts.window}`);
 	}
 	const windowLines = lines.slice(0, opts.window);
-	const newest = parseVer(lines[0].versions.at(-1));
-	const forwardLines = [];
-	for (let i = 1; i <= opts.forward; i++) {
-		const line = `${newest.major}.${newest.minor + i}`;
-		forwardLines.push({ line, versions: lines.find((l) => l.line === line)?.versions ?? [] });
-	}
+	const probeLines = lines.slice(opts.window, opts.window + opts.probe);
 	const windowVersions = asc(windowLines.flatMap((l) => l.versions));
-	const forwardVersions = asc(forwardLines.flatMap((l) => l.versions));
 	return {
 		lines,
+		newest: asc(lines[0].versions).at(-1),
 		windowLines,
 		windowVersions,
-		forwardLines,
-		forwardVersions,
-		floor: windowVersions[0],
-		capLine: forwardLines.at(-1).line,
-		upperExclusive: `${newest.major}.${newest.minor + opts.forward + 1}.0`,
-		expectedRange: `>=${windowVersions[0]} <${newest.major}.${newest.minor + opts.forward + 1}.0`,
+		probeLines,
+		probeVersions: asc(probeLines.flatMap((l) => l.versions)),
 	};
 }
 
@@ -250,12 +250,16 @@ function makeSandbox(version) {
 	return dir;
 }
 
-async function testVersion(version, inWindow) {
-	const mark = (status) => console.log(`   ${status} ${version} (${inWindow ? "window" : "forward"})`);
-	console.log(`  → ${version} (${inWindow ? "window" : "forward"}) install`);
+/**
+ * kind: "window" (mandatory — failures are ours to fix) or "probe" (detection
+ * only — a failure just ends the backward walk).
+ */
+async function testVersion(version, kind) {
+	const mark = (status) => console.log(`   ${status} ${version} (${kind})`);
+	console.log(`  → ${version} (${kind}) install`);
 	const dir = makeSandbox(version);
 	const hostRoot = join(dir, "node_modules", ...HOST_PKG.split("/"));
-	const result = { version, inWindow, pass: false, stages: {}, notes: [] };
+	const result = { version, kind, pass: false, stages: {}, notes: [] };
 
 	const install = await run("pnpm", ["install", "--prefer-offline", "--reporter=append-only"], { cwd: dir });
 	result.stages.install = install.ok;
@@ -322,17 +326,46 @@ async function testVersion(version, inWindow) {
 	return result;
 }
 
+async function runPool(versions, kind, limit = opts.concurrency) {
+	const queue = [...versions];
+	const out = [];
+	const workers = [];
+	for (let i = 0; i < Math.max(1, Math.min(limit, queue.length)); i++) {
+		workers.push(
+			(async () => {
+				while (queue.length) out.push(await testVersion(queue.shift(), kind));
+			})(),
+		);
+	}
+	await Promise.all(workers);
+	return out.sort((a, b) => cmpVer(a.version, b.version));
+}
+
 // ── report ───────────────────────────────────────────────────────────────
 const cell = (stage) => (stage === null ? "–" : stage ? "✅" : "❌");
 
-function report(plan, results) {
+/**
+ * Oldest version of the contiguous all-green run that starts at the newest
+ * tested version. Probes stop at the first failing line, so this is the
+ * measured public floor rather than the policy window.
+ */
+function measuredFloor(results) {
+	const ordered = [...results].sort((a, b) => cmpVer(b.version, a.version));
+	let floor = null;
+	for (const result of ordered) {
+		if (!result.pass) break;
+		floor = result.version;
+	}
+	return floor;
+}
+
+function report(plan, results, { full }) {
 	const baseline = results.find((r) => r.version === plan.windowVersions.at(-1));
 	console.log("\n=== compatibility matrix ===");
 	console.log(
 		["version  set      install typecheck tests        keys   dist"].join("  "),
 	);
 	for (const result of [...results].sort((a, b) => cmpVer(a.version, b.version))) {
-		const set = result.inWindow ? "window " : "forward";
 		const keys = result.keys ? (result.keys.reds ? `🔴${result.keys.reds}` : "✅") : "–";
 		let dist = "–";
 		if (result.host && baseline?.host) {
@@ -344,7 +377,7 @@ function report(plan, results) {
 		console.log(
 			[
 				result.version.padEnd(7),
-				set.padEnd(7),
+				result.kind.padEnd(7),
 				cell(result.stages.install).padEnd(7),
 				cell(result.stages.typecheck).padEnd(9),
 				String(result.tests ?? "?").padEnd(12),
@@ -355,31 +388,37 @@ function report(plan, results) {
 	}
 
 	const failures = results.filter((result) => !result.pass);
-	const windowFails = failures.filter((result) => result.inWindow);
-	const forwardFails = failures.filter((result) => !result.inWindow);
-	// Highest version V such that everything tested at or below V passes.
-	const measuredTop = [...results]
-		.sort((a, b) => cmpVer(a.version, b.version))
-		.reduce((top, result) => (result.pass ? result.version : top), null);
+	const windowFails = failures.filter((result) => result.kind === "window");
+	const probeFails = failures.filter((result) => result.kind === "probe");
+	const floor = measuredFloor(results);
+	let probeState;
+	if (!plan.probeLines.length) probeState = "probe budget empty (no older published line)";
+	else if (probeFails.length) probeState = `stopped at ${probeFails[0].version} (probe-only: not fixed)`;
+	else probeState = "all pass";
 
 	console.log("\n=== verdict ===");
 	console.log(
-		`window   : ${plan.windowVersions.join(" / ")} — ` +
-			(windowFails.length ? `❌ ${windowFails.length} failing` : "all pass") +
-			`\nforward  : probe lines ${plan.forwardLines[0].line} … ${plan.capLine} — ` +
-			(plan.forwardVersions.length
-				? `${plan.forwardVersions.length} published, ` +
-					(forwardFails.length ? `❌ ${forwardFails.length} failing` : "all pass")
-				: "nothing published yet beyond the newest line"),
+		`window (mandatory) : ${plan.windowVersions.join(" / ")} — ` +
+			(windowFails.length ? `❌ ${windowFails.length} failing` : "all pass"),
 	);
-	console.log(`peer     : declared ${readPeerRange() ?? "(missing)"}`);
-	console.log(`           expected ${plan.expectedRange}   (floor = oldest window version, cap = newest line + ${opts.forward})`);
+	console.log(
+		`probe  (detection) : lines ${plan.probeLines.map((l) => l.line).join(" / ") || "(none)"} — ${probeState}`,
+	);
+	console.log(
+		`public floor       : ${floor ?? "(none — the newest window version fails)"}` +
+			`   ← the only number users see: "pi >= ${floor ?? "?"}"`,
+	);
+	const expectedRange = floor ? `>=${floor}` : null;
+	console.log(`peer               : declared ${readPeerRange() ?? "(missing)"}`);
+	console.log(
+		`                     expected ${expectedRange ?? "(none)"}   (floor only — no upper bound,` +
+			` no claim about future releases)`,
+	);
 
-	if (measuredTop) console.log(`docs     : 实测自然兼容最高 ${measuredTop} — keep README/AGENTS.md in sync`);
-	const lines = results.filter((result) => result.notes.length);
-	if (lines.length) {
+	const notes = results.filter((result) => result.notes.length);
+	if (notes.length) {
 		console.log("\n--- notes ---");
-		for (const result of lines) {
+		for (const result of notes) {
 			for (const note of result.notes) console.log(`\n[${result.version}]\n${note}`);
 		}
 	}
@@ -387,8 +426,11 @@ function report(plan, results) {
 	let exitCode = 0;
 	if (windowFails.length) {
 		console.log(
-			`\n❌ A version inside the declared window fails — that is a broken promise,\n` +
-				`   not a forward finding. Fix it or raise the floor (with a measured reason).`,
+			`\n❌ A version inside the mandatory window fails (${windowFails
+				.map((r) => r.version)
+				.join(", ")}).\n` +
+				`   This is ours to fix: hardcode the old shape, keep a deprecated-but-working\n` +
+				`   host API — whatever it takes. Raising the floor is NOT an option.`,
 		);
 		exitCode = 1;
 	}
@@ -400,20 +442,24 @@ function report(plan, results) {
 		);
 		exitCode = 1;
 	}
-	const declared = readPeerRange();
-	if (declared !== plan.expectedRange) {
-		console.log(
-			`\n❌ package.json peer range (${declared ?? "missing"}) does not match the policy\n` +
-				`   (${plan.expectedRange}). Update it so the declaration tracks the window.`,
-		);
-		exitCode = 1;
+	if (full && !windowFails.length) {
+		const declared = readPeerRange();
+		if (declared !== expectedRange) {
+			console.log(
+				`\n❌ package.json peer range (${declared ?? "missing"}) does not match the measured\n` +
+					`   floor (${expectedRange}). Users only need the public floor; set it so the\n` +
+					`   declaration tracks what was actually verified.`,
+			);
+			exitCode = 1;
+		}
 	}
 	if (!exitCode) {
 		console.log(
-			forwardFails.length
-				? "\n⚠ forward probes fail (see notes) — do NOT extend the peer range past the\n" +
-						"  last all-green version without a decision; report the failure."
-				: "\n✅ Declared range is honest for every published version that exists.",
+			probeFails.length
+				? `\n✅ Window is green. The backward walk stopped at ${probeFails[0].version}; that\n` +
+						`   is a detection result, not a bug to fix. Public floor stays ${floor}.`
+				: `\n✅ Declared floor (>=${floor}) is backed by every published version from\n` +
+						`   ${floor} to ${plan.newest}, and no future release is claimed.`,
 		);
 	}
 	return exitCode;
@@ -429,37 +475,49 @@ function readPeerRange() {
 // ── main ─────────────────────────────────────────────────────────────────
 const versions = await publishedVersions(HOST_PKG);
 const plan = planTargets(versions);
-const targets = opts.versions
-	? asc(opts.versions.split(",").map((v) => v.trim()))
-	: [...plan.windowVersions, ...plan.forwardVersions];
-const windowSet = new Set(plan.windowVersions);
 
 console.log(
 	`pi host family : ${HOST_PKG} (published: ${versions.length} versions)\n` +
-		`window         : last ${opts.window} minor lines — ${plan.windowLines.map((l) => l.line).join(" / ")}\n` +
+		`window         : mandatory, last ${opts.window} minor lines — ${plan.windowLines.map((l) => l.line).join(" / ")}\n` +
 		`                 versions: ${plan.windowVersions.join(", ")}\n` +
-		`forward        : up to ${opts.forward} lines after newest (${plan.forwardLines[0].line} … ${plan.capLine})\n` +
-		`                 published: ${plan.forwardVersions.join(", ") || "(none yet)"}\n` +
+		`probe          : detection only, up to ${opts.probe} older lines — ` +
+		`${plan.probeLines.map((l) => l.line).join(" / ") || "(none)"}\n` +
+		`                 versions: ${plan.probeVersions.join(", ") || "(none)"}\n` +
 		`sandboxes      : ${join(tmpdir(), "pi-toolkits-compat")}\n` +
-		`targets        : ${targets.join(", ")}` +
-		`\nconcurrency    : ${opts.concurrency}${opts.skipTests ? "   (tests skipped)" : ""}`,
+		`concurrency    : ${opts.concurrency}${opts.skipTests ? "   (tests skipped)" : ""}`,
 );
 
-const results = [];
-const queue = [...targets];
-const workers = [];
-for (let i = 0; i < Math.max(1, Math.min(opts.concurrency, queue.length)); i++) {
-	workers.push(
-		(async () => {
-			while (queue.length) {
-				const version = queue.shift();
-				results.push(await testVersion(version, windowSet.has(version)));
-			}
-		})(),
-	);
+let results;
+if (opts.versions) {
+	// Explicit probe: no policy verdict beyond the per-version gates.
+	const list = asc(opts.versions.split(",").map((v) => v.trim()));
+	const windowSet = new Set(plan.windowVersions);
+	console.log(`targets        : ${list.join(", ")}   (explicit --versions: policy checks skipped)`);
+	results = await runPool(list, "window");
+	for (const result of results) {
+		result.kind = windowSet.has(result.version) ? "window" : "probe";
+	}
+} else {
+	// 1. Mandatory window first — probes only make sense once it is green.
+	console.log(`targets        : window ${plan.windowVersions.join(", ")}`);
+	const windowResults = await runPool(plan.windowVersions, "window");
+	results = [...windowResults];
+	const windowGreen = windowResults.every((result) => result.pass);
+	if (windowGreen && plan.probeLines.length) {
+		// 2. Walk backwards line by line; the first failing line ends the walk.
+		for (const line of plan.probeLines) {
+			console.log(`  probe line ${line.line}: ${line.versions.join(", ")}`);
+			const lineResults = await runPool(line.versions, "probe");
+			results.push(...lineResults);
+			if (lineResults.some((result) => !result.pass)) break;
+		}
+	} else if (windowGreen) {
+		console.log("  probe: nothing older published to walk into");
+	} else {
+		console.log("  probe: skipped — the mandatory window must be green first");
+	}
 }
-await Promise.all(workers);
 
-const exitCode = report(plan, results);
+const exitCode = report(plan, results, { full: !opts.versions });
 if (!opts.keep) rmSync(join(tmpdir(), "pi-toolkits-compat"), { recursive: true, force: true });
 process.exit(exitCode);

@@ -48,7 +48,7 @@ export const RUNNABLE_REASONS: ReadonlySet<string> = new Set([
  * `-r` (`--resume`), `--session <path>` and `--fork <path>` all open an
  * existing session *before* the first runtime exists, and that runtime is
  * created without an explicit session_start event, so extensions see pi's
- * default reason — `startup` — not `resume` (verified on pi 1.0.0–1.3.0:
+ * default reason — `startup` — not `resume` (verified on pi 1.1.0–1.4.0:
  * `main.js` builds the initial session manager from those flags and calls
  * `createAgentSessionRuntime` with no `sessionStartEvent`;
  * `agent-session.js` defaults it to `{ reason: "startup" }`). `resume` is only

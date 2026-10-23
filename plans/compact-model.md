@@ -75,6 +75,8 @@ src/features/compact/
 serializeConversation(convertToLlm([...messagesToSummarize, ...turnPrefixMessages]))
 组装 prompt(见下节,含 previousSummary 迭代 + customInstructions 注入)
 ctx.modelRegistry.complete(compactModel, { messages }, {
+    // 2026-10-21 pi 1.4.0 起已改为不传 maxTokens（用模型自身输出上限，#9512），
+    // 下面这行是当时的方案，保留作设计记录
     maxTokens: preparation.settings.reserveTokens,   // 已解析 modelOverrides,对齐内建输出上限
     signal,                                          // 必须:支持 Esc 取消
     cacheRetention: "none",                          // 对齐内建:一次性总结不写 prompt cache
@@ -208,7 +210,7 @@ Additional instructions for this summary:   ← 仅 customInstructions 存在时
 - **回落优先**:任何异常路径都 `return undefined` 让 pi 默认压缩兜底,扩展永不把压缩"做挂"
 - **`signal` 必须透传**给 `complete`(用户 Esc 取消;abort 后不要 notify "失败")
 - **`cacheRetention: "none"`**:对齐内建,一次性总结 prompt 不写 prompt cache
-- **`maxTokens` 用 `preparation.settings.reserveTokens`**:这是解析过 `modelOverrides` 的生效值，内建就是拿它当总结输出上限的
+- **`maxTokens` 用 `preparation.settings.reserveTokens`**:这是解析过 `modelOverrides` 的生效值，内建就是拿它当总结输出上限的 —— **1.4.0 已改**：内建不再传 maxTokens（模型自身输出上限，#9512），本扩展同步跟进，此条仅存档
 - **`usage` 回传**:不然压缩的 token 消耗不计入 session 统计
 - `/tree` 分支总结(`session_before_tree`)是另一个事件,**本期不做**，留作后续迭代(需要时同模式接管)
 - footer 状态 key `compact`(已配置时灰色显示)，照 review 模式，可选

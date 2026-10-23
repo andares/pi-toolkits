@@ -13,17 +13,29 @@
 
 ## pi 宿主兼容
 
-**核心纪律：兼容区间是实测结论，不是愿望。** 下限 = 「最近 4 个已发布中版本线」
-中最旧的一条（尽量支持）；上界 = 最新线 + 8 条中版本（向后探针的硬上限，再晚不宣称）；
-区间内每个已发布版本都要真的跑绿，README 与源码注释标注「实测支持到 X」。
-（当前 `>=1.0.0 <1.12.0`：窗口 1.0 / 1.1 / 1.2 / 1.3，探针 1.4 … 1.11，
-**实测支持到 1.3.0**；0.88–0.98 从未发布，0.87.x 与 0.99.x 均因窗口滑出而下调。）
+**核心纪律：兼容区间是实测结论，不是愿望——而且只能往回测。** 上游只会向前发版，
+未来版本尚不存在、无从验证，所以对未来的任何“兼容到 X”都是无据的许愿，**不进声明**。
+策略是两条方向相反的规则：
 
-- **窗口纪律**：下限只能随窗口滑动抬升，且每次抬升必须在提交信息里写明
-  「老版本为何不再支持」的实测结论——是政策下调就明说政策下调，别编不兼容。
-  历史：0.86.x → 0.87.x（2026-10-10，1.1 发布）→ 0.99.x（2026-10-13，1.2 发布）
-  → 1.0.x（2026-10-17，1.3 发布）。README 的 Requirements 段、badge、
-  源码注释里的「已验证区间」都随区间同步修改。
+1. **强制窗口 = 最近 4 条已发布中版本线**：窗口内每个已发布版本必须绿。做不到就改
+   我们自己的代码——硬编码老形状、继续用即将废弃但还能用的宿主接口，无论用什么办法。
+   **窗口红不是抬下限的理由**（抬下限 = 对使用者毁约）。
+2. **向后探针 = 窗口之下再最多 4 条线（合计 8 条）**：窗口绿了以后继续往更老的方向
+   探。能兼容就继续往下，**一旦某条线兼容不上就停在那里，不为它改代码**。
+
+**对外只展示一个数：实际兼容下限（public floor）** = 从最新已发布版本向下**连续全绿**的
+最老版本。使用者不需要知道 4 版强制政策，只需要知道 `pi >= <floor>`。它写进
+`peerDependencies`（`>=<floor>`，**不写上界**）和 README 的 Requirements / badge。
+
+（当前：强制窗口 1.1 / 1.2 / 1.3 / 1.4；向后探针 1.0 / 0.99 / 0.87 / 0.86，
+**停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`，typecheck 红，
+属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
+
+- 窗口每随一条新版本线发布向前滑一格（窗口恒定 4 条），掉出窗口的老线不是“坏了”，
+  只是不再被强制保持绿色；它还在不在对外下限里，由**探针**说话：探得到就继续算兼容，
+  探不到就停。历史：0.86.x → 0.87.x（2026-10-10，1.1 发布）→ 0.99.x（2026-10-13，
+  1.2 发布）→ 1.0.x（2026-10-17，1.3 发布）→ 1.1.x（2026-10-23，1.4 发布）。
+  README 的 Requirements 段、badge、源码注释里的「已验证区间」都随实测结果同步修改。
 - **peer 声明规则**（pi ≥ 0.99 启动时校验）：宿主提供的包（`@earendil-works/pi-*`）
   **只能**放进 `peerDependencies`，进 `dependencies` 会被 pi 告警
   「Host-provided extension packages must be declared in peerDependencies」。
@@ -32,11 +44,12 @@
   peer 解析（`--legacy-peer-deps` / `--omit=peer`），区间不参与安装求解，只作兼容声明。
   **`typebox` 同样是宿主提供包**（`resource-loader.js` 的 `HOST_PROVIDED_EXTENSION_PACKAGES`
   同时含 `typebox` 与 `@sinclair/typebox`）：`peerDependencies: "*"` + `devDependencies`
-  放具体版本供 typecheck，进 `dependencies` 会触发同一条告警（2026-10-19 按 1.3.0 源码
-  核实；ask 的 `scratchpad` 用它声明参数 schema）。
-  该区间的值不要手工推演：下限 = 窗口最旧版本、上界 = 最新线下一条 + 8 条线的下一条，
-  由 `pnpm check:compat` 校验（不一致直接判失败）。
-  （规则按 pi 1.3.0 源码核实：`resource-loader.js` 只校验 `dependencies` 成员，
+  放具体版本供 typecheck，进 `dependencies` 会触发同一条告警（2026-10-23 按 1.4.0 源码
+  复核：`core/resource-loader.js` 自 1.3.0 起字节级未变）。
+  peer 区间 = `>=<public floor>`，**没有上界**——上界只能是“兼容到未来某版”的许愿，
+  而我们没有能力兼容未来版本。不要在区间里手推任何与 probe 无关的数字；
+  下限由 `pnpm check:compat` 算出并校验（不一致直接判失败）。
+  （规则按 pi 1.4.0 源码核实：`resource-loader.js` 只校验 `dependencies` 成员，
   peer 区间不被检查；pi 升级时重新确认。）
 
 ### 一条命令跑完纪律：`pnpm check:compat`
@@ -45,17 +58,17 @@
 
 | 集合 | 范围 | 判定 |
 | --- | --- | --- |
-| window | 最近 4 条中版本线内**全部已发布版本** | 任一红 = 破坏承诺：修，或带实测理由抬下限 |
-| forward | 最新线之后最多 8 条线（默认 1.4 … 1.11）里**已发布**的版本 | 红 = 早期预警，**不得据此改区间**，先上报决策 |
+| window（强制） | 最近 4 条中版本线内**全部已发布版本** | 必须全绿；红 = **改我们的代码**（硬编码/沿用老接口），**不得抬下限** |
+| probe（只探测） | 窗口之下最多 4 条线（合计 8 条），按线从新到老走 | 红 = **停**，不为它改代码；绿就继续往下 |
+| public floor | 从最新版本向下连续全绿的最老版本 | 写进 peer（`>=floor`）与 README，是使用者唯一看到的数 |
 
 每个版本跑：`pnpm install`（`@earendil-works/*` 家族用 `overrides` 钉在宿主同版本）
 → `tsc --noEmit` → `vitest run` → `check-keybindings`（`PI_HOST_PKG` 指向该沙箱）
 → 对 patch/mirror 目标的宿主 dist 文件做哈希比对（基线 = 最新窗口版本）。
-脚本同时校验 `package.json` 的 peer 区间 == 策略推导值（下限 = 窗口最旧版本，
-上界 = 最新线下一条 + 8 条线的下一条），不一致即失败——**区间必须跟着窗口走**。
+脚本校验 `package.json` 的 peer 区间 == `>=<实测下限>`，不一致即失败——**声明必须跟着实测走**。
 
-- `--skip-tests`（只装 + dist + 键位，快速回归）、`--versions a,b`（只测指定版本）、
-  `--keep`（保留沙箱排查）、`--window/--forward`（显式改策略旋钮）
+- `--skip-tests`（只装 + dist + 键位，快速回归）、`--versions a,b`（只测指定版本，跳过策略判定）、
+  `--keep`（保留沙箱排查）、`--window/--probe`（显式改策略旋钮，默认 4/4）
 - 沙箱落在 `os.tmpdir()`：**不要在 `/mnt/c` 等 Windows 挂载盘上跑 pnpm/vitest**，
   那里 1 秒的测试要跑 2 分钟（I/O 慢两个数量级）
 - 家族钉版本的由来（2026-10-13 实测）：老宿主的 `^1.0.x` 依赖会把 `pi-codemode`
@@ -64,6 +77,52 @@
   不是宿主兼容性问题。`overrides` 必须写在 `pnpm-workspace.yaml`（pnpm 12 不再读
   package.json 的 `pnpm` 字段，写了会静默失效），脚本按此生成沙箱配置。
 - 脚本报「resolved X, expected Y」或「deps floated」= 该次验证无效，先修沙箱再谈结论。
+
+### 版本迁移流程（上游发布新版本后逐条执行）
+
+触发条件：`npm view @earendil-works/pi-coding-agent dist-tags` 的 `latest` 变了。
+
+1. **先读上面的策略，不要现场推演区间**：窗口 = 最近 4 条已发布线（强制），探针 = 再往老
+   最多 4 条（只探测），对外只有 public floor 一个数。任何「上界 / 兼容到未来某版」都不该
+   出现在声明里。
+2. **升依赖**：`pnpm add -D @earendil-works/pi-ai@^X.Y.0 \
+   @earendil-works/pi-coding-agent@^X.Y.0 @earendil-works/pi-tui@^X.Y.0` → `pnpm install`
+   （本项目只用 pnpm；`pnpm-workspace.yaml` 里 pnpm 自己写的字段不要手工改）。
+3. **本地门禁**：`pnpm typecheck && pnpm test`。新宿主导致的红属于窗口义务，先修到绿。
+4. **跑矩阵**：`pnpm check:compat`（默认 window 4 + probe 4）。它自己从 registry 推导集合、
+   沙箱钉家族版本、逐版本 install/tsc/test/键位/dist 哈希，并在 peer 下限与实测不符时判失败。
+5. **窗口红 → 改代码，不许改策略**。手段按优先级：① 运行时能力探测（有就用新 API，没有走旧
+   路径）；② 类型层兼容（结构化类型 / `satisfies` / 新字段当可选处理）；③ 保留旧 API 调用点。
+   **禁止**：删测试、放宽断言、把失败版本移出窗口、抬下限、加「仅旧版本静默跳过」的旁路。
+6. **探针红 → 只记录，不改代码**。记下第一个失败版本、首个错误与原因分类（缺字段/类型/行为），
+   写进提交信息与 AGENTS.md 的「当前」行；public floor 就停在它上面那条线的最老版本。
+7. **dist 漂移人工判读**（脚本只报哈希不同，不判性质）：`npm pack <pkg>@<旧> <pkg>@<新>`
+   解包后 diff —— ① 运行时 patch 目标：`modes/interactive/components/model-selector.js`、
+   `core/agent-session.js`（`cycleModel`）；② 镜像源：`core/compaction/compaction.js`、
+   `core/compaction/utils.js`、`core/usage-totals.js`；③ 我们 import 的扩展 API 类型
+   `core/extensions/types.d.ts`。有变化 → 同步代码，或按「两类区间声明」规则改注释。
+   pi-tui 也 diff 一次（`components/select-list.js` / `settings-list.js` / `tui-alt-screen.js`）。
+8. **真机冒烟**：`pi -p --no-extensions -e ./src/index.ts --tools '' 'Reply with exactly: OK'`
+   —— 无 Extension 警告、回 `OK`（1.2+ 起输出被截断会 exit 1，看到非 0 先查这一点）。
+9. **键位**：`pnpm check:keybindings`。有 🔴 或真机按不出来 → **只上报崔总，不动键**（见下节）。
+   真机把声明的每个键各按一次（当前：`ctrl+a` 选择器内、`ctrl+j` 仅收藏列表、`ctrl+alt+y` 全局）。
+10. **同步对外展示（逐项核对，缺一不可）**：
+
+    | 位置 | 要写的内容 |
+    | --- | --- |
+    | `package.json` → `peerDependencies["@earendil-works/pi-coding-agent"]` | `>=<public floor>`，**无上界** |
+    | `README.md` / `README.zh-CN.md` 的 badge | 文案 `pi >= <floor>` + badge URL 里的版本号 |
+    | README 的 `Requirements` / `版本要求` | floor + 已验证到的版本范围 + 无上界（**用户向**：不解释 4 版政策） |
+    | README 功能段（如 compact 的镜像/预算描述） | 第 7 步的漂移若影响该功能，同步描述 |
+    | README 命令速查里的 `pnpm check:compat` 一行 | 描述与当前策略一致（窗口 + 向后探针） |
+    | AGENTS.md 的「当前」行 | 窗口线 / 探针线 / 停在哪个版本及原因 / floor / peer |
+    | AGENTS.md「内建行为同步义务」 | 新窗口 + 逐文件变化结论 |
+    | AGENTS.md 各 feature 的「已验证」块 | 窗口 + 探针结果 + floor + 测试数 |
+    | 源码注释 | 支持声明跟 floor；逐版本事实按实际 diff（两类分开写） |
+
+11. **提交与发布**：提交信息必须包含：新窗口线、窗口为何绿（或改了哪些代码）、探针停在哪 + 原因、
+    public floor 与 peer、dist 漂移结论、键位结论、冒烟结果。随后 `pnpm release patch`
+    （纯兼容性维护走 patch）；发布后跑 `pnpm release:github --audit` 查 npm/GitHub 版本缺口。
 
 **脚本测不到、必须人工补的三件事：**
 
@@ -74,7 +133,9 @@
    以及我们 import 的扩展 API 类型（先例：1.2.0 把 `BeforeAgentStartEvent` 拆成
    user/custom 判别联合、`ToolInfo` 新增 `reachesTools`；1.3.0 只新增
    `supportsMidConvoEffort`/`sessionShareDestination` 与 `formatReadLineRange` 导出，
-   全为增量）。取 tarball 用 `npm pack <pkg>@<ver>`（只下载不解包安装，不属
+   全为增量；1.4.0 的 `types.d.ts` 一字未动，但 `compaction.js` 改了摘要输出预算与
+   split-turn 的 `/compact <instructions>` 传递 —— 两处都属镜像义务，已同步）。
+   取 tarball 用 `npm pack <pkg>@<ver>`（只下载不解包安装，不属
    Package Management 禁止的 install/publish；不要用 `npx`）。
 2. **真实 pi 冒烟加载**：
    `pi -p --no-extensions -e ./src/index.ts --tools '' 'Reply with exactly: OK'`
@@ -130,10 +191,16 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
 **内建行为同步义务**：`compact` 的摘要 prompt 与预算公式逐字复刻 pi 内建实现，
 `favorites` 的两个 patch 复刻内建语义——pi 升级时看矩阵里的 dist 漂移列，
 对 `core/compaction/compaction.js`、`core/compaction/utils.js`、`model-selector.js`、
-`agent-session.js` 逐文件 diff，有变化就同步代码或改正注释里的版本声明（注释中的
-「已验证区间」必须与 peer 下限一致；当前 1.0.0 → 1.3.0：`compaction.js` 与
-`usage-totals.js` 全窗口字节级不变，`utils.js` 最后一次变化是 1.2.0，
-`agent-session.js` 1.3.0 只改了 tool-restore 路径）。注意 `compact` 的
+`agent-session.js` 逐文件 diff，有变化就同步代码或改正注释里的版本声明。
+两类区间声明要分开写：**支持声明**（「supported window」等）必须与 peer 下限一致 /
+或注明是强制窗口；**逐版本事实**（某函数在哪个区间字节级一致）按实际 diff 结果写，
+不得为了对齐下限而外扩（例如 `compaction.js` 只在这里说 1.4.0 变过一次）。当前 1.1.0 → 1.4.0：`usage-totals.js` 全窗口
+字节级不变，`utils.js` 最后一次变化是 1.2.0，`agent-session.js` 在 1.2.0（prompt 处理
+重构成 `_prepareRun`/`_startRun`）、1.3.0（tool-restore 路径）、1.4.0（溢出恢复与
+tool-restore）各变一次，但 `cycleModel` 四个版本字节级一致，`compaction.js`
+只在 1.4.0 变了一次点——摘要不再按 `reserveTokens` 设 `maxTokens` 上限（#9512），
+且 `/compact <instructions>` 也追加到 split-turn 前缀（#11058）；两处都按 1.4.0 语义
+镜像到全窗口，注释里写明了为何不做按版本分支）。注意 `compact` 的
 `serializeConversation` 是**从宿主导入而非镜像**，自动跟随宿主实现：1.2.0 起它不再把
 assistant thinking 写进摘要请求（thinking 可能不在模型活动上下文里，会让请求比被摘要
 内容还大）。升级 diff 到这类变化时，确认「跟随宿主」仍是预期行为，并同步 README/
@@ -260,9 +327,10 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 20 个文件 / 473 测试全绿；`pnpm check:compat` 在 1.0.0–1.3.0
-  全部 8 个已发布版本上 install + typecheck + 473 测试 + 键位审计全绿（dist 漂移与上一版一致）。
-- 真实 pi 1.3.0 冒烟（项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
+- 测试：`pnpm test` 20 个文件 / 474 测试全绿；`pnpm check:compat` 在强制窗口
+  1.1.0–1.4.0 全绿，向后探针 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive` 停探
+  （不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
+- 真实 pi 1.4.0 冒烟（项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
   第一轮的工具集里就含 `scratchpad`，`plan.md` 写入 `/tmp/pi-ask/<session>/` 成功。
   **冒烟发现并修掉两处**：① 在 `session_start` 里 `setActiveTools` 会被该轮 loadout
   准备覆盖 → 改为在 `before_agent_start` 里重新断言工具集；② 异步建目录会让第一轮
@@ -315,7 +383,7 @@ run = [
    **扩展命令被立即执行，不发给模型**，streaming 中也可执行。1.2.0 把 prompt 内的
    「准备消息 + 启动 run」重构成 `_prepareRun`/`_startRun`，但扩展命令分支仍是最前的
    同一条早退路径；`sendUserMessage` 与 `_tryExecuteExtensionCommand` 两函数在
-   0.99.0–1.2.0 全区间逐字节一致。
+   0.99.0–1.4.0 全区间逐字节一致（1.3.0 → 1.4.0 已逐函数 diff 复核）。
 2. **只能支持扩展命令**（/add-dir、/cd、/skill:xxx 等 registerCommand 注册的）；
    内置命令（/compact、/reload、/resume）走 TUI 层，扩展层触发不了；
    skill 命令是展开机制非执行机制——此约束必须写进 README
@@ -327,11 +395,11 @@ run = [
 6. **`session_start.reason` 在「进程启动即打开旧会话」时是 `startup`，不是 `resume`**
    ——`-c`/`-r`/`--session`/`--fork` 都在创建第一个 runtime 之前就把旧会话装进
    sessionManager，而该 runtime 创建时不带 `sessionStartEvent`，于是落到默认值
-   `startup`（`main.js` 的 `isInitialRuntime` 分支 + `agent-session.js:200`
+   `startup`（`main.js` 的 `isInitialRuntime` 分支 + `agent-session.js:199`
    `{ type: "session_start", reason: "startup" }`）。`resume` 只在进程内切换会话
    （`/resume`、session replacement）时由 `agent-session-runtime.js` 显式发出。
-   实测（pi 1.3.0 + 探针扩展）：新会话 `entries=2 messages=0`，`pi -c` 之后
-   `entries=8 messages=3`，两者都报 `reason=startup`。
+   实测（pi 1.3.0 + 探针扩展，1.4.0 复核默认值仍在 `agent-session.js:199`）：新会话
+   `entries=2 messages=0`，`pi -c` 之后 `entries=8 messages=3`，两者都报 `reason=startup`。
    **结论**：判「是不是新会话」必须看会话内容——用 `buildContextEntries()`
    是否含 `message`/`custom_message`/`compaction`/`branch_summary`（扩展侧拿不到
    `buildSessionContext()`，它不在 `ReadonlySessionManager` 的 Pick 里；
@@ -354,9 +422,9 @@ session_start(reason 过滤)
 
 - **命令不存在时文本会作为普通消息发给模型**（跑偏风险）——已用 `pi.getCommands()`
   预校验解决（只接受 `source: "extension"`），未注册的命令名跳过并警告，绝不发给模型
-- `sendUserMessage` 的 "/cmd" 触发语义在 0.99–1.3 全区间成立（`_tryExecuteExtensionCommand`
+- `sendUserMessage` 的 "/cmd" 触发语义在 0.99–1.4 全区间成立（`_tryExecuteExtensionCommand`
   与 `sendUserMessage` 包装逐字节一致，矩阵 typecheck/test + 真实冒烟已过；
-  2026-10-13 随窗口迁移复核）
+  2026-10-23 随窗口迁移复核）
 - 与 pi-add-dir 的 session_start 顺序：命令执行时 pi-add-dir 必已完成注册
   （扩展加载先于全部 session_start）——冒烟确认无问题
 
@@ -482,9 +550,9 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 17 个文件 / 397 测试全绿；`pnpm check:compat` 在 1.0.0–1.3.0
-  全部 8 个已发布版本上 install + typecheck + 397 测试 + 键位审计全绿；
-  真实 pi 1.3.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
+- 测试：`pnpm test` 20 个文件 / 474 测试全绿；`pnpm check:compat` 强制窗口
+  1.1.0–1.4.0 + 向后探针 1.0.x / 0.99.x 全绿（floor 0.99.0）；
+  真实 pi 1.4.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
 ### 补充：同一会话的 `session_start` 可能发多次
 

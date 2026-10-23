@@ -9,13 +9,15 @@
  *  - takeover point: the `session_before_compact` extension event, which pi
  *    emits for ALL three trigger reasons (manual / threshold / overflow)
  *    before running its own compaction
- *  - prompts, message assembly, split-turn handling, output budgets, and the
- *    summary file-list tail are verbatim pi built-in behavior (copied from
- *    0.87.1, byte-identical across every published version of the supported
- *    window, 1.0.0 → 1.3.0) — only the executing model differs. The one
- *    exception is `serializeConversation`, which is imported from the host
- *    instead of mirrored, so it tracks whatever the running host does
- *    (1.2.0 stopped feeding assistant thinking into the request).
+ *  - prompts, message assembly, split-turn handling, summary budgets, and
+ *    the summary file-list tail are verbatim pi built-in behavior (copied
+ *    from 0.87.1; `core/compaction/compaction.js` stayed byte-identical
+ *    1.0.0 → 1.3.0, and 1.4.0 changed only the summary output budget and
+ *    the split-turn focus handling mirrored below) — only the executing
+ *    model differs. The one exception is `serializeConversation`, which is
+ *    imported from the host instead of mirrored, so it tracks whatever the
+ *    running host does (1.2.0 stopped feeding assistant thinking into the
+ *    request).
  *  - lossless fallback: unset config, unavailable model, empty/failed
  *    summary, or user abort → return undefined and pi's default compaction
  *    (session model) runs untouched. The extension can never make
@@ -75,7 +77,6 @@ async function completeSummary(
 	ctx: ExtensionContext,
 	model: AvailableModel,
 	promptText: string,
-	maxTokens: number,
 	signal: AbortSignal,
 ): Promise<{ text: string; usage: CompleteUsage }> {
 	const response = await ctx.modelRegistry.complete(
@@ -91,7 +92,10 @@ async function completeSummary(
 			],
 		},
 		{
-			maxTokens,
+			// No `maxTokens`: since pi 1.4.0 (#9512) the built-in compaction asks
+			// for the model's own output limit instead of a fixed fraction of
+			// reserveTokens, so a long reasoning block can no longer eat the cap
+			// and fail the summary with "generation hit the token cap".
 			signal,
 			cacheRetention: "none",
 			sessionId: uuidv7(),
@@ -119,29 +123,25 @@ async function completeSummary(
 }
 
 /**
- * pi's output-budget formula (compaction.js, 0.87.1 → 1.3.0 unchanged): a
- * fraction of reserveTokens clamped by the model's own output cap.
- */
-function summarizationBudget(
-	fraction: number,
-	reserveTokens: number,
-	modelMaxTokens: number,
-): number {
-	return Math.min(
-		Math.floor(fraction * reserveTokens),
-		modelMaxTokens > 0 ? modelMaxTokens : Number.POSITIVE_INFINITY,
-	);
-}
-
-/**
  * Run the full compaction summarization with the configured model,
- * replicating pi's compact() (0.87.1, byte-identical across the supported
- * 1.0.0 → 1.3.0 window):
+ * replicating pi's compact() as of 1.4.0 (byte-identical to 0.87.1's shape
+ * apart from the two 1.4.0 fixes adopted for the whole window, see below):
  * history summary (first-connection or iterative-update prompt, custom
  * focus appended), plus a separate turn-prefix checkpoint when the cut point
  * splits a turn, merged into one summary with the file-list tail. Returns
  * undefined on any failure after notifying (pi default compaction then takes
  * over).
+ *
+ * 1.4.0 changed two things this mirror covers, and we follow 1.4.0 for every
+ * host in the supported window (1.1.0 → 1.4.0) because both are bug fixes
+ * rather than behavior we could sensibly keep per version:
+ *  - summaries no longer cap maxTokens at 0.8/0.5 × reserveTokens; the
+ *    request omits maxTokens so the provider uses the model's output limit
+ *    (#9512 — long reasoning made summaries fail with "generation hit the
+ *    token cap"). `reserveTokens` now only decides when compaction starts.
+ *  - `/compact <instructions>` also reaches the split-turn prefix summary
+ *    (#11058; before 1.4.0 the focus was dropped when the split turn was the
+ *    only new content).
  */
 async function runCompactModelCompaction(
 	ctx: ExtensionContext,
@@ -157,7 +157,6 @@ async function runCompactModelCompaction(
 		firstKeptEntryId,
 		previousSummary,
 		fileOps,
-		settings,
 	} = preparation;
 
 	try {
@@ -177,11 +176,6 @@ async function runCompactModelCompaction(
 						previousSummary,
 						customInstructions,
 					),
-					summarizationBudget(
-						0.8,
-						settings.reserveTokens,
-						model.maxTokens,
-					),
 					signal,
 				);
 				historyText = history.text;
@@ -192,8 +186,8 @@ async function runCompactModelCompaction(
 				model,
 				buildTurnPrefixPromptText(
 					serializeConversation(convertToLlm(turnPrefixMessages)),
+					customInstructions,
 				),
-				summarizationBudget(0.5, settings.reserveTokens, model.maxTokens),
 				signal,
 			);
 			summaryText = `${historyText}\n\n---\n\n**Turn Context (split turn):**\n\n${turnPrefix.text}`;
@@ -212,7 +206,6 @@ async function runCompactModelCompaction(
 					previousSummary,
 					customInstructions,
 				),
-				summarizationBudget(0.8, settings.reserveTokens, model.maxTokens),
 				signal,
 			);
 			summaryText = history.text;

@@ -21,8 +21,8 @@
  * upgraded internals), patches are skipped with a warning — the extension
  * keeps loading and ctrl+p falls back to stock behavior. The prototype
  * shape touched here (handleInput/updateList/filterModels and the instance
- * fields below) is byte-identical across every published version in
- * pi 1.0.0 → 1.3.0 (and 0.99.0 → 1.2.0 before the floor moved).
+ * fields below) is byte-identical across the mandatory window
+ * pi 1.1.0 → 1.4.0 (and exercised by the 0.99.0 → 1.0.4 backward probes).
  */
 import {
 	ModelSelectorComponent,

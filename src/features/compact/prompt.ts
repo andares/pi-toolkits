@@ -6,14 +6,15 @@
  * summaries produced by the configured compact model are formatted exactly
  * like pi's own compaction output. Only the executing model differs.
  * Verified byte-identical against every published version of the supported
- * window (1.0.0 → 1.3.0): dist/core/compaction/compaction.js and
- * core/usage-totals.js are unchanged files across that span, and the only
- * utils.js change (1.2.0 dropping assistant thinking from
+ * window (1.1.0 → 1.4.0): core/usage-totals.js is unchanged across that
+ * span, the only utils.js change (1.2.0 dropping assistant thinking from
  * serializeConversation) does not touch the strings mirrored here — that
- * serializer is imported from the host, not mirrored. 0.87.0 shipped a
- * different split-turn prefix prompt; the text mirrored here is 0.87.1's
- * fix, and the mirror is the only variant any supported host gets —
- * intentional.
+ * serializer is imported from the host, not mirrored — and compaction.js
+ * changed once, in 1.4.0, in the output budget and the split-turn focus
+ * handling (both adopted here, see buildTurnPrefixPromptText). 0.87.0
+ * shipped a different split-turn prefix prompt; the text mirrored here is
+ * 0.87.1's fix, and the mirror is the only variant any supported host gets
+ * — intentional.
  *
  * Update these strings whenever pi changes its built-in prompts (diff
  * dist/core/compaction/compaction.js between versions).
@@ -146,11 +147,21 @@ export function buildHistoryPromptText(
 
 /**
  * Build the split-turn prefix prompt text (pi 0.87.1
- * generateTurnPrefixSummary): `# Conversation` block followed by
- * `# Instructions`.
+ * generateTurnPrefixSummary, extended in 1.4.0): `# Conversation` block
+ * followed by `# Instructions`, with the `/compact <instructions>` focus
+ * appended as `Additional focus: ...`. 1.4.0 added that last line (#11058:
+ * the focus used to be dropped when the split turn was the only new
+ * content since the last compaction); we use the fixed form on every host.
  */
-export function buildTurnPrefixPromptText(conversationText: string): string {
-	return `# Conversation\n${conversationText}\n\n# Instructions\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+export function buildTurnPrefixPromptText(
+	conversationText: string,
+	customInstructions?: string,
+): string {
+	let promptText = `# Conversation\n${conversationText}\n\n# Instructions\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`;
+	if (customInstructions) {
+		promptText = `${promptText}\n\nAdditional focus: ${customInstructions}`;
+	}
+	return promptText;
 }
 
 /** File-operation sets extracted by pi's prepareCompaction. */
@@ -203,7 +214,7 @@ export function formatFileOperations(
 /**
  * Combine two provider usage records field-wise (pi 0.87.1 compaction.js
  * combineUsage, moved verbatim to core/usage-totals.js in 0.99.0 and
- * unchanged through 1.3.0): used when
+ * unchanged through 1.4.0): used when
  * a split turn produces two summarization calls.
  */
 export function combineUsage<T extends UsageLike>(first: T, second: T): T {

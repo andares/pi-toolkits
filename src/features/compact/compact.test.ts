@@ -418,27 +418,25 @@ describe("session_before_compact handler", () => {
 			.calls[0] as [
 			AvailableModel,
 			unknown,
-			{ maxTokens: number; signal: AbortSignal },
+			{ maxTokens?: number; signal: AbortSignal },
 		];
 		expect(modelKey(model)).toBe("google/gemini-2.5-flash");
-		// 0.8 × reserveTokens(16000) = 12800, under the model cap (8192).
-		expect(options.maxTokens).toBe(8192);
+		// pi 1.4.0 (#9512): no fixed output cap — the request omits maxTokens
+		// so the provider uses the model's own output limit.
+		expect(options).not.toHaveProperty("maxTokens");
 		expect(options.signal).toBe(event.signal);
 	});
 
-	it("clamps the budget by reserveTokens when the model cap is larger", async () => {
+	it("does not derive an output budget from reserveTokens", async () => {
 		getCompactStore().setModel("google/gemini-2.5-flash");
 		const { handler } = registeredHandler();
 		const bigCapModel = { ...MODELS[0], maxTokens: 65536 };
 		const { ctx, complete } = fakeCtx({ models: [bigCapModel] });
 		await handler(fakeEvent() as never, ctx);
 		const [, , options] = (complete as ReturnType<typeof vi.fn>).mock
-			.calls[0] as [
-			AvailableModel,
-			unknown,
-			{ maxTokens: number },
-		];
-		expect(options.maxTokens).toBe(12800);
+			.calls[0] as [AvailableModel, unknown, { maxTokens?: number }];
+		// reserveTokens (16000) used to cap this at 12800; the cap is gone.
+		expect(options).not.toHaveProperty("maxTokens");
 	});
 
 	it("falls back with a warning on an empty summary", async () => {
@@ -565,6 +563,31 @@ describe("session_before_compact handler", () => {
 		const event = fakeEvent();
 		Object.assign(event, { customInstructions: "保留命令输出细节" });
 		await handler(event as never, ctx);
+		expect(prompts[0]).toContain("Additional focus: 保留命令输出细节");
+	});
+
+	it("passes customInstructions to the split-turn prefix summary too", async () => {
+		getCompactStore().setModel("google/gemini-2.5-flash");
+		const { handler } = registeredHandler();
+		const prompts: string[] = [];
+		const { ctx } = fakeCtx({
+			complete: vi.fn(async (_model, context) => {
+				prompts.push(
+					(context.messages[0]?.content as Array<{ text?: string }>)[0]?.text ??
+						"",
+				);
+				return fakeResponse("## Goal\n- x");
+			}),
+		});
+		const event = fakeEvent({
+			messagesToSummarize: [],
+			turnPrefixMessages: [userMessage("prefix msg")],
+			isSplitTurn: true,
+		});
+		Object.assign(event, { customInstructions: "保留命令输出细节" });
+		await handler(event as never, ctx);
+		expect(prompts).toHaveLength(1);
+		expect(prompts[0]).toContain("# Instructions");
 		expect(prompts[0]).toContain("Additional focus: 保留命令输出细节");
 	});
 
