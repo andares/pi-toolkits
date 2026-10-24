@@ -18,6 +18,7 @@
  * each other. The bus is installed once, after every gate is registered.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createApprovalLog } from "./lib/approval-log.js";
 import { createGateHub } from "./lib/gates.js";
 import { registerAsk } from "./features/ask/index.js";
 import { registerAutostart } from "./features/autostart/index.js";
@@ -28,12 +29,15 @@ import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
 
 export default function piToolkits(pi: ExtensionAPI): void {
-	const gates = createGateHub();
+	// One rolling audit sink for every gate. Creation is lazy and side-effect
+	// free: the directory is only touched when the first record is written.
+	const audit = createApprovalLog();
+	const gates = createGateHub({ audit });
 
 	registerAsk(pi, gates);
 	// Permission registers its session_start reset before autostart, so a
 	// project-declared `/ask-perm ...` runs against a freshly reset mode.
-	registerPermission(pi, gates);
+	registerPermission(pi, gates, { audit });
 	registerAutostart(pi);
 	registerCompact(pi);
 	registerFavorites(pi);

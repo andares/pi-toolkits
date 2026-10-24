@@ -69,7 +69,7 @@ After installing, verify in any pi session:
 | Feature | Entry point | One-line description |
 | --- | --- | --- |
 | 🛡️ **ask** read-only consult mode | `/ask` | enter consult mode: `write`/`edit`/`powershell` hard-disabled, `bash` runs in a read-only sandbox, `grep`/`find`/`ls` activated, and `scratchpad` allowed to write throwaway notes into the session's temp directory |
-| 🔐 **permission** session-scoped boundary checks | `/ask-perm` | four in/out × read/write modes, off by default and never persisted; outside writes ask, credentials are denied, destructive commands always ask; composes with `/ask` |
+| 🔐 **permission** session-scoped boundary checks | `/ask-perm` | four in/out × read/write modes, off by default and never persisted; outside writes ask, credentials are denied, destructive commands always ask; composes with `/ask`; a capped JSONL approval log feeds later rule mining |
 | ⭐ **favorites** model favorites | `ctrl+A` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/third-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
@@ -104,7 +104,7 @@ Enter with `/ask` (press it again to exit). Meant for the case where you only wa
 
 <a name="permission"></a>
 
-`/ask-perm` turns on boundary checks for the **current session only**. Every piece of state — the on/off flag, the four modes, the session grants — lives in the extension's memory. Nothing is written to disk, the feature is off by default, and it leaves no status behind when disabled. Toggling it on can never silently follow you into the next session.
+`/ask-perm` turns on boundary checks for the **current session only**. Every piece of state — the on/off flag, the four modes, the session grants — lives in the extension's memory and is never persisted: the feature is off by default and leaves no status behind when disabled. Toggling it on can never silently follow you into the next session. Separately, decisions worth keeping are appended to a capped local **approval log** for later rule mining (see below); it is write-only telemetry and is never consulted while deciding.
 
 **Enable**
 
@@ -137,9 +137,36 @@ Repeating the argument form with the modes already in force is a **no-op**: no s
 - **credentials are denied in every mode** — `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.pi/agent/auth*.json`, `.env` files (templates excepted). Without this, `out read = allow` would hand out `~/.ssh/id_rsa`.
 - **destructive commands always ask** — `rm` of `/`, the home directory, or the working directory; `git reset --hard`; `git clean -f`; `git push --force`; package `publish`; `dd` to a raw device; `mkfs*`; shutdown/reboot; `chmod -R 777`; anything through `sudo`. Scope alone cannot express "destructive".
 
+**Approval log** (write-only telemetry, on by default)
+
+Every decision worth keeping becomes one JSON object per line (JSONL) in `~/.pi/agent/approval-log/audit-NNNNNN.jsonl`. The policy never reads the log: deleting it or making the directory read-only changes no verdict.
+
+- **Scope**: blocks from `/ask` mode are approval decisions too, so they are recorded as well (with the gate name and the model-facing reason).
+- **What is recorded**: interactive asks (the exact dialog lines, the bash decomposition, the chosen answer, the grant and its latency), automatic denials and blocks, session-grant allows, `/ask-perm` mode changes, and one `session` summary with call/ask/block counters. Plain mode-allowed `read`/`grep` calls are skipped by default so the ring buffer is not buried in noise; `PI_APPROVAL_LOG=all` also logs plain mode-allowed calls, `PI_APPROVAL_LOG=off` disables the log.
+- **Rotation**: 1000 records **or** 8 MiB per file, at most 10 files; creating an 11th deletes the lowest-numbered one. Typical retention is 15–30 MB (hard ceiling 80 MB) and roughly the last 10,000 records.
+- **Fidelity**: the four modes, session roots, tool call, every command unit (including `opaque` units and parser notes), each target's canonical path / effect / in-or-out scope, the deciding rule layer, the dialog lines, the answer and the resulting grant. `write`/`edit` file **contents are never logged** (only path and byte count); bearer tokens, `token=`/`password=`, URL credentials and known key prefixes are redacted.
+- **Failure and privacy**: directory `0700`, files `0600`, local only, safe to delete at any time. A logging failure is reported once and swallowed — the verdict path never fails because the log is unavailable. `PI_APPROVAL_LOG_DIR` relocates the directory.
+
+```bash
+# focus on the prompts that became session grants
+jq -r 'select(.event=="ask" and .answer.choice=="allow-session")
+       | [.ts,.tool,.verdict.target,.input.command] | @tsv' \
+  ~/.pi/agent/approval-log/*.jsonl
+
+# target roots × answers — the shortest path to a "safe temp dir" rule
+jq -r 'select(.event=="ask") | [.verdict.grantRoot,.answer.choice] | @tsv' \
+  ~/.pi/agent/approval-log/*.jsonl | sort | uniq -c | sort -rn
+
+# parser gaps (opaque units) worth teaching units.ts
+jq -r 'select(.event=="ask") | .units[] | select(.opaque) | [.command,.note] | @tsv' \
+  ~/.pi/agent/approval-log/*.jsonl | sort | uniq -c | sort -rn
+```
+
+See the repository's `pnpm approval-report` for a read-only summary (answer mix, target roots, rule candidates, opaque gaps, playwright patterns).
+
 **Composition with `/ask`**: the two features are independent gates on one bus. Each answers only its own question — ask: "does this mutate?", permission: "does this cross the boundary?" — and either can block. Ask mode still denies credential reads, and permission still applies while the read-only sandbox is active. Neither feature needs to know the other exists. The one exception is ask's `scratchpad`: that tool is self-jailed (relative names only, one temp directory), so ask marks it while active and permission skips the boundary dialog that would otherwise fire for an "outside write" on every note.
 
-**Enable it for every session** (the state itself is never persisted — this is the opt-in):
+**Enable it for every session** (the state itself is never persisted — this is the opt-in; the audit log is independent and on by default):
 
 ```toml
 # <project>/.pi/autostart.toml, or <agent-dir>/autostart.toml for all projects
@@ -147,7 +174,7 @@ Repeating the argument form with the modes already in force is a **no-op**: no s
 run = ["/ask-perm allow allow allow ask"]
 ```
 
-> **Implementation notes**: a new session resets the state on `session_start` (a repeated emission for the same session keeps it); the footer shows `perm i:A/A o:A/ask` while on (`A` allow, `a` ask, `D` deny). Subagent sessions start with their own state and do not inherit the parent's mode — when child sessions must be gated too, enable it through the project's autostart file. POSIX hosts (Linux / macOS / WSL) are the tested target; native Windows Git-Bash path spellings are approximated, not verified. bash decomposition uses `shell-quote`; unknown variables expand to a sentinel that makes the unit ask instead of silently becoming an empty path. Added directories are read from pi-add-dir's session entry (`add-dir:state`). Heuristic, not a sandbox: project-internal destructive commands are covered by the fixed table, not by a sandbox. One known blind spot: a *read* command's bare filename operand (`cat notes.txt`) is not collected as a target, so with `out read = ask` only absolute-path-shaped read operands are questioned — reads never write, so the four modes' write side is unaffected.
+> **Implementation notes**: a new session resets the state on `session_start` (a repeated emission for the same session keeps it); the footer shows `perm i:A/A o:A/ask` while on (`A` allow, `a` ask, `D` deny). Subagent sessions start with their own state and do not inherit the parent's mode — when child sessions must be gated too, enable it through the project's autostart file. The approval log is appended by the gate bus (asks/blocks/session summaries) and by the permission gate (mode changes and session-grant allows); the writer is lazy, keeps no state across processes, and never participates in a decision. POSIX hosts (Linux / macOS / WSL) are the tested target; native Windows Git-Bash path spellings are approximated, not verified. bash decomposition uses `shell-quote`; unknown variables expand to a sentinel that makes the unit ask instead of silently becoming an empty path. Added directories are read from pi-add-dir's session entry (`add-dir:state`). Heuristic, not a sandbox: project-internal destructive commands are covered by the fixed table, not by a sandbox. One known blind spot: a *read* command's bare filename operand (`cat notes.txt`) is not collected as a target, so with `out read = ask` only absolute-path-shaped read operands are questioned — reads never write, so the four modes' write side is unaffected.
 
 ---
 
@@ -353,6 +380,7 @@ pnpm test         # vitest (all feature unit tests)
 
 pnpm check:keybindings   # audit this plugin's keys against the host's own dispatch table
 pnpm check:compat        # mandatory 4-line window + backward probe (4 more lines) → public floor
+pnpm approval-report     # summarize the local approval log (answer mix, targets, rule candidates)
 ```
 
 ### Project structure
@@ -363,6 +391,7 @@ src/
 ├── lib/                  # shared infrastructure (tool-set snapshot/restore,
 │                         # gate bus composing tool_call policies, jailed-tool
 │                         # registry the boundary gate consults,
+│                         # rolling JSONL approval log,
 │                         # model-key resolution shared by review & compact)
 └── features/             # feature modules — one directory per feature
     ├── ask/              # ask mode: command + state machine, bash sandbox,
@@ -377,7 +406,7 @@ src/
     │                     #           persisted store, tests
     ├── permission/       # session-scoped boundary permission: modes, panel,
     │                     #           bash units, policy, session grants, prompt,
-    │                     #           tests
+    │                     #           audit payload, tests
     ├── review/           # third-party review: input/command triggers,
     │                     #           review-model config store, prompt, tests
     └── stash/            # prompt stash: hotkey state machine + tests

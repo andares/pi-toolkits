@@ -6,7 +6,7 @@
  * selector, and the rest through the gate's verdicts and the command handler.
  */
 import { mkdtempSync, realpathSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type {
@@ -14,6 +14,7 @@ import type {
 	ExtensionContext,
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
+import type { ApprovalLog, ApprovalRecord } from "../../lib/approval-log.js";
 import type { AskDecision, GateHub, ToolGate } from "../../lib/gates.js";
 import {
 	clearJailedTool,
@@ -65,7 +66,7 @@ interface Harness {
 	banner(): { systemPrompt: string } | undefined;
 }
 
-function makeHarness(): Harness {
+function makeHarness(audit?: ApprovalLog): Harness {
 	const cwd = realpathSync(mkdtempSync(join(tmpdir(), "pi-perm-test-")));
 	const statuses: Harness["statuses"] = [];
 	const notes: Harness["notes"] = [];
@@ -116,7 +117,7 @@ function makeHarness(): Harness {
 		registerEntryRenderer() {},
 	} as unknown as ExtensionAPI;
 
-	registerPermission(pi, hub);
+	registerPermission(pi, hub, { audit });
 	const gate = captured[0];
 	if (!gate || !commandHandler) throw new Error("permission did not register");
 
@@ -154,6 +155,7 @@ interface AskVerdict {
 	request: {
 		details: readonly string[];
 		root: string;
+		audit?: ApprovalRecord;
 		present(ctx: ExtensionContext): Promise<AskDecision | undefined>;
 		apply(decision: AskDecision): void;
 	};
@@ -433,5 +435,138 @@ describe("self-jailed tools", () => {
 
 		clearJailedTool("scratchpad");
 		expect(asAsk(await h.evaluate(customEvent("scratchpad"))).kind).toBe("ask");
+	});
+});
+
+describe("audit log", () => {
+	function makeAudit(): { audit: ApprovalLog; records: ApprovalRecord[] } {
+		const records: ApprovalRecord[] = [];
+		return {
+			records,
+			audit: {
+				dir: "/tmp/pi-perm-audit",
+				mode: "interesting",
+				active: true,
+				append: (record) => records.push(record),
+			},
+		};
+	}
+
+	it("attaches the decomposition to an ask verdict", async () => {
+		const { audit } = makeAudit();
+		const h = makeHarness(audit);
+		await h.command("allow allow allow ask");
+		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x")));
+		expect(verdict.request.audit).toMatchObject({
+			modes: { outWrite: "ask" },
+			verdict: {
+				action: "ask",
+				layer: "mode",
+				target: "/tmp/outside/x",
+				scope: "out",
+			},
+		});
+		expect(
+			(verdict.request.audit?.units as Array<Record<string, unknown>>)[0],
+		).toMatchObject({
+			command: "rm",
+			opaque: false,
+			action: "ask",
+			layer: "mode",
+		});
+	});
+
+	it("attaches the deciding layer to a deny verdict", async () => {
+		const { audit } = makeAudit();
+		const h = makeHarness(audit);
+		await h.command("allow allow allow ask");
+		const verdict = (await h.evaluate(
+			bashEvent(`cat ${homedir()}/.ssh/id_rsa`),
+		)) as {
+			kind: "block";
+			reason: string;
+			audit?: ApprovalRecord;
+		};
+		expect(verdict.kind).toBe("block");
+		expect(verdict.audit?.verdict).toMatchObject({
+			action: "deny",
+			layer: "secret",
+		});
+	});
+
+	it("records mode changes with their source", async () => {
+		const { audit, records } = makeAudit();
+		const h = makeHarness(audit);
+		await h.command("allow allow allow ask");
+		expect(records.at(-1)).toMatchObject({
+			event: "mode",
+			enabled: true,
+			source: "args",
+			via: "manual",
+			modes: { inRead: "allow", outWrite: "ask" },
+		});
+		await h.command("");
+		expect(records.at(-1)).toMatchObject({
+			event: "mode",
+			enabled: false,
+			source: "toggle",
+		});
+	});
+
+	it("marks an autostart-dispatched mode change", async () => {
+		const { audit, records } = makeAudit();
+		const h = makeHarness(audit);
+		markStartupCommand("ask-perm");
+		await h.command("allow allow allow ask");
+		expect(records.at(-1)).toMatchObject({
+			event: "mode",
+			via: "autostart",
+		});
+	});
+});
+
+describe("audit log — session-grant allows", () => {
+	function makeAudit(): { audit: ApprovalLog; records: ApprovalRecord[] } {
+		const records: ApprovalRecord[] = [];
+		return {
+			records,
+			audit: {
+				dir: "/tmp/pi-perm-audit",
+				mode: "interesting",
+				active: true,
+				append: (record) => records.push(record),
+			},
+		};
+	}
+
+	it("records the repeat call a directory grant made free", async () => {
+		const { audit, records } = makeAudit();
+		const h = makeHarness(audit);
+		await h.command("allow allow allow ask");
+		const first = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x")));
+		first.request.apply("allow-session");
+		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
+
+		const allow = records.find((record) => record.event === "allow");
+		expect(allow).toMatchObject({
+			event: "allow",
+			verdict: { action: "allow", layer: "session-allow", scope: "out" },
+		});
+	});
+
+	it("records a program-level grant on an opaque command too", async () => {
+		const { audit, records } = makeAudit();
+		const h = makeHarness(audit);
+		await h.command("allow allow allow ask");
+		const command = 'cd "$DIR" && rm x';
+		const first = asAsk(await h.evaluate(bashEvent(command)));
+		first.request.apply("allow-session");
+		expect(await h.evaluate(bashEvent(command))).toBeUndefined();
+
+		const allow = records.find((record) => record.event === "allow");
+		expect(allow).toMatchObject({
+			event: "allow",
+			verdict: { action: "allow", layer: "session-command", grantScope: "command" },
+		});
 	});
 });

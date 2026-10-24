@@ -69,7 +69,7 @@ pi -e ./src/index.ts
 | 功能 | 入口 | 一句话说明 |
 | --- | --- | --- |
 | 🛡️ **ask** 只读咨询模式 | `/ask` | 进入咨询模式:`write`/`edit`/`powershell` 硬禁用,`bash` 只读沙箱,临时启用 `grep`/`find`/`ls`,并开放 `scratchpad` 把草稿写进会话临时目录 |
-| 🔐 **permission** 会话级边界权限 | `/ask-perm` | 项目内/外 × 读/写四格模式,默认关闭且从不落盘;项目外写询问、凭据路径硬拒、破坏性命令必问;与 `/ask` 并行组合 |
+| 🔐 **permission** 会话级边界权限 | `/ask-perm` | 项目内/外 × 读/写四格模式,默认关闭且从不落盘;项目外写询问、凭据路径硬拒、破坏性命令必问;与 `/ask` 并行组合;另有滚动 JSONL 审批日志供事后挖规则 |
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+A` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
@@ -104,7 +104,7 @@ pi -e ./src/index.ts
 
 <a name="permission"></a>
 
-`/ask-perm` 只在**当前会话**开启边界检查。开关状态、四项模式、会话授权全部只存在扩展内存里:不落盘、默认关闭、关闭后不留任何状态。开启一次不会悄悄跟到下一个会话。
+`/ask-perm` 只在**当前会话**开启边界检查。开关状态、四项模式、会话授权全部只存在扩展内存里:权限**状态**不落盘、默认关闭、关闭后不留任何状态。开启一次不会悄悄跟到下一个会话。另外,值得留档的判定会追加到本地**审批日志**(见下),供事后挖规则用;它是只写的遥测数据,判定时永远不会被读取。
 
 **开启**
 
@@ -137,9 +137,36 @@ pi -e ./src/index.ts
 - **凭据路径任何模式都拒绝** —— `~/.ssh`、`~/.gnupg`、`~/.aws`、`~/.pi/agent/auth*.json`、`.env` 文件(模板除外)。没有这一条,默认的「项目外读放行」就等于把 `~/.ssh/id_rsa` 交出去
 - **破坏性命令永远询问** —— 对 `/`、家目录或工作目录的 `rm`;`git reset --hard`;`git clean -f`;`git push --force`;包 `publish`;`dd` 写裸设备;`mkfs*`;关机/重启;`chmod -R 777`;任何经 `sudo` 的命令。作用域本身表达不了「破坏性」
 
+**审批日志**(只写遥测,默认开启)
+
+每个值得留档的判定都会写成一行 JSON(JSONL),落在 `~/.pi/agent/approval-log/audit-NNNNNN.jsonl`。策略层从不读它:删掉日志或把目录改成只读,不会改变任何判定结果。
+
+- **范围**:`/ask` 模式的拦截同样算审批决定,也会记录(带闸门名与模型可见理由)。
+- **记录什么**:交互弹窗(用户看到的原始行、bash 拆解结果、答复、授权与决策耗时)、自动拒绝/拦截、会话授权放行、`/ask-perm` 模式切换,以及每个会话一条 `session` 摘要(调用/弹窗/拦截计数)。普通自动放行的 `read`/`grep` 默认不记,避免把环形缓冲淹在噪声里;`PI_APPROVAL_LOG=all` 连普通自动放行也记,`PI_APPROVAL_LOG=off` 关闭日志。
+- **滚动**:每文件 1000 条**或** 8 MiB,最多 10 个文件;创建第 11 个时删掉序号最小的那个。典型体积 15–30 MB(硬上限 80 MB),约保留最近 1 万条判定。
+- **保真度**:四格模式、会话根目录、工具调用、每个命令单元(含 `opaque` 单元与解析器备注)、每个目标规范化后的路径/读或写/项目内或外、命中哪条规则层、弹窗原文、答复与产生的授权。`write`/`edit` 的文件**正文永不记录**(只记路径与字节数);bearer token、`token=`/`password=`、URL 内嵌凭据与已知密钥前缀会脱敏。
+- **失败与隐私**:目录 `0700`、文件 `0600`,只在本机,可随时删除。日志故障只警告一次并被吞掉——判定链路不会因为日志不可用而失败。`PI_APPROVAL_LOG_DIR` 可改目录。
+
+```bash
+# 只看"本会话允许"的弹窗
+jq -r 'select(.event=="ask" and .answer.choice=="allow-session")
+       | [.ts,.tool,.verdict.target,.input.command] | @tsv' \
+  ~/.pi/agent/approval-log/*.jsonl
+
+# 目标根目录 × 答复 —— 找「临时目录直接放行」规则的最短路径
+jq -r 'select(.event=="ask") | [.verdict.grantRoot,.answer.choice] | @tsv' \
+  ~/.pi/agent/approval-log/*.jsonl | sort | uniq -c | sort -rn
+
+# 解析不了的单元:定位 units.ts 的缺口
+jq -r 'select(.event=="ask") | .units[] | select(.opaque) | [.command,.note] | @tsv' \
+  ~/.pi/agent/approval-log/*.jsonl | sort | uniq -c | sort -rn
+```
+
+仓库内可用 `pnpm approval-report` 生成只读汇总(答复分布、目标根目录、候选规则、opaque 缺口、playwright 模式)。
+
 **与 `/ask` 的组合**:两者是同一总线上的独立闸门,各自只回答自己的问题 —— ask 回答「会不会产生变更」,permission 回答「有没有越过边界」,任一拦截都生效。所以 ask 模式下凭据仍然读不到,permission 在只读沙箱下也照常工作;两个功能互不需要知道对方存在。
 
-**每个会话自动开启**(状态本身不落盘,这就是持久化的替身):
+**每个会话自动开启**(状态本身不落盘,这就是持久化的替身;审批日志独立于它、默认开启):
 
 ```toml
 # <项目>/.pi/autostart.toml;想对所有项目生效则用 <agent-dir>/autostart.toml
@@ -147,7 +174,7 @@ pi -e ./src/index.ts
 run = ["/ask-perm allow allow allow ask"]
 ```
 
-> **实现说明**:新会话在 `session_start` 重置状态(同一会话的重复 emission 保持状态);开启时 footer 显示 `perm i:A/A o:A/ask`(`A` allow、`a` ask、`D` deny)。子代理会话有自己的状态、不继承父会话的模式;需要子会话也受控时,通过项目 autostart 再开启一次。实测目标是 POSIX 宿主(Linux/macOS/WSL);原生 Windows Git-Bash 的路径拼写只做了近似,未验证。bash 拆解使用 `shell-quote`;未知变量会展开成哨兵而不是空字符串,使该命令转为询问而不是被悄悄当成空路径。add-dir 目录从 pi-add-dir 的会话条目 `add-dir:state` 读取。启发式,不是沙箱:项目内的破坏性操作由固定表兜底,而不是靠沙箱。已知盲区一处:**读命令的裸文件名参数**(`cat notes.txt`)不被收集为目标,所以把 `out read` 调成 `ask` 时只有绝对路径形状的读目标会被问——读本身不会写,四格模式的写侧不受影响。
+> **实现说明**:新会话在 `session_start` 重置状态(同一会话的重复 emission 保持状态);开启时 footer 显示 `perm i:A/A o:A/ask`(`A` allow、`a` ask、`D` deny)。子代理会话有自己的状态、不继承父会话的模式;需要子会话也受控时,通过项目 autostart 再开启一次。审批日志由闸门总线(弹窗/拦截/会话摘要)与 permission 闸门(模式切换、会话授权放行)追加;写入器懒初始化、不跨进程保存状态,也从不参与判定。实测目标是 POSIX 宿主(Linux/macOS/WSL);原生 Windows Git-Bash 的路径拼写只做了近似,未验证。bash 拆解使用 `shell-quote`;未知变量会展开成哨兵而不是空字符串,使该命令转为询问而不是被悄悄当成空路径。add-dir 目录从 pi-add-dir 的会话条目 `add-dir:state` 读取。启发式,不是沙箱:项目内的破坏性操作由固定表兜底,而不是靠沙箱。已知盲区一处:**读命令的裸文件名参数**(`cat notes.txt`)不被收集为目标,所以把 `out read` 调成 `ask` 时只有绝对路径形状的读目标会被问——读本身不会写,四格模式的写侧不受影响。
 
 ---
 
@@ -353,6 +380,7 @@ pnpm test         # vitest(全部功能单元测试)
 
 pnpm check:keybindings   # 用宿主自己的分发表审计本插件的按键
 pnpm check:compat        # 校验声明的 pi 下限:强制 4 条线窗口 + 向后 4 条线探针 → public floor
+pnpm approval-report     # 汇总本地审批日志(答复分布、目标目录、候选规则)
 ```
 
 ### 项目结构
@@ -363,6 +391,7 @@ src/
 ├── lib/                  # 共享基础设施(工具集快照/恢复、
 │                         # 组合 tool_call 策略的闸门总线、
 │                         # 边界闸门会查询的自封闭工具登记表、
+│                         # 滚动 JSONL 审批日志、
 │                         # review 与 compact 共用的模型 key 解析)
 └── features/             # 功能模块 —— 一个功能一个目录
     ├── ask/              # ask 模式:命令 + 状态机、bash 沙箱、
@@ -375,7 +404,8 @@ src/
     ├── favorites/        # 模型收藏:选择器与循环 patch、
     │                     #           持久化存储、测试
     ├── permission/       # 会话级边界权限:模式、面板、bash 拆解、
-    │                     #           策略、会话授权、确认对话框、测试
+    │                     #           策略、会话授权、确认对话框、
+    │                     #           审计 payload、测试
     ├── review/           # 第三方评审:输入/指令触发、
     │                     #           评审模型配置存储、提示词、测试
     └── stash/            # 提示词暂存:热键状态机 + 测试

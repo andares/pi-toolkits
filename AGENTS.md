@@ -28,8 +28,8 @@
 `peerDependencies`（`>=<floor>`，**不写上界**）和 README 的 Requirements / badge。
 
 （当前：强制窗口 1.1 / 1.2 / 1.3 / 1.4；向后探针 1.0 / 0.99 / 0.87 / 0.86，
-**停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`，typecheck 红，
-属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
+**停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`，且 `ToolCallEvent` 上没有
+`parentToolCallId`（2026-10-24 审批日志新增的依赖），两处 typecheck 红，属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
 
 - 窗口每随一条新版本线发布向前滑一格（窗口恒定 4 条），掉出窗口的老线不是“坏了”，
   只是不再被强制保持绿色；它还在不在对外下限里，由**探针**说话：探得到就继续算兼容，
@@ -327,7 +327,7 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 20 个文件 / 474 测试全绿；`pnpm check:compat` 在强制窗口
+- 测试：`pnpm test` 23 个文件 / 509 测试全绿；`pnpm check:compat` 在强制窗口
   1.1.0–1.4.0 全绿，向后探针 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive` 停探
   （不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
 - 真实 pi 1.4.0 冒烟（项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
@@ -550,7 +550,7 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 20 个文件 / 474 测试全绿；`pnpm check:compat` 强制窗口
+- 测试：`pnpm test` 23 个文件 / 509 测试全绿；`pnpm check:compat` 强制窗口
   1.1.0–1.4.0 + 向后探针 1.0.x / 0.99.x 全绿（floor 0.99.0）；
   真实 pi 1.4.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
@@ -562,6 +562,77 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 两个功能现在都**按 session id 去重**：同一 id 的再次 emission 不重放、不复位
 （`autostart` 的 `replayedSessions` / `permission` 的 `currentSessionId`）；
 `/new`、`fork`、`/resume` 等真正换会话的路径 id 会变，行为不变。
+
+### 审批日志（approval log，2026-10-24）
+
+目标：把「审批请求 → 拆解结果 → 用户选择」完整留下，积累后反哺自动化判定（更准的
+目标识别、`/tmp` 一类安全目录直接放行、playwright 常用模式的正则/规则）。
+
+**决策（崔总 2026-10-24 定稿）**
+
+- 默认只记**有价值事件**：ask+答复、自动 deny/block、会话授权放行、模式切换；
+  普通 mode 自动放行不进日志（只计入会话 calls 计数），否则 1 万条窗口会被 read/grep 噪声吃掉。
+  `PI_APPROVAL_LOG=all` 可全量记录，`off` 关闭。
+- 默认脱敏：bearer / `token=` / `password=` / URL 内嵌凭据 / 已知密钥前缀 → `[redacted]`，
+  记录标 `redacted:true`；其余原文保留（命令原文是挖掘对象）。
+- 单文件上限 = 1000 条**或** 8 MiB；最多 10 文件；创建第 11 个删序号最小的。
+  典型 15–30 MB，硬上限 80 MB。
+- 分析脚本本期一起做（`scripts/approval-report.mjs`）。
+
+**落位**
+
+- `src/lib/approval-log.ts`：滚动 JSONL 写入器 + 信封（`v/ts/session/pid/pi/ext/os/model/cwd`）
+  + 截断/脱敏 + fail-open。**懒初始化**：第一次要写记录才建目录/读计数；没有事件时零 IO。
+- `src/lib/gates.ts`：总线是唯一同时看得到「请求 + 答复 + 最终结果」的地方。计数**按 session id
+  分槽**（同一进程里父/子会话交替时不会互相冲刷，槽位上限 8，超了按插入序淘汰并先落盘），
+  `session_shutdown` 只落盘被销毁的那个会话（子会话结束不会把父会话摘要劈成两半）。
+  `answer.ms` 是工具调用被阻塞的总时长，`answer.queueMs` 是其中排在另一条弹窗后面的时长，
+  两者相减才是操作者的决策时间（同一 assistant 消息里的并行调用会排队）。
+  `AskRequest` 新增 `audit`（功能自带的结构化上下文）与 `settle`（答复后返回补丁，如授权）；
+  `block` 支持 `audit`。总线写 `ask`/`block`/`session` 记录；`present` 抛错也走 settle。
+  被更早 gate 拦掉、从未弹出的 pending ask 记 `outcome:"not-presented"`，不静默丢失。
+- `src/features/permission/audit.ts`：把 units（含 opaque/note/targets 的 canonical、effect、
+  in/out）、verdict（action/layer/unit/target/grantScope/grantRoot|grantDigest）和
+  `modes`/`roots`/`prompt` 组装成 payload；`PolicyDecision.layer` 是新加的机器可读层
+  （`mode/secret/session-allow/session-deny/session-command/danger/privileged/opaque/unresolved/empty`），
+  分析时不再解析英文 reason。
+- `src/features/permission/index.ts`：ask/deny 附带 payload；会话授权放行写 `event:"allow"`；
+  `/ask-perm` 真实状态变化写 `event:"mode"`（source=args|panel|toggle，via=autostart|manual）。
+- `src/index.ts`：创建一个 `createApprovalLog()`，同时传给 gate hub 和 permission。
+
+**磁盘与失败**
+
+- 追加用 `appendFileSync`（`O_APPEND`）+ 不 fsync；事件跟工具调用走（秒级），
+  顺序追加由页缓存/延迟分配合并，物理写≈逻辑写，SSD 磨损可忽略。
+- 每次写入前 `readdir`（≤10 个名字）+ `stat`，用来发现多进程轮转/文件被删；
+  轮转 = 新建 + `unlink` 最老文件，不重写、不 compaction。
+- 首次写入/启动时读最新文件数一次行（≤8 MiB）；崩溃留下的半行先补 `\n`，读侧跳过坏行。
+- 多进程：写入前用 `stat` 比对并只对「新增字节区间」数换行（`countNewlines`），把别的进程写入的行
+  并进自己的计数——否则「每文件 1000 条」会静默变成「每进程 1000 条」。两人同时越过边界最多
+  各超 1 条（检查在写入前，无法在不加锁的前提下更严）；极端竞态最多丢 1 条。
+- 单条记录序列化失败（例如混进一个 `JSON.stringify` 不接受的值）只跳过该条并警告一次，
+  **不关闭日志**；只有 IO 失败才 fail-open 停写。
+- **fail-open**：日志不可写只警告一次并禁用本进程日志，绝不改变判定；与 gate 的 fail-closed 分开。
+- 目录 `0700`、文件 `0600`；`write`/`edit` 正文不落盘（只 path+字节数）。
+
+**分析**
+
+- `pnpm approval-report [--dir …] [--since …] [--top N] [--min N] [--json]`：答复分布/中位耗时、
+  层分布、目标根目录 × 答复、候选放行/拒绝规则、opaque 缺口、重复 ask 模式、playwright 专项、
+  模式切换、会话计数（ask rate）。
+- 记录字段足以离线算命令签名；签名不写进日志，换挖掘口径不用改 schema。
+
+**已验证**
+
+- `pnpm test` 23 个文件 / 509 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+  `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
+- 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
+  单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、
+  多会话计数隔离、a/s/d/f/cancel/not-presented 均有用例。
+- 真实 pi 1.4.0 冒烟（tmux 交互）：autostart 派发 `/ask-perm` → 模型执行
+  `echo … > /tmp/.../out.txt` → 弹窗按 `s` → 文件写出；日志依次出现 `mode`、`ask`
+  （`answer.choice=allow-session`、`grant.root`、`ms` 与 `queueMs`）与 `/quit` 时的 `session` 摘要
+  （`calls=2 / asks=1`，第二次写由会话授权放行，另记一条 `event:"allow"`、`layer=session-allow`）。
 
 ### 已知边界（有意为之，README 已声明）
 

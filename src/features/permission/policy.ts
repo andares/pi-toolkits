@@ -30,11 +30,30 @@ export interface PolicyTarget {
 
 export interface PolicyDecision {
 	readonly action: PolicyAction;
+	/** Machine-readable reason class, for the audit log and tests. */
+	readonly layer: PolicyLayer;
 	readonly unit: CommandUnit;
 	readonly target?: PolicyTarget;
 	/** Human/model-facing explanation for ask and deny. */
 	readonly reason?: string;
 }
+
+/**
+ * Which rule decided a unit: the four modes, one of the fixed tables, a session
+ * grant, or a parser fallback. Kept separate from the human-facing reason so
+ * the audit log can group decisions without parsing English.
+ */
+export type PolicyLayer =
+	| "mode"
+	| "secret"
+	| "session-allow"
+	| "session-deny"
+	| "session-command"
+	| "danger"
+	| "privileged"
+	| "opaque"
+	| "unresolved"
+	| "empty";
 
 export interface PolicyContext {
 	readonly modes: PermissionModes;
@@ -81,6 +100,7 @@ function decidePath(
 	if (secret !== undefined) {
 		return {
 			action: "deny",
+			layer: "secret",
 			unit,
 			target: { path: pathValue, effect, scope },
 			reason: `${secret} — denied by the fixed safety table`,
@@ -90,19 +110,23 @@ function decidePath(
 	if (ctx.rules.denies(effect, pathValue)) {
 		return {
 			action: "deny",
+			layer: "session-deny",
 			unit,
 			target,
 			reason: `${effect} under ${pathValue} was denied for this session`,
 		};
 	}
 	if (ctx.rules.allows(effect, pathValue)) {
-		return { action: "allow", unit, target };
+		return { action: "allow", layer: "session-allow", unit, target };
 	}
 	const mode = modeFor(ctx.modes, effect, scope);
-	if (mode === "allow") return { action: "allow", unit, target };
+	if (mode === "allow") {
+		return { action: "allow", layer: "mode", unit, target };
+	}
 	if (mode === "deny") {
 		return {
 			action: "deny",
+			layer: "mode",
 			unit,
 			target,
 			reason: `${scope === "out" ? "outside-project" : "in-project"} ${effect} is set to deny`,
@@ -110,6 +134,7 @@ function decidePath(
 	}
 	return {
 		action: "ask",
+		layer: "mode",
 		unit,
 		target,
 		reason:
@@ -130,6 +155,7 @@ export function decideUnit(
 		// to grant.
 		return {
 			action: "ask",
+			layer: "opaque",
 			unit,
 			reason: unit.note ?? "this command could not be analysed",
 		};
@@ -149,6 +175,7 @@ export function decideUnit(
 	if (secret?.reason !== undefined) {
 		return {
 			action: "deny",
+			layer: "secret",
 			unit,
 			target: {
 				path: secret.target.path,
@@ -163,6 +190,7 @@ export function decideUnit(
 		if (baseSecret !== undefined) {
 			return {
 				action: "deny",
+				layer: "secret",
 				unit,
 				target: {
 					path: canonicalBase,
@@ -221,6 +249,7 @@ export function decideUnit(
 		}
 		return {
 			action: "ask",
+			layer: danger !== undefined ? "danger" : "privileged",
 			unit,
 			target,
 			reason: danger ?? "privileged command",
@@ -231,6 +260,7 @@ export function decideUnit(
 		if (canonicalBase === null) {
 			return {
 				action: "ask",
+				layer: "unresolved",
 				unit,
 				reason: "the working directory could not be resolved",
 			};
@@ -263,6 +293,7 @@ export function decideProgram(
 	if (units.length === 0) {
 		return {
 			action: "allow",
+			layer: "empty",
 			unit: {
 				raw: "",
 				headWord: "",
@@ -284,12 +315,17 @@ export function decideProgram(
 		if (ctx.rules.deniesCommand(key)) {
 			return {
 				action: "deny",
+				layer: "session-command",
 				unit: opaqueUnit,
 				reason: "this command was denied for this session",
 			};
 		}
 		if (ctx.rules.allowsCommand(key)) {
-			return { action: "allow", unit: opaqueUnit };
+			return {
+				action: "allow",
+				layer: "session-command",
+				unit: opaqueUnit,
+			};
 		}
 	}
 

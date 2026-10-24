@@ -22,6 +22,8 @@ import type {
 	ToolCallEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import type { ApprovalLog, ApprovalRecord } from "../../lib/approval-log.js";
+import { auditBase, auditTool } from "../../lib/approval-log.js";
 import type { AskRequest, GateHub } from "../../lib/gates.js";
 import { isJailedTool } from "../../lib/tools.js";
 import { consumeStartupCommand } from "../../lib/startup.js";
@@ -46,6 +48,7 @@ import {
 } from "./paths.js";
 import {
 	decideProgram,
+	decideUnit,
 	decisionEffect,
 	decisionGrantRoot,
 	formatDenial,
@@ -55,6 +58,7 @@ import {
 import { askPermission } from "./prompt.js";
 import { SessionRules } from "./session-rules.js";
 import { parseCommandUnits, type CommandUnit } from "./units.js";
+import { buildPermissionAudit, commandDigest } from "./audit.js";
 
 /** Tools that read one path. */
 const READ_PATH_TOOLS = new Set(["read", "grep", "find", "ls"]);
@@ -123,7 +127,17 @@ interface NoticeData {
 	text: string;
 }
 
-export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
+export interface PermissionOptions {
+	/** Write-only audit sink; kept optional so tests need no filesystem. */
+	readonly audit?: ApprovalLog;
+}
+
+export function registerPermission(
+	pi: ExtensionAPI,
+	gates: GateHub,
+	options: PermissionOptions = {},
+): void {
+	const audit = options.audit;
 	pi.registerEntryRenderer?.(NOTICE_ENTRY, (entry, _options, theme) => {
 		const text = (entry.data as NoticeData | undefined)?.text;
 		return text === undefined
@@ -146,6 +160,22 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 		modes = { ...DEFAULT_MODES };
 		rules.clear();
 		rootsCache = undefined;
+	}
+
+	/** Record an on/off or mode change; never affects the state machine. */
+	function recordMode(
+		ctx: ExtensionContext,
+		state: { enabled: boolean; source: string; via: string },
+	): void {
+		if (!audit || audit.mode === "off") return;
+		audit.append({
+			...auditBase(ctx),
+			event: "mode",
+			enabled: state.enabled,
+			modes: { ...modes },
+			source: state.source,
+			via: state.via,
+		});
 	}
 
 	/** Session id, or `undefined` when the host exposes none. */
@@ -234,11 +264,13 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 		decision: PolicyDecision,
 		fallbackCwd: string,
 		units: readonly CommandUnit[],
+		payload: ApprovalRecord | undefined,
 	): AskRequest {
 		const root = decisionGrantRoot(decision, () => fallbackCwd);
 		const effect = decisionEffect(decision);
 		const scope =
 			decision.target?.scope === "out" ? "outside project" : "inside project";
+		const title = "Permission required";
 		const details = [
 			`Command: ${decision.unit.raw || decision.unit.command}`,
 			...(decision.target
@@ -249,12 +281,16 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				? "Session grant would cover: this exact command"
 				: `Session grant would cover: ${root}`,
 		];
+		const auditPayload =
+			payload === undefined
+				? undefined
+				: { ...payload, prompt: [title, ...details] };
 		return {
-			title: "Permission required",
+			title,
 			details,
 			root,
-			present: (ctx) =>
-				askPermission(ctx, { title: "Permission required", details }),
+			audit: auditPayload,
+			present: (ctx) => askPermission(ctx, { title, details }),
 			apply: (choice) => {
 				if (choice === "allow-session") {
 					if (decision.unit.opaque) rules.allowCommand(programKey(units));
@@ -273,6 +309,20 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 							? `${decision.reason ?? "operation"} — denied for this session`
 							: (decision.reason ?? "denied by the operator"),
 				}),
+			settle: (choice) => {
+				if (choice !== "allow-session" && choice !== "deny-session") {
+					return undefined;
+				}
+				const commandScope = decision.unit.opaque;
+				return {
+					grant: {
+						kind: choice === "allow-session" ? "allow" : "deny",
+						scope: commandScope ? "command" : "root",
+						effect,
+						...(commandScope ? { digest: commandDigest(units) } : { root }),
+					},
+				};
+			},
 		};
 	}
 
@@ -298,6 +348,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 		handler: async (args, ctx) => {
 			// Startup notices are entries; interactive ones stay in-place toasts.
 			const startup = consumeStartupCommand("ask-perm");
+			const via = startup ? "autostart" : "manual";
 			const notice = (text: string): void => {
 				if (startup) pi.appendEntry<NoticeData>(NOTICE_ENTRY, { text });
 				else ctx.ui.notify(text, "info");
@@ -322,6 +373,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				if (changed) rules.clear();
 				enabled = true;
 				syncStatus(ctx);
+				recordMode(ctx, { enabled: true, source: "args", via });
 				notice(`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`);
 				return;
 			}
@@ -330,6 +382,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 				enabled = false;
 				rules.clear();
 				syncStatus(ctx);
+				recordMode(ctx, { enabled: false, source: "toggle", via });
 				notice("Permission OFF — no boundary checks in this session.");
 				return;
 			}
@@ -346,6 +399,7 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 			rules.clear();
 			enabled = true;
 			syncStatus(ctx);
+			recordMode(ctx, { enabled: true, source: "panel", via });
 			notice(`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`);
 		},
 	});
@@ -364,16 +418,58 @@ export function registerPermission(pi: ExtensionAPI, gates: GateHub): void {
 			if (isJailedTool(event.toolName)) return undefined;
 			const units = unitsFor(event, ctx.cwd);
 			if (units.length === 0) return undefined;
-			const decision = decideProgram(units, {
-				modes,
-				roots: rootsFor(ctx),
-				rules,
-			});
-			if (decision.action === "allow") return undefined;
-			if (decision.action === "deny") {
-				return { kind: "block", reason: formatDenial(decision) };
+			const roots = rootsFor(ctx);
+			const policyCtx = { modes, roots, rules };
+			const decision = decideProgram(units, policyCtx);
+			const logOn = audit !== undefined && audit.mode !== "off";
+
+			if (decision.action === "allow") {
+				// Session-grant allows show how much friction a grant removed; plain
+				// mode allows are logged only under `PI_APPROVAL_LOG=all`, otherwise
+				// their volume would bury the interesting records. A grant on an
+				// opaque program is keyed by its text (`session-command`), so both
+				// grant layers must be recorded — otherwise "allow for this session"
+				// on a command the parser cannot resolve would leave no trace.
+				const granted =
+					decision.layer === "session-allow" ||
+					decision.layer === "session-command";
+				if (logOn && (granted || audit?.mode === "all")) {
+					const payload = buildPermissionAudit({
+						cwd: ctx.cwd,
+						modes,
+						roots,
+						units,
+						unitDecisions: units.map((unit) => decideUnit(unit, policyCtx)),
+						decision,
+					});
+					audit?.append({
+						...auditBase(ctx),
+						...auditTool(event),
+						...payload,
+						event: "allow",
+					});
+				}
+				return undefined;
 			}
-			return { kind: "ask", request: askRequest(decision, ctx.cwd, units) };
+
+			let payload: ApprovalRecord | undefined;
+			if (logOn) {
+				payload = buildPermissionAudit({
+					cwd: ctx.cwd,
+					modes,
+					roots,
+					units,
+					unitDecisions: units.map((unit) => decideUnit(unit, policyCtx)),
+					decision,
+				});
+			}
+			if (decision.action === "deny") {
+				return { kind: "block", reason: formatDenial(decision), audit: payload };
+			}
+			return {
+				kind: "ask",
+				request: askRequest(decision, ctx.cwd, units, payload),
+			};
 		},
 	});
 

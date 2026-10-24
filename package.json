@@ -56,6 +56,7 @@
     "test": "vitest run",
     "check:keybindings": "node ./scripts/check-keybindings.mjs",
     "check:compat": "node ./scripts/check-compat.mjs",
+    "approval-report": "node ./scripts/approval-report.mjs",
     "release:github": "node ./scripts/release-github.mjs",
     "prepublishOnly": "pnpm typecheck && pnpm test",
     "release": "node ./scripts/publish.mjs",
