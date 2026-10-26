@@ -56,6 +56,7 @@ After installing, verify in any pi session:
   - [🔎 review — third-party code review](#review)
   - [🗜️ compact — dedicated compaction model](#compact)
   - [🚀 autostart — session startup automation](#autostart)
+  - [🧠 init — agent memory framework](#init)
 - [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
@@ -75,6 +76,7 @@ After installing, verify in any pi session:
 | 🔎 **review** third-party code review | `/third-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
+| 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
 
 ---
 
@@ -364,6 +366,87 @@ An **identical command line** declared by both sources runs once: a duplicate is
 **Key constraint: extension commands only**. Commands registered via `registerCommand` such as `/add-dir` (pi-add-dir) and `/cd` (pi-cd) work; built-in commands (`/compact`, `/reload`, `/resume`, …) are dispatched in the TUI layer and cannot be triggered from the extension layer; skill commands (`/skill:name`) are an expansion mechanism rather than an execution mechanism. The target extension you depend on (e.g. pi-add-dir) must be installed first.
 
 > **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; `sendUserMessage` and `_tryExecuteExtensionCommand` are byte-identical across 1.1.0–1.4.0, see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
+
+---
+
+## 🧠 init — agent memory framework
+
+<a name="init"></a>
+
+`/ask-init` installs one opinionated memory shape into a project, or adopts the
+documentation that is already there. The point is not the directory names — it is
+the split between three things that decay when mixed:
+
+| Family | Location | Answers | Lifetime |
+| --- | --- | --- | --- |
+| **plan** | `specs/` (`PLAN.md` + `<unit>.md`) | what to do, how it will be accepted | written before work, status updated at close |
+| **memory** | `.agents/memory/` | what is known, decided, and why | long-lived; append and compact only |
+| **evidence** | `.agents/implementations/` | what changed, when, with what proof | one record per change, never rewritten |
+
+Only agent-facing material moves under the hidden `.agents/` directory, so the
+repository root stays readable: `AGENTS.md`, `specs/`, `design/`, `docs/`,
+`legal/` remain visible and reviewable.
+
+**Commands**:
+
+| Command | What it does |
+| --- | --- |
+| `/ask-init` | detect → show the plan → (confirm) → move/scaffold/snapshot → dispatch the prose work to the model |
+| `/ask-init plan [--deep]` | print the plan and write nothing (`--dry-run` is the same) |
+| `/ask-init check` | audit the installed framework (read-only; writes only a runtime report under `.agents/framework/reports/`) |
+| `/ask-init roots` | sync the directories added with `pi-add-dir` into the framework state |
+| `/ask-init --yes` | skip the confirmation panel |
+| `/ask-init --lang zh\|en` | language for generated prose (default: detected from the project's own docs) |
+
+**What the mechanical half guarantees**:
+
+1. **Snapshot first** — every path the run may write (including every file whose
+   path references are rewritten) is copied to `.agents/framework/snapshots/<stamp>/`
+   with a sha256 manifest and the `git status` of that moment.
+2. **Writes stay inside the repository** — added roots are never written from
+   extension code; a scope card there is an ordinary tool call and therefore goes
+   through the permission gate.
+3. **Nothing is clobbered** — a create skips an existing path; a move refuses a
+   non-empty destination and turns the conflict into a manual task.
+4. **Counts reconcile** — the reference rewrite uses the same bare-reference
+   predicate as the survey, so "N occurrences in M files" from the plan is what
+   the run reports (and the rewrite report lists every file).
+5. **No silent loss** — a coverage table (`.agents/framework/reports/coverage-*.md`)
+   gets one row per migrated source section: found, declared with a destination, or
+   open with a reason. The audit fails while any row is open.
+
+The prose half is a bounded work order with acceptance criteria per task: fill the
+entry, merge the legacy plan, triage `todos/` into specs, deduplicate sections,
+record budget debt, fill the coverage table. The model closes its own loop with the
+`framework_audit` tool (activated for the run only).
+
+**Migration of an existing project** moves `memory/`, `implementations/`,
+`prompts/` under `.agents/` (one `git mv` each), moves `memory/PLAN.md` to
+`specs/PLAN.md` byte-identically, and rewrites path references — with the counts
+reported before and after. `todos/` is retired: requirement wording goes into the
+unit spec verbatim. The default pass is conservative: install, fix mechanical
+drift (tombstones, duplicated sections, appendix order), and record an over-budget
+`AGENTS.md` as debt instead of rewriting prose; `--deep` opts into structural edits.
+
+**Audit codes** (stable, so reports compare across runs): `E-PATH-01` bare legacy
+paths, `E-STATE-01` memory gitignored, `W-STATE-01` memory not yet committed, `E-INDEX-01` index ↔ file
+mismatch, `E-LINK-01` broken internal links, `W-BUDGET-01` `AGENTS.md` over budget,
+`W-DUP-01` the same section in two files, `W-ORDER-01` sections appended after the
+appendix, `W-COV-01` open coverage rows, `W-TODO-01` retired `todos/` still present,
+`W-ROOT-02` zero-byte root files, `W-SCAFFOLD-01` unfilled `TODO(ask-init)` markers,
+`I-INSTALL-01` framework not installed yet.
+
+**Multi-repository workspaces**: memory lives in the main repository only.
+`pi-add-dir` injects each added root's `AGENTS.md` verbatim into every request, so a
+root entry must stay a **scope card** (≤30 lines: what lives there, its commands,
+which main-repo memory file describes it) — never a second copy of the rules.
+
+The framework contract shipped into a project is English (it is read by models and
+published); text written *into* a project follows that project's language.
+
+> **After the run**, `/reload` so the new `AGENTS.md` enters the prompt. The
+> framework version lives in `.agents/framework/state.toml`; a project whose state
+> version is newer than the installed tool is never migrated.
 
 ---
 

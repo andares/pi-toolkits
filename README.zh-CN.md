@@ -56,6 +56,7 @@ pi -e ./src/index.ts
   - [🔎 review — 第三方代码评审](#review)
   - [🗜️ compact — 独立压缩模型](#compact)
   - [🚀 autostart — 会话启动自动化](#autostart)
+  - [🧠 init — agent 记忆框架](#init)
 - [开发](#development)
 - [贡献](#contributing)
 - [许可](#license)
@@ -75,6 +76,7 @@ pi -e ./src/index.ts
 | 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
+| 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计漂移、预算与重复事实 |
 
 ---
 
@@ -364,6 +366,71 @@ run = [
 **关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
 
 > **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,`sendUserMessage` 与 `_tryExecuteExtensionCommand` 在 1.1.0–1.4.0 全区间字节级一致,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+
+---
+
+## 🧠 init — agent 记忆框架
+
+<a name="init"></a>
+
+`/ask-init` 给项目安装一套有明确立场的记忆结构,或者接管项目里已经存在的文档。
+重点不是目录名,而是把三样混在一起必然腐烂的东西分开:
+
+| 家庭 | 位置 | 回答什么 | 生命周期 |
+| --- | --- | --- | --- |
+| **计划** | `specs/`(`PLAN.md` + `<unit>.md`) | 要做什么、怎么验收 | 开工前写,结项时更新状态 |
+| **记忆** | `.agents/memory/` | 已知什么、定过什么、为什么 | 长期;只追加、只压缩 |
+| **证据** | `.agents/implementations/` | 改了什么、什么时候、证据在哪 | 一次写定,不再改写 |
+
+只有「纯给 agent 看」的东西进隐藏目录 `.agents/`,所以仓库根仍然清爽:
+`AGENTS.md`、`specs/`、`design/`、`docs/`、`legal/` 都留在外面可读可审。
+
+**命令**:
+
+| 命令 | 作用 |
+| --- | --- |
+| `/ask-init` | 检测 → 出计划 → 确认 → 移动/脚手架/快照 → 把正文工作派发给模型 |
+| `/ask-init plan [--deep]` | 只打印计划,不写任何盘(`--dry-run` 同义) |
+| `/ask-init check` | 审计已装的框架(只读;只在 `.agents/framework/reports/` 留下运行期报告) |
+| `/ask-init roots` | 把 `pi-add-dir` 添加的目录同步进框架状态 |
+| `/ask-init --yes` | 跳过确认面板 |
+| `/ask-init --lang zh\|en` | 生成正文的语言(默认按项目自身文档判定) |
+
+**机械那一半保证什么**:
+
+1. **先快照再动** —— 本次可能写的每一条路径(包括所有会被改写的引用文件)都复制到
+   `.agents/framework/snapshots/<stamp>/`,并带 sha256 清单与当时的 `git status`。
+2. **只写仓内** —— 扩展代码绝不写 added root;在那里建 scope card 是普通工具调用,
+   因此会经过权限闸门。
+3. **不覆盖** —— 创建时已存在的文件跳过;移动时目标非空则拒绝,并转成人工任务。
+4. **计数对账** —— 引用改写与检测用同一个「裸路径」判定,计划里的「N 处 / M 个文件」
+   就是运行时报告的数字(并附逐文件清单)。
+5. **不静默丢内容** —— 迁移的每个源章节在覆盖表里都有一行:命中、声明去向、或标记
+   OPEN 并写理由;只要还有 OPEN,审计就不算通过。
+
+正文那一半是一份带验收标准的工作单:填空入口、合并旧计划、把 `todos/` 收敛进 specs、
+去重章节、登记预算债务、填覆盖表。模型用只在本轮激活的 `framework_audit` 工具自检收口。
+
+**迁移既有项目**会把 `memory/`、`implementations/`、`prompts/` 移到 `.agents/` 下
+(逐个 `git mv`),把 `memory/PLAN.md` 原样搬到 `specs/PLAN.md`,再改写路径引用,
+前后计数都会报出来。`todos/` 退役:需求原文原样进对应单元的 spec。默认是**保守 pass**:
+装框架、修机械漂移(墓碑、重复章节、附录顺序),超预算的 `AGENTS.md` 只登记成债务;
+`--deep` 才允许结构性改写。
+
+**审计码**(稳定,可跨次对比):`E-PATH-01` 裸旧路径、`E-STATE-01` 记忆被 gitignore、`W-STATE-01` 记忆尚未提交、`E-INDEX-01` 索引与实际文件不一致、`E-LINK-01` 内部链接失效、
+`W-BUDGET-01` `AGENTS.md` 超预算、`W-DUP-01` 同一章节出现在两个文件、
+`W-ORDER-01` 附录之后又追加章节、`W-COV-01` 覆盖表仍有 OPEN、
+`W-TODO-01` 仍存在退役的 `todos/`、`W-ROOT-02` 根下零字节文件、
+`W-SCAFFOLD-01` 未填的 `TODO(ask-init)` 标记、`I-INSTALL-01` 尚未安装框架。
+
+**多仓库工作区**:记忆只住主仓。`pi-add-dir` 会把每个 added root 的 `AGENTS.md`
+全文注入每次请求,所以根里的入口只能是 **scope card**(≤30 行:这里放什么、它的命令、
+去主仓哪个记忆文件读),绝不能是规则的第二份副本。
+
+装进项目的框架契约用英文(给模型读、也随 npm 发布);写进项目的正文跟随项目语言。
+
+> **跑完记得 `/reload`**,让新的 `AGENTS.md` 进入提示词。框架版本记在
+> `.agents/framework/state.toml`;若项目的状态版本比当前工具新,则拒绝迁移。
 
 ---
 

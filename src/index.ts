@@ -12,6 +12,7 @@
  *  - compact — dedicated compact model for /compact + auto-compact summaries
  *  - autostart — replay project-declared slash commands at session start (/add-dir persistence)
  *  - permission — session-scoped boundary permission checks (/ask-perm)
+ *  - init — agent memory framework install / adoption (/ask-init)
  *
  * `ask` and `permission` are independent gates on one bus: each answers its own
  * question and the strictest answer wins, so they compose rather than replace
@@ -24,6 +25,7 @@ import { registerAsk } from "./features/ask/index.js";
 import { registerAutostart } from "./features/autostart/index.js";
 import { registerCompact } from "./features/compact/index.js";
 import { registerFavorites } from "./features/favorites/index.js";
+import { registerInit } from "./features/init/index.js";
 import { registerPermission } from "./features/permission/index.js";
 import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
@@ -41,6 +43,7 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	registerAutostart(pi);
 	registerCompact(pi);
 	registerFavorites(pi);
+	registerInit(pi);
 	registerReview(pi);
 	registerStash(pi);
 

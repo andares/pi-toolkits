@@ -28,8 +28,9 @@
 `peerDependencies`（`>=<floor>`，**不写上界**）和 README 的 Requirements / badge。
 
 （当前：强制窗口 1.1 / 1.2 / 1.3 / 1.4；向后探针 1.0 / 0.99 / 0.87 / 0.86，
-**停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`，且 `ToolCallEvent` 上没有
-`parentToolCallId`（2026-10-24 审批日志新增的依赖），两处 typecheck 红，属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
+**停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`（`ask/scratch-tool` 与
+`init/tool` 两处），且 `ToolCallEvent` 上没有 `parentToolCallId`（2026-10-24 审批日志、
+2026-10-26 init 新增的依赖），typecheck 红属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
 
 - 窗口每随一条新版本线发布向前滑一格（窗口恒定 4 条），掉出窗口的老线不是“坏了”，
   只是不再被强制保持绿色；它还在不在对外下限里，由**探针**说话：探得到就继续算兼容，
@@ -434,6 +435,98 @@ session_start(reason 过滤)
   `registerAutostart(pi, { agentDir })` 的 `agentDir` 可注入，测试用临时目录（不碰真实 `~/.pi/agent`）
 - `src/index.ts` 注册；package.json keywords 加 autostart
 - 未来新 section（环境变量、模型等）按需扩展，不预设
+
+## Feature: init（`/ask-init` agent 记忆框架，2026-10-26 立项）
+
+目标：一条命令把「纯给 agent 看」的记忆按固定形状装进项目，并把已有文档接管过来；
+之后能反复审计腐烂。参考样板是 `~/repos/c-thun/raybend`（只读研究，该仓未被改动）。
+
+### 决策（崔总 2026-10-26 定稿）
+
+- **纯 agent 面进 `.agents/`**，人看的东西留在根：`specs/`（计划与实施方案）、`design/`、
+  `docs/`、`legal/` 不变；`memory/`→`.agents/memory/`、`implementations/`→
+  `.agents/implementations/`、口述原文 `prompts/`→`.agents/prompts/`（可选、通常 local-only）。
+- **`specs/` 是计划的家**：路线级 `specs/PLAN.md` + 单元 `specs/<unit>.md`。原
+  `memory/PLAN.md` 用 `move-file` **原样**搬到 `specs/PLAN.md`（零内容改动），模型只做整形。
+- **`todos/` 退役**：需求即 spec；复杂需求直接写 `specs/<unit>.md` 的「需求原文（照录）」节。
+- **框架自带文本英文**（契约、模板、审计码、工作单）；写进项目的正文跟随项目语言
+  （按 AGENTS/README 的 CJK 比例判定，`--lang` 可覆盖，结果写进 state）。
+- **确认后直接派发模型**（`sendUserMessage` 工作单）；`plan` / `check` / `roots` 是分步入口。
+- **默认保守 pass**：只装框架 + 修机械漂移（墓碑、重复章节、附录顺序）+ 覆盖表；
+  AGENTS.md 超预算只登记债务，`--deep` 才允许结构性改写。
+- **迁移必须用户确认**（会动文件）：TUI 面板列出移动/改写/创建/快照计数，
+  `d` = 只报告不写盘，Esc = 取消；无 UI（print/json）一律只出报告。
+
+### 机械半边与模型半边
+
+| 类别 | 谁执行 | 内容 |
+| --- | --- | --- |
+| `actions[]`（确定性） | 扩展代码 | `snapshot` / `create-dirs` / `move-file` / `move-dir` / `create-file` / `rewrite-refs` / `write-state` |
+| `tasks[]`（判断） | 模型 | `survey` / `edit-agents` / `edit-plan` / `merge-plan` / `triage-todos` / `root-cards` / `budget-debt` / `coverage` / `dedupe-claude` |
+
+安全不变量（顺序即执行顺序）：① 先快照——**含引用改写会碰到的每个文件**，manifest 带 sha256
+与当时的 `git status`；② 代码只写仓内，added root 由模型写、因此走 permission 闸门；
+③ 已存在的文件不覆盖、移动目标非空转人工任务；④ 改写与检测用**同一个**裸路径判定，
+前后计数对账并出逐文件报告；⑤ 覆盖表还有 OPEN 就不算完成。
+
+### 目录与文件
+
+```text
+AGENTS.md                     # 入口：不变量 / 命令 / 路由 / 索引（人也能看）
+specs/PLAN.md + <unit>.md     # 计划与单元方案（人审）
+design/ docs/ legal/          # 人看的东西（可选模块）
+.agents/
+├── README.md                 # 6 行门牌
+├── memory/                   # README(契约) + FINISHED/FUTURE/ARCHITECTURE + 可选 DESIGN/TERMS/REVIEW/DEBUGGING/FUNCTION-*
+├── implementations/          # YYYY-MM-DD_<slug>.md，首行精确到秒
+├── prompts/                  # 口述原文（可选）
+└── framework/                # state.toml + .gitignore + snapshots/ plans/ reports/（后三者 local-only）
+```
+
+### 审计码（稳定，可跨次对比）
+
+`E-PATH-01` 裸旧路径 · `E-STATE-01` 记忆被 gitignore · `W-STATE-01` 记忆尚未提交（新装后正常，属警告） · `E-STATE-02` 状态版本不符 ·
+`E-INDEX-01` 索引 ↔ 实际文件不一致 · `E-LINK-01` 内部链接失效 · `E-CONTRACT-01` 缺契约 ·
+`W-BUDGET-01/02` AGENTS.md / 记忆文件超预算 · `W-DUP-01` 同章节出现在两个文件 ·
+`W-ORDER-01` 附录后又追加 · `W-COV-01` 覆盖表有 OPEN · `W-META-01` FUTURE 缺触发条件 ·
+`W-EVID-01` FINISHED 条目无证据指针 · `W-PLAN-01` spec 全勾却仍在 PLAN ·
+`W-ROOT-01/02` 根下 agent-only 目录 / 零字节文件 · `W-TODO-01` todos 仍在 ·
+`W-OVERRIDE-01` `AGENTS.override.md` 顶替入口 · `W-SCAFFOLD-01` 未填的 `TODO(ask-init)` ·
+`I-AGENTS-01` `.agents/skills` 存在（pi 会要求项目信任） · `I-INSTALL-01` 尚未安装框架。
+
+### 多仓库
+
+记忆只住主仓。**源码事实**：pi 只加载 cwd 及其祖先的 AGENTS.md；`pi-add-dir` 会把每个
+added root 的 `AGENTS.md`（含 `.pi/AGENTS.md`）**全文**注入每次请求（`buildContextInjection`）——
+所以 root 里的入口只能是 ≤30 行 scope card（这里放什么、它的命令、去主仓哪个记忆文件读），
+绝不能是规则的第二份副本。`/ask-init roots` 合并本次会话 `add-dir:state` 与 state 里已登记的
+roots；自带完整框架的 root 标记 `independent`，不接管。
+
+### 已验证
+
+- `pnpm typecheck` 绿；`pnpm test` **30 文件 / 588 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
+  `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
+- `pnpm check:compat --skip-tests`：窗口 1.1.0–1.4.0 全绿，探针仍停在 0.87.x（`defaultActive`），
+  floor 0.99.0；评审后另用 `--versions 1.1.0,1.4.0` 跑完整门禁，两个端点各 **588 passed**
+  （该子集跑法会按子集报 floor，不用于改 peer；此前四窗口版本各 574 passed）。
+- 第三方评审后修正：相对路径引用（`./`/`../`）、根级与遗留 PLAN 的移动/合并/快照、非计划 legacy 文档任务、
+  state 预算键往返、未知参数拒绝、无 upgrade recipe 时不写盘、未提交记忆降为 `W-STATE-01`、
+  非 UTF-8 文件跳过、`/ask-init roots` 也先快照。
+- 真实样本**只读** dry-run（不写盘，`git status --porcelain` 前后一致）：
+  - raybend → `adopt`：1717 处引用 / 395 文件；移动 `memory`(10)/`implementations`(313)/`prompts`(7)；
+    `memory/PLAN.md`→`specs/PLAN.md`；6 项任务；AGENTS.md 57KB 判 `budget-debt`；检测 145ms。
+  - model-registry（32 行 AGENTS.md + `implementations/`）→ `adopt`；promptdown → `adopt` + `budget-debt`；
+    deepseek-harness（AGENTS.md 与 CLAUDE.md 内容重叠）额外得到 `dedupe-claude`；近 1.6 万文本文件时检测 695ms。
+  - ⚠️ raybend 当时有 7 项未提交改动（docs/scripts 的其它工作），**未做任何写入**，按要求不碰该仓。
+
+### 边界（有意为之）
+
+- v1 无 upgrade recipe：state 版本旧 → 提示人工迁移；版本新 → 直接拒绝，绝不猜着迁。
+- `AGENTS.override.md` 只报不改（它会让 pi 完全忽略 AGENTS.md）。
+- 不建兼容软链（Windows `core.symlinks=false` 会把软链 checkout 成文本文件）：真移动 + 重写引用。
+- 命令里不自动 `/reload`（会让刚建立的运行状态失效），跑完提示用户 reload。
+- 覆盖表能证明「每个源章节都有交代」，**不能**证明改写后事实没出错；后者靠保守 pass + diff 审阅。
+- 引用扫描/改写只覆盖 `SCAN.refExtensions` 白名单内的文本类型；白名单外（如 `.lua`）不改写。
 
 ## Feature: permission（`/ask-perm` 会话级边界权限，已实现）
 

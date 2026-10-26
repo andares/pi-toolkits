@@ -1,7 +1,7 @@
 {
   "name": "@andares/pi-toolkits",
   "version": "0.10.0",
-  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, and a dedicated compaction model",
+  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, a dedicated compaction model, and an agent memory framework (/ask-init)",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -30,7 +30,11 @@
     "autostart",
     "permission",
     "approval",
-    "boundary"
+    "boundary",
+    "agent-memory",
+    "memory-framework",
+    "scaffold",
+    "init"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.99.0",
