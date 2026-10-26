@@ -45,7 +45,7 @@ function audit(command: string, ctx: PolicyContext, prompt?: readonly string[]) 
 describe("permission audit payload", () => {
 	it("records the decomposition, target scope and deciding layer", () => {
 		const cwd = project();
-		const payload = audit("rm -rf /tmp/outside/x", makeContext(cwd));
+		const payload = audit("rm -rf /var/pi-perm-outside/x", makeContext(cwd));
 
 		expect(payload.modes).toEqual({
 			inRead: "allow",
@@ -58,7 +58,7 @@ describe("permission audit payload", () => {
 			expect.objectContaining({
 				head: "rm",
 				command: "rm",
-				args: ["-rf", "/tmp/outside/x"],
+				args: ["-rf", "/var/pi-perm-outside/x"],
 				base: canonicalize(cwd),
 				effect: "write",
 				opaque: false,
@@ -66,8 +66,8 @@ describe("permission audit payload", () => {
 				layer: "mode",
 				targets: [
 					{
-						path: "/tmp/outside/x",
-						canonical: "/tmp/outside/x",
+						path: "/var/pi-perm-outside/x",
+						canonical: canonicalize("/var/pi-perm-outside/x"),
 						effect: "write",
 						source: "operand",
 						scope: "out",
@@ -79,11 +79,11 @@ describe("permission audit payload", () => {
 			action: "ask",
 			layer: "mode",
 			unit: 0,
-			target: "/tmp/outside/x",
+			target: canonicalize("/var/pi-perm-outside/x"),
 			effect: "write",
 			scope: "out",
 			grantScope: "root",
-			grantRoot: "/tmp/outside",
+			grantRoot: canonicalize("/var/pi-perm-outside"),
 		});
 	});
 
@@ -137,20 +137,20 @@ describe("permission audit payload", () => {
 
 	it("carries the exact prompt lines when asked", () => {
 		const cwd = project();
-		const payload = audit("rm -rf /tmp/outside/x", makeContext(cwd), [
+		const payload = audit("rm -rf /var/pi-perm-outside/x", makeContext(cwd), [
 			"Permission required",
-			"Command: rm -rf /tmp/outside/x",
+			"Command: rm -rf /var/pi-perm-outside/x",
 		]);
 		expect(payload.prompt).toEqual([
 			"Permission required",
-			"Command: rm -rf /tmp/outside/x",
+			"Command: rm -rf /var/pi-perm-outside/x",
 		]);
 	});
 
 	it("clips long arguments but keeps the target", () => {
 		const cwd = project();
 		const longArg = `--flag=${"x".repeat(2000)}`;
-		const payload = audit(`rm -rf /tmp/outside/x ${longArg}`, makeContext(cwd));
+		const payload = audit(`rm -rf /var/pi-perm-outside/x ${longArg}`, makeContext(cwd));
 		const unit = (payload.units as Array<Record<string, unknown>>)[0];
 		const args = unit.args as string[];
 		expect(args[2]).toContain("[+");

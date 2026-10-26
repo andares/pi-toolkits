@@ -13,8 +13,9 @@
  *    when their scope says allow (`rm -rf .` inside the project is still a
  *    guarded operation). Scope alone cannot express "destructive".
  */
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
+import { canonicalize } from "./paths.js";
 
 /** Three-way mode, used for outside-project operations. */
 export type TriMode = "ask" | "allow" | "deny";
@@ -85,6 +86,29 @@ function isSecretEnvFile(pathValue: string): boolean {
 	return name === ".env" || name.startsWith(".env.");
 }
 
+/**
+ * Ephemeral directories whose writes are built-in safe: a scratch artifact
+ * under the OS temp root is not a boundary crossing worth a dialog. Kept to
+ * genuinely volatile locations; `~/.cache` is deliberately not included (it
+ * is a home-directory state area, not a scratch area).
+ *
+ * Resolved once at module load so the comparisons use the same spelling as the
+ * policy's canonical paths (`/tmp` is a symlink to `/private/tmp` on macOS).
+ */
+const TEMPORARY_ROOTS: readonly string[] = [tmpdir(), "/var/tmp", "/dev/shm"].map(
+	(root) => canonicalize(root),
+);
+
+export function temporaryRoots(): string[] {
+	return [...TEMPORARY_ROOTS];
+}
+
+/** `true` when `pathValue` is inside one of {@link temporaryRoots}. */
+export function isTemporaryPath(pathValue: string): boolean {
+	const canonical = canonicalize(pathValue);
+	return TEMPORARY_ROOTS.some((root) => pathWithin(root, canonical));
+}
+
 /** Absolute secret prefixes, `~` expanded. */
 export function secretRoots(): string[] {
 	return SECRET_ROOTS.map((root) =>
@@ -118,11 +142,12 @@ export function dangerReason(
 	const inDangerousRoot = (pathValue: string): boolean =>
 		pathValue === "/" ||
 		pathValue === home ||
-		(base !== null && pathValue === base);
+		(base !== null && pathValue === base) ||
+		TEMPORARY_ROOTS.includes(canonicalize(pathValue));
 
 	if (command === "sudo" || command === "doas") return "privileged command";
 	if (command === "rm" && targets.some(inDangerousRoot)) {
-		return "recursive delete of /, the home directory, or the working directory";
+		return "recursive delete of /, the home directory, the working directory, or a temp root";
 	}
 	if (command === "git") {
 		const [verb, ...rest] = args;

@@ -2,10 +2,16 @@
  * Fixed safety tables: credential paths are denied in every mode, destructive
  * commands always ask.
  */
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { dangerReason, secretReason } from "./constants.js";
+import { canonicalize } from "./paths.js";
+import {
+	dangerReason,
+	isTemporaryPath,
+	secretReason,
+	temporaryRoots,
+} from "./constants.js";
 
 const HOME = homedir();
 
@@ -37,11 +43,30 @@ describe("secrets table", () => {
 	});
 });
 
+describe("temporary write zone", () => {
+	it("covers the OS temp root and the common volatile directories", () => {
+		expect(temporaryRoots()).toContain(canonicalize(tmpdir()));
+		expect(temporaryRoots()).toContain(canonicalize("/var/tmp"));
+		expect(temporaryRoots()).toContain(canonicalize("/dev/shm"));
+		expect(isTemporaryPath(join(tmpdir(), "pi", "x"))).toBe(true);
+		expect(isTemporaryPath(join("/var/tmp", "x"))).toBe(true);
+		expect(isTemporaryPath(join("/dev/shm", "x"))).toBe(true);
+	});
+
+	it("does not over-match a sibling prefix or an ordinary path", () => {
+		expect(isTemporaryPath(`${tmpdir()}-evil/x`)).toBe(false);
+		expect(isTemporaryPath("/var/tmp-evil/x")).toBe(false);
+		expect(isTemporaryPath("/proj/x")).toBe(false);
+	});
+});
+
 describe("danger table", () => {
 	it("catches the destructive core", () => {
 		expect(dangerReason("rm", ["-rf", "/"], ["/"], "/proj")).toContain("recursive delete");
 		expect(dangerReason("rm", ["-rf", HOME], [HOME], "/proj")).toContain("recursive delete");
 		expect(dangerReason("rm", ["-rf", "/proj"], ["/proj"], "/proj")).toContain("recursive delete");
+		expect(dangerReason("rm", ["-rf", tmpdir()], [tmpdir()], "/proj")).toContain("recursive delete");
+		expect(dangerReason("rm", ["-rf", "/var/tmp"], ["/var/tmp"], "/proj")).toContain("recursive delete");
 		expect(dangerReason("git", ["push", "--force"], [], "/proj")).toBe("forced git push");
 		expect(dangerReason("git", ["push", "-f"], [], "/proj")).toBe("forced git push");
 		expect(dangerReason("git", ["reset", "--hard"], [], "/proj")).toBe("git reset --hard");
@@ -53,6 +78,7 @@ describe("danger table", () => {
 
 	it("does not flag ordinary commands", () => {
 		expect(dangerReason("rm", ["-rf", "/proj/build"], ["/proj/build"], "/proj")).toBeUndefined();
+		expect(dangerReason("rm", ["-rf", join(tmpdir(), "x")], [join(tmpdir(), "x")], "/proj")).toBeUndefined();
 		expect(dangerReason("git", ["push"], [], "/proj")).toBeUndefined();
 		expect(dangerReason("git", ["log"], [], "/proj")).toBeUndefined();
 		expect(dangerReason("npm", ["view", "react"], [], "/proj")).toBeUndefined();

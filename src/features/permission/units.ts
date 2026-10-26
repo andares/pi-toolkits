@@ -57,6 +57,23 @@ export interface CommandUnit {
 
 const SENTINEL = "\u0000";
 
+/**
+ * Device sinks: writing to them is a no-op, not a boundary decision. They are
+ * excluded whenever they appear as a plain operand (`curl -o /dev/null`),
+ * not just as a redirect target (`cmd > /dev/null`). Commands that mutate the
+ * node itself (`rm /dev/null`, `mv /dev/null x`) still collect the target —
+ * the write-path branch below keeps them visible to the policy.
+ */
+const DEVICE_SINKS = new Set(["/dev/null", "/dev/stdout", "/dev/stderr"]);
+
+/**
+ * Commands whose ordinary arguments are never filesystem paths. `echo` /
+ * `printf` can only write through a redirect, which is collected separately,
+ * so skipping their operands cannot hide a write and avoids treating a
+ * message containing `/` plus an unresolved variable as an opaque path.
+ */
+const NO_PATH_OPERANDS = new Set(["echo", "printf"]);
+
 /* -------------------------------------------------------------------------- */
 /* Read/write classification                                                  */
 /* -------------------------------------------------------------------------- */
@@ -768,9 +785,7 @@ function analyzeSegment(
 	for (const redirect of redirects) {
 		if (redirect.target === undefined) continue;
 		if (redirect.op === "<<<") continue; // herestring: data, not a path
-		if (redirect.target === "/dev/null" || redirect.target === "/dev/stdout" || redirect.target === "/dev/stderr") {
-			continue;
-		}
+		if (DEVICE_SINKS.has(redirect.target)) continue;
 		const descriptor =
 			(redirect.op === ">&" || redirect.op === "<&" || redirect.op === "&>") &&
 			/^\d+$/.test(redirect.target);
@@ -839,9 +854,12 @@ function analyzeSegment(
 			}
 			targets.push({ path: pathValue, effect: "write", source: "operand" });
 		}
-	} else if (command === "dd") {		for (const arg of args) {
+	} else if (command === "dd") {
+		for (const arg of args) {
 			if (arg.startsWith("of=")) {
-				const pathValue = resolveTargetPath(base, arg.slice(3));
+				const value = arg.slice(3);
+				if (DEVICE_SINKS.has(value)) continue;
+				const pathValue = resolveTargetPath(base, value);
 				if (pathValue === undefined) {
 					return {
 						units: [opaqueUnit(raw, headWord, command, base, "unresolved dd target")],
@@ -858,28 +876,35 @@ function analyzeSegment(
 		}
 	}
 
-	// Path-like arguments are targets for every command.
-	for (const arg of args) {
-		if (!looksLikePath(arg)) continue;
-		// `sed -i` operands were already classified above; its script is not a path.
-		if (command === "sed" && effect === "write") continue;
-		const pathValue = resolveTargetPath(commandBase, arg);
-		if (pathValue === undefined) {
-			return {
-				units: [opaqueUnit(raw, headWord, command, base, "unresolved path argument")],
-				nextBase: base,
-			};
+	// Path-like arguments are targets for every command, except for commands
+	// whose arguments are data (`echo`, `printf`) and device sinks.
+	if (!NO_PATH_OPERANDS.has(command)) {
+		for (const arg of args) {
+			if (DEVICE_SINKS.has(arg)) continue;
+			if (!looksLikePath(arg)) continue;
+			// `sed -i` operands were already classified above; its script is not a path.
+			if (command === "sed" && effect === "write") continue;
+			const pathValue = resolveTargetPath(commandBase, arg);
+			if (pathValue === undefined) {
+				return {
+					units: [opaqueUnit(raw, headWord, command, base, "unresolved path argument")],
+					nextBase: base,
+				};
+			}
+			targets.push({ path: pathValue, effect, source: "operand" });
 		}
-		targets.push({ path: pathValue, effect, source: "operand" });
 	}
 
-	// `-o FILE` / `--output FILE` writes whatever the command is.
-	for (let i = 0; i < args.length; i++) {
-		if (args[i] !== "-o" && args[i] !== "--output") continue;
-		const value = args[i + 1];
-		if (value === undefined) continue;
-		const pathValue = resolveTargetPath(commandBase, value);
-		if (pathValue) targets.push({ path: pathValue, effect: "write", source: "operand" });
+	// `-o FILE` / `--output FILE` writes whatever the command is. `echo` and
+	// `printf` do not have an output option, so their `-o` is data too.
+	if (!NO_PATH_OPERANDS.has(command)) {
+		for (let i = 0; i < args.length; i++) {
+			if (args[i] !== "-o" && args[i] !== "--output") continue;
+			const value = args[i + 1];
+			if (value === undefined || DEVICE_SINKS.has(value)) continue;
+			const pathValue = resolveTargetPath(commandBase, value);
+			if (pathValue) targets.push({ path: pathValue, effect: "write", source: "operand" });
+		}
 	}
 
 	units.push({

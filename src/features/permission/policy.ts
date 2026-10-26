@@ -13,7 +13,12 @@
  * `cd safe && rm -rf /` cannot ride on the first segment's verdict.
  */
 import type { PermissionModes } from "./constants.js";
-import { dangerReason, secretReason, type Effect } from "./constants.js";
+import {
+	dangerReason,
+	isTemporaryPath,
+	secretReason,
+	type Effect,
+} from "./constants.js";
 import { canonicalize, grantRoot, insideAnyRoot } from "./paths.js";
 import type { SessionRules } from "./session-rules.js";
 import type { CommandUnit } from "./units.js";
@@ -51,6 +56,7 @@ export type PolicyLayer =
 	| "session-command"
 	| "danger"
 	| "privileged"
+	| "temp"
 	| "opaque"
 	| "unresolved"
 	| "empty";
@@ -131,6 +137,15 @@ function decidePath(
 			target,
 			reason: `${scope === "out" ? "outside-project" : "in-project"} ${effect} is set to deny`,
 		};
+	}
+	// A write under the OS temp root is the one outside write that is safe by
+	// default: it is scratch space, not persistent state. It only replaces the
+	// *ask* answer — an explicit `deny` still wins, and the temp root itself is
+	// protected by the danger table (`rm -rf /tmp` still asks). Only **outside**
+	// writes are affected: a project that happens to live under /tmp keeps its
+	// own in-project mode.
+	if (scope === "out" && effect === "write" && isTemporaryPath(pathValue)) {
+		return { action: "allow", layer: "temp", unit, target };
 	}
 	return {
 		action: "ask",

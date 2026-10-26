@@ -22,6 +22,7 @@ import {
 	resetJailedTools,
 } from "../../lib/tools.js";
 import { markStartupCommand } from "../../lib/startup.js";
+import { canonicalize } from "./paths.js";
 import { registerPermission } from "./index.js";
 
 function bashEvent(command: string): ToolCallEvent {
@@ -169,7 +170,7 @@ function asAsk(verdict: unknown): AskVerdict {
 describe("/ask-perm", () => {
 	it("is off by default", async () => {
 		const h = makeHarness();
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).toBeUndefined();
 	});
 
 	it("enables from arguments, reports status, and asks for an outside write", async () => {
@@ -177,15 +178,53 @@ describe("/ask-perm", () => {
 		await h.command("allow allow allow ask");
 		expect(h.statuses.at(-1)?.[0]).toBe("perm-mode");
 		expect(h.statuses.at(-1)?.[1]).toContain("perm");
-		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside")));
-		expect(verdict.request.details.join("\n")).toContain("/tmp/outside");
-		expect(verdict.request.root).toBe("/tmp");
+		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside")));
+		expect(verdict.request.details.join("\n")).toContain("/var/pi-perm-outside");
+		expect(verdict.request.root).toBe(canonicalize("/var"));
+	});
+
+	it("does not ask for a write under the OS temp root", async () => {
+		const h = makeHarness();
+		await h.command("allow allow allow ask");
+		expect(
+			await h.evaluate(bashEvent("echo hi > /tmp/pi-perm-temp.txt")),
+		).toBeUndefined();
+		// The same rule must cover the path-bearing write tool, not just bash.
+		expect(
+			await h.evaluate(pathEvent("write", "/tmp/pi-perm-temp.txt")),
+		).toBeUndefined();
+	});
+
+	it("does not ask for a /dev/null sink operand", async () => {
+		const h = makeHarness();
+		await h.command("allow allow allow ask");
+		expect(
+			await h.evaluate(
+				bashEvent("curl -s -o /dev/null -w '%{http_code}\\n' http://localhost:5173/"),
+			),
+		).toBeUndefined();
+	});
+
+	it("does not ask for echo arguments that merely look like paths", async () => {
+		const h = makeHarness();
+		await h.command("allow allow allow ask");
+		expect(
+			await h.evaluate(
+				bashEvent('echo "  $f  改动 $tot 行 / 忽略空白后 $w 行"'),
+			),
+		).toBeUndefined();
+	});
+
+	it("still asks before deleting a temp root itself", async () => {
+		const h = makeHarness();
+		await h.command("allow allow allow ask");
+		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp"))).kind).toBe("ask");
 	});
 
 	it("blocks immediately when outside writes are denied", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow deny");
-		const verdict = (await h.evaluate(bashEvent("rm -rf /tmp/outside"))) as {
+		const verdict = (await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))) as {
 			kind: "block";
 			reason: string;
 		};
@@ -197,17 +236,17 @@ describe("/ask-perm", () => {
 	it("records a session grant and applies it to later calls", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		const first = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x")));
+		const first = asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/x")));
 		first.request.apply("allow-session");
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/y"))).toBeUndefined();
 	});
 
 	it("records a session deny and blocks later calls", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		const first = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x")));
+		const first = asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/x")));
 		first.request.apply("deny-session");
-		const later = (await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))) as {
+		const later = (await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/y"))) as {
 			kind: "block";
 			reason: string;
 		};
@@ -220,7 +259,7 @@ describe("/ask-perm", () => {
 		await h.command("allow allow allow ask");
 		await h.command("");
 		expect(h.statuses.at(-1)?.[1]).toBeUndefined();
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).toBeUndefined();
 	});
 
 	it("writes a startup notice as an entry instead of a status line", async () => {
@@ -233,7 +272,7 @@ describe("/ask-perm", () => {
 			"Permission ON",
 		);
 		expect(h.statuses.at(-1)?.[1]).toContain("perm");
-		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).kind).toBe(
+		expect(asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).kind).toBe(
 			"ask",
 		);
 	});
@@ -250,14 +289,14 @@ describe("/ask-perm", () => {
 		const h = makeHarness();
 		await h.command("");
 		expect(h.notes.at(-1)?.message).toContain("cancelled");
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).toBeUndefined();
 	});
 
 	it("rejects invalid arguments without enabling", async () => {
 		const h = makeHarness();
 		await h.command("deny");
 		expect(h.notes.at(-1)?.kind).toBe("error");
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).toBeUndefined();
 	});
 
 	it("keeps the state when the same session emits session_start again", async () => {
@@ -266,7 +305,7 @@ describe("/ask-perm", () => {
 		await h.command("allow allow allow ask");
 		// A startup rebind reports the same session again; state must survive.
 		await h.sessionStart();
-		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).kind).toBe(
+		expect(asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).kind).toBe(
 			"ask",
 		);
 	});
@@ -276,28 +315,28 @@ describe("/ask-perm", () => {
 		await h.command("allow allow allow ask");
 		h.setSessionId("session-2");
 		await h.sessionStart();
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).toBeUndefined();
 	});
 
 	it("resets on session_start", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
 		await h.sessionStart();
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside"))).toBeUndefined();
 		expect(h.statuses.at(-1)?.[1]).toBeUndefined();
 	});
 
 	it("treats add-dir directories as inside the project", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/added/x"))).kind).toBe("ask");
+		expect(asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-added/x"))).kind).toBe("ask");
 
 		h.branch.push({
 			type: "custom",
 			customType: "add-dir:state",
-			data: { dirs: [{ absolutePath: "/tmp/added" }] },
+			data: { dirs: [{ absolutePath: "/var/pi-perm-added" }] },
 		});
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/added/x"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-added/x"))).toBeUndefined();
 	});
 
 	it("treats a redirect write to a credential path as a fixed deny, not a write ask", async () => {
@@ -313,15 +352,19 @@ describe("/ask-perm", () => {
 	it("judges git -C by the -C directory, not the working directory", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		expect(await h.evaluate(bashEvent("git -C ../outside log"))).toBeUndefined();
-		expect(asAsk(await h.evaluate(bashEvent("git -C ../outside push"))).kind).toBe("ask");
+		expect(
+			await h.evaluate(bashEvent("git -C /var/pi-perm-outside log")),
+		).toBeUndefined();
+		expect(
+			asAsk(await h.evaluate(bashEvent("git -C /var/pi-perm-outside push"))).kind,
+		).toBe("ask");
 	});
 
 	it("answers path-bearing tools by their own path", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
 		expect(await h.evaluate(pathEvent("write", "notes.txt"))).toBeUndefined();
-		expect(asAsk(await h.evaluate(pathEvent("write", "/tmp/outside.txt"))).kind).toBe("ask");
+		expect(asAsk(await h.evaluate(pathEvent("write", "/var/pi-perm-outside.txt"))).kind).toBe("ask");
 		const denied = (await h.evaluate(pathEvent("read", "~/.ssh/id_rsa"))) as {
 			kind: "block";
 		};
@@ -339,26 +382,26 @@ describe("/ask-perm", () => {
 		await h.command("allow allow allow ask");
 		expect(h.notes).toHaveLength(1);
 
-		asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x"))).request.apply(
+		asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/x"))).request.apply(
 			"allow-session",
 		);
 		await h.command("allow allow allow ask");
 		expect(h.notes).toHaveLength(1);
 		// The grant collected before the repeat is still in force.
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/y"))).toBeUndefined();
 	});
 
 	it("notifies and clears session grants when the modes actually change", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x"))).request.apply(
+		asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/x"))).request.apply(
 			"allow-session",
 		);
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/y"))).toBeUndefined();
 
 		await h.command("ask allow allow ask");
 		expect(h.notes).toHaveLength(2);
-		expect(asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).kind).toBe("ask");
+		expect(asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/y"))).kind).toBe("ask");
 	});
 });
 
@@ -366,7 +409,7 @@ describe("dialog contract", () => {
 	it("fails closed without a UI", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside")));
+		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside")));
 		const noUi = { ...h.ctx, hasUI: false } as ExtensionContext;
 		await expect(verdict.request.present(noUi)).resolves.toBeUndefined();
 	});
@@ -374,7 +417,7 @@ describe("dialog contract", () => {
 	it("falls back to the host selector in non-TUI modes", async () => {
 		const h = makeHarness();
 		await h.command("allow allow allow ask");
-		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside")));
+		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside")));
 		const rpc = {
 			cwd: h.cwd,
 			hasUI: true,
@@ -456,13 +499,13 @@ describe("audit log", () => {
 		const { audit } = makeAudit();
 		const h = makeHarness(audit);
 		await h.command("allow allow allow ask");
-		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x")));
+		const verdict = asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/x")));
 		expect(verdict.request.audit).toMatchObject({
 			modes: { outWrite: "ask" },
 			verdict: {
 				action: "ask",
 				layer: "mode",
-				target: "/tmp/outside/x",
+				target: "/var/pi-perm-outside/x",
 				scope: "out",
 			},
 		});
@@ -543,9 +586,9 @@ describe("audit log — session-grant allows", () => {
 		const { audit, records } = makeAudit();
 		const h = makeHarness(audit);
 		await h.command("allow allow allow ask");
-		const first = asAsk(await h.evaluate(bashEvent("rm -rf /tmp/outside/x")));
+		const first = asAsk(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/x")));
 		first.request.apply("allow-session");
-		expect(await h.evaluate(bashEvent("rm -rf /tmp/outside/y"))).toBeUndefined();
+		expect(await h.evaluate(bashEvent("rm -rf /var/pi-perm-outside/y"))).toBeUndefined();
 
 		const allow = records.find((record) => record.event === "allow");
 		expect(allow).toMatchObject({

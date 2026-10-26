@@ -344,7 +344,7 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 23 个文件 / 509 测试全绿；`pnpm check:compat` 在强制窗口
+- 测试：`pnpm test` 30 个文件 / 600 测试全绿；`pnpm check:compat` 在强制窗口
   1.1.0–1.4.0 全绿，向后探针 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive` 停探
   （不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
 - 真实 pi 1.4.0 冒烟（项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
@@ -519,7 +519,7 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **30 文件 / 588 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
+- `pnpm typecheck` 绿；`pnpm test` **30 文件 / 600 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
 - `pnpm check:compat --skip-tests`：窗口 1.1.0–1.4.0 全绿，探针仍停在 0.87.x（`defaultActive`），
   floor 0.99.0；评审后另用 `--versions 1.1.0,1.4.0` 跑完整门禁，两个端点各 **588 passed**
@@ -644,6 +644,17 @@ src/features/permission/
     残余限制：手动切换过之后若再遇到 invalidate，旧状态行仍会被改写成最新的手动提示；
     启动阶段因为只追加条目、不新增状态行，不会重复。**两套语义只限 `/ask-perm`**——
     它最常出现在 autostart 里与别的命令混排；不要把该方案扩散到 `/ask` 等命令。
+13. **临时目录写直通（2026-10-26 依据真实日志，崔总确认 A+B）**：
+    - `/dev/null`、`/dev/stdout`、`/dev/stderr` 作为**普通操作数**也不计目标
+      （`curl -o /dev/null`、`sort -o /dev/null`、`dd of=/dev/null`）；重定向早已排除。
+      `WRITE_PATH_COMMANDS` 分支仍保留设备节点目标（`rm /dev/null` 照样判），不放过节点操作。
+    - `echo` / `printf` 的参数是数据不是路径；跳过它们的通用操作数收集。输出重定向仍单独收集，
+      所以 `echo x > /tmp/y` 不受影响。
+    - `os.tmpdir()` / `/var/tmp` / `/dev/shm` 下的**项目外写**在 mode 为 `ask` 时直接放行，
+      audit layer 记 `temp`；显式 `outWrite=deny` 仍然拒绝；`rm -rf /tmp` 因临时根被纳入
+      破坏性表仍会询问。只影响 `scope=out`，项目本身在 `/tmp` 时仍按 `inWrite` 判定。
+    - README 的默认值/检查方式/破坏性表已同步；日志报告的 playwright 正则改成只认真实调用
+      （`npx/pnpm/node … playwright` 或 MCP 工具），不再把 URL 里的 `playwright-token` 算进去。
 
 ### 已实现并验证
 
@@ -658,7 +669,7 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 23 个文件 / 509 测试全绿；`pnpm check:compat` 强制窗口
+- 测试：`pnpm test` 30 个文件 / 600 测试全绿；`pnpm check:compat` 强制窗口
   1.1.0–1.4.0 + 向后探针 1.0.x / 0.99.x 全绿（floor 0.99.0）；
   真实 pi 1.4.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
@@ -702,7 +713,7 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 - `src/features/permission/audit.ts`：把 units（含 opaque/note/targets 的 canonical、effect、
   in/out）、verdict（action/layer/unit/target/grantScope/grantRoot|grantDigest）和
   `modes`/`roots`/`prompt` 组装成 payload；`PolicyDecision.layer` 是新加的机器可读层
-  （`mode/secret/session-allow/session-deny/session-command/danger/privileged/opaque/unresolved/empty`），
+  （`mode/secret/session-allow/session-deny/session-command/danger/privileged/temp/opaque/unresolved/empty`），
   分析时不再解析英文 reason。
 - `src/features/permission/index.ts`：ask/deny 附带 payload；会话授权放行写 `event:"allow"`；
   `/ask-perm` 真实状态变化写 `event:"mode"`（source=args|panel|toggle，via=autostart|manual）。
@@ -732,15 +743,35 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 
 **已验证**
 
-- `pnpm test` 23 个文件 / 509 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+- `pnpm test` 30 个文件 / 600 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
   `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
 - 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
   单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、
-  多会话计数隔离、a/s/d/f/cancel/not-presented 均有用例。
+  多会话计数隔离、a/s/d/f/cancel/not-presented、临时目录直通、设备 sink 操作数、
+  `echo`/`printf` 非路径参数均有用例。
 - 真实 pi 1.4.0 冒烟（tmux 交互）：autostart 派发 `/ask-perm` → 模型执行
   `echo … > /tmp/.../out.txt` → 弹窗按 `s` → 文件写出；日志依次出现 `mode`、`ask`
   （`answer.choice=allow-session`、`grant.root`、`ms` 与 `queueMs`）与 `/quit` 时的 `session` 摘要
   （`calls=2 / asks=1`，第二次写由会话授权放行，另记一条 `event:"allow"`、`layer=session-allow`）。
+  直通优化后的复测：`/tmp` 写 + `curl -o /dev/null` 无弹窗（`asks=0`）；`/var` 写仍弹窗，
+  按 `d` 后文件未创建、日志记 `outcome=blocked / choice=deny`。
+
+### 首轮真实日志（2026-10-26）
+
+本机 `~/.pi/agent/approval-log/audit-000001.jsonl`：7 次弹窗 + 1 次 `.env` 拦截，7 次全部 `s`。
+
+| 次数 | 原因 | 结论 |
+| --- | --- | --- |
+| 2 | `curl -o /dev/null` 把设备 sink 当写目标 | A 修复；顺带避免误授权整个 `/dev` |
+| 2 | `/tmp` 下写（curl 下载、`git show > /tmp`） | B 修复；不再需要 `/tmp` 宽授权 |
+| 1 | `echo` 消息里有 `/` + 未解析变量 → opaque | A 修复（echo/printf 参数非路径） |
+| 1 | 字面量 `for f in …` 的 `$f` 在路径位置 | **待解析器**：字面量 for 展开；当前仍 opaque |
+| 1 | `wc -l < "$f"` 的未解析**输入**重定向 | **待解析器**：只读元数据命令的未解析输入；当前仍 opaque |
+| 1 | `grep ... .env` | **正确拦截**，不动 |
+
+A+B 落地后这批 7 次里 5 次免弹；剩余 2 次是解析器能力问题。真实冒烟：`/tmp` 写 +
+`curl -o /dev/null` 无弹窗（`session` 摘要 `asks=0`）；`/var/pi-perm-smoke-out.txt`
+仍弹窗，按 `d` 后文件未创建。
 
 ### 已知边界（有意为之，README 已声明）
 

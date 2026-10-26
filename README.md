@@ -116,7 +116,7 @@ Enter with `/ask` (press it again to exit). Meant for the case where you only wa
 
 Repeating the argument form with the modes already in force is a **no-op**: no second "ON" notice and no loss of the session grants collected so far. Changing any mode records the change and clears those grants, because they were made under the old policy.
 
-**Defaults**: in-project read/write allowed, outside read allowed, outside write asks.
+**Defaults**: in-project read/write allowed, outside read allowed, outside write asks — except writes under the OS temp root, which are scratch space and pass directly. An explicit `out write = deny` still denies them.
 
 | Scope | reads | writes / exec |
 | --- | --- | --- |
@@ -125,19 +125,22 @@ Repeating the argument form with the modes already in force is a **no-op**: no s
 
 `exec` is folded into `write`: any command that changes state counts as a write.
 
+**Temporary write zone**: a write outside the project but under the OS temp root (`os.tmpdir()`, `/var/tmp`, `/dev/shm`) is allowed without a dialog when `out write` is `ask` (the audit layer is `temp`). `/tmp` is shared scratch space, so this is a convenience rule, not an isolation boundary; deleting a temp root itself (`rm -rf /tmp`) still hits the destructive table.
+
 **What is inspected**
 
 - **bash** is decomposed into simple commands — `&&`, `||`, `;`, pipes, `$(…)`, backticks, `bash -c`, `eval`, the common indirection wrappers (`sudo`, `env`, `xargs`, `find -exec`, …), heredocs — and judged per command. `cd` folds into the commands after it; the strictest result wins, so `cd /tmp && rm x` cannot ride on the first segment.
 - **path-bearing tools** (`read` / `write` / `edit` / `grep` / `find` / `ls`) are judged by their own path; every other tool is judged by the working directory.
 - **unresolvable input** — a non-literal `cd` or `git -C`, an unknown shell variable in a path, an unterminated heredoc or substitution — is asked about regardless of mode (fail closed), never guessed.
 - **`git -C <dir>`** is resolved like a local `cd`: relative path arguments (and the repository) are judged against `<dir>`, not the working directory.
+- **device sinks and data arguments** — `/dev/null`, `/dev/stdout` and `/dev/stderr` are never boundary targets, whether written as a redirect (`cmd > /dev/null`) or an operand (`curl -o /dev/null`); the arguments of `echo` / `printf` are data, not paths.
 
 **Answers**: `a` allow once · `s` allow this directory for the session · `d` deny · `f` deny this directory for the session. Session grants are kept in memory as `(read|write, directory)`, matched by containment, and cleared when the mode is turned off or the session ends. A session grant outranks the destructive table — once you have allowed an operation for the session, repeating it does not ask again. A command the parser cannot resolve is granted by its exact text instead, so repeating the same opaque command does not ask again.
 
 **Fixed safety tables** (independent of the four modes):
 
 - **credentials are denied in every mode** — `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.pi/agent/auth*.json`, `.env` files (templates excepted). Without this, `out read = allow` would hand out `~/.ssh/id_rsa`.
-- **destructive commands always ask** — `rm` of `/`, the home directory, or the working directory; `git reset --hard`; `git clean -f`; `git push --force`; package `publish`; `dd` to a raw device; `mkfs*`; shutdown/reboot; `chmod -R 777`; anything through `sudo`. Scope alone cannot express "destructive".
+- **destructive commands always ask** — `rm` of `/`, the home directory, the working directory, or a temp root (`/tmp`, `/var/tmp`, `/dev/shm`); `git reset --hard`; `git clean -f`; `git push --force`; package `publish`; `dd` to a raw device; `mkfs*`; shutdown/reboot; `chmod -R 777`; anything through `sudo`. Scope alone cannot express "destructive".
 
 **Approval log** (write-only telemetry, on by default)
 

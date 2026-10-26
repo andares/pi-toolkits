@@ -7,7 +7,7 @@ import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_MODES, type PermissionModes } from "./constants.js";
+import { DEFAULT_MODES, temporaryRoots, type PermissionModes } from "./constants.js";
 import { canonicalize } from "./paths.js";
 import {
 	decideProgram,
@@ -46,14 +46,14 @@ describe("four-mode policy", () => {
 	it("asks for an outside write and allows an outside read by default", () => {
 		const cwd = project();
 		const ctx = makeContext(cwd);
-		expect(decide("rm -rf /tmp/outside", ctx).action).toBe("ask");
+		expect(decide("rm -rf /var/pi-perm-outside", ctx).action).toBe("ask");
 		expect(decide("cat /etc/hostname", ctx).action).toBe("allow");
 	});
 
 	it("honours a deny mode for outside writes", () => {
 		const cwd = project();
 		const ctx = makeContext(cwd, { ...DEFAULT_MODES, outWrite: "deny" });
-		const decision = decide("rm -rf /tmp/outside", ctx);
+		const decision = decide("rm -rf /var/pi-perm-outside", ctx);
 		expect(decision.action).toBe("deny");
 		expect(decision.reason).toContain("outside-project write");
 	});
@@ -62,6 +62,43 @@ describe("four-mode policy", () => {
 		const cwd = project();
 		const ctx = makeContext(cwd, { ...DEFAULT_MODES, inWrite: "ask" });
 		expect(decide(`rm ${cwd}/x`, ctx).action).toBe("ask");
+	});
+});
+
+describe("temporary write zone", () => {
+	it("allows a temp write when the mode would otherwise ask", () => {
+		const cwd = project();
+		const ctx = makeContext(cwd);
+		for (const root of temporaryRoots()) {
+			const decision = decide(`echo hi > ${join(root, "pi-perm-temp.txt")}`, ctx);
+			expect(decision.action).toBe("allow");
+			expect(decision.layer).toBe("temp");
+		}
+	});
+
+	it("still honours an explicit outside-write deny", () => {
+		const cwd = project();
+		const ctx = makeContext(cwd, { ...DEFAULT_MODES, outWrite: "deny" });
+		const decision = decide(`echo hi > ${join(tmpdir(), "pi-perm-temp.txt")}`, ctx);
+		expect(decision.action).toBe("deny");
+		expect(decision.layer).toBe("mode");
+	});
+
+	it("still asks before deleting a temp root itself", () => {
+		const cwd = project();
+		const decision = decide(`rm -rf ${tmpdir()}`, makeContext(cwd));
+		expect(decision.action).toBe("ask");
+		expect(decision.layer).toBe("danger");
+	});
+
+	it("keeps the secrets table ahead of the temp zone", () => {
+		const cwd = project();
+		const decision = decide(
+			`echo x > ${join(tmpdir(), ".env")}`,
+			makeContext(cwd),
+		);
+		expect(decision.action).toBe("deny");
+		expect(decision.layer).toBe("secret");
 	});
 });
 
@@ -117,26 +154,26 @@ describe("session grants", () => {
 	it("allows a write under a granted directory", () => {
 		const cwd = project();
 		const rules = new SessionRules();
-		rules.allow({ effect: "write", root: "/tmp/granted" });
+		rules.allow({ effect: "write", root: "/var/pi-perm-granted" });
 		expect(
-			decide("rm -rf /tmp/granted/x", makeContext(cwd, DEFAULT_MODES, rules)).action,
+			decide("rm -rf /var/pi-perm-granted/x", makeContext(cwd, DEFAULT_MODES, rules)).action,
 		).toBe("allow");
 	});
 
 	it("does not let a read grant cover a write", () => {
 		const cwd = project();
 		const rules = new SessionRules();
-		rules.allow({ effect: "read", root: "/tmp/granted" });
+		rules.allow({ effect: "read", root: "/var/pi-perm-granted" });
 		expect(
-			decide("rm -rf /tmp/granted/x", makeContext(cwd, DEFAULT_MODES, rules)).action,
+			decide("rm -rf /var/pi-perm-granted/x", makeContext(cwd, DEFAULT_MODES, rules)).action,
 		).toBe("ask");
 	});
 
 	it("denies before allowing, even when the mode allows", () => {
 		const cwd = project();
 		const rules = new SessionRules();
-		rules.deny({ effect: "read", root: "/tmp/granted" });
-		const decision = decide("cat /tmp/granted/x", makeContext(cwd, DEFAULT_MODES, rules));
+		rules.deny({ effect: "read", root: "/var/pi-perm-granted" });
+		const decision = decide("cat /var/pi-perm-granted/x", makeContext(cwd, DEFAULT_MODES, rules));
 		expect(decision.action).toBe("deny");
 		expect(decision.reason).toContain("denied for this session");
 	});
@@ -155,13 +192,13 @@ describe("severity folding", () => {
 	it("takes the strictest unit of a compound command", () => {
 		const cwd = project();
 		const ctx = makeContext(cwd, { ...DEFAULT_MODES, outWrite: "deny" });
-		const decision = decide(`cd ${cwd} && rm -rf /tmp/outside`, ctx);
+		const decision = decide(`cd ${cwd} && rm -rf /var/pi-perm-outside`, ctx);
 		expect(decision.action).toBe("deny");
 	});
 
 	it("does not let an allowed first segment mask a later ask", () => {
 		const cwd = project();
-		const decision = decide("echo hi && rm -rf /tmp/outside", makeContext(cwd));
+		const decision = decide("echo hi && rm -rf /var/pi-perm-outside", makeContext(cwd));
 		expect(decision.action).toBe("ask");
 	});
 });

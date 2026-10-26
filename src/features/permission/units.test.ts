@@ -88,14 +88,21 @@ describe("wrappers and nested execution", () => {
 });
 
 describe("redirects and heredocs", () => {
-	it("classifies redirect targets and ignores /dev/null", () => {
-		expect(summary("ls 2>/dev/null")[0]?.targets).toEqual([]);
-		expect(summary("echo hi > /tmp/x")[0]?.targets).toEqual(["write:/tmp/x"]);
-		expect(summary("cat < input > output")[0]?.targets).toEqual([
-			"read:/proj/input",
-			"write:/proj/output",
-		]);
-	});
+it("classifies redirect targets and ignores /dev/null", () => {
+expect(summary("ls 2>/dev/null")[0]?.targets).toEqual([]);
+expect(summary("echo hi > /tmp/x")[0]?.targets).toEqual(["write:/tmp/x"]);
+expect(summary("cat < input > output")[0]?.targets).toEqual([
+"read:/proj/input",
+"write:/proj/output",
+]);
+});
+
+it("ignores a device sink as a plain operand, not just a redirect", () => {
+expect(summary("curl -s -o /dev/null https://example.com")[0]?.targets).toEqual([]);
+expect(summary("sort -o /dev/null input")[0]?.targets).toEqual([]);
+// A command that mutates the node itself still surfaces the target.
+expect(summary("rm /dev/null")[0]?.targets).toEqual(["write:/dev/null"]);
+});
 
 	it("treats a redirect to a credential path as a write to it", () => {
 		expect(summary("echo a > ~/.ssh/authorized_keys")[0]?.targets).toEqual([
@@ -170,6 +177,15 @@ describe("paths", () => {
 		]);
 	});
 
+	it("does not treat echo/printf arguments as paths", () => {
+		const echo = first('echo "  $f  改动 $tot 行 / 忽略空白后 $w 行"');
+		expect(echo.opaque).toBe(false);
+		expect(echo.targets).toEqual([]);
+		const printf = first('printf "%s\\n" "$value"');
+		expect(printf.opaque).toBe(false);
+		expect(printf.targets).toEqual([]);
+	});
+
 	it("expands ~ while parsing", () => {
 		expect(summary("tee ~/x")[0]?.targets).toEqual([`write:${HOME}/x`]);
 	});
@@ -177,7 +193,7 @@ describe("paths", () => {
 
 describe("fail closed", () => {
 	it("marks an unresolved variable in a path position opaque", () => {
-		expect(summary("echo $UNKNOWN/x")).toEqual([
+		expect(summary("cat $UNKNOWN/x")).toEqual([
 			expect.objectContaining({ opaque: true, targets: [] }),
 		]);
 	});

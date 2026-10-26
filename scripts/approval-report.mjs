@@ -146,7 +146,11 @@ function median(values) {
 		: (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-const PLAYWRIGHT = /playwright|browser_(?:navigate|click|type|screenshot|close)|page\.(?:goto|screenshot)/i;
+// Match playwright as an actually-invoked command (segment start, a package
+// runner, node, or sudo) or as an MCP tool. A plain substring is too broad:
+// `.../login/playwright-token` is an API endpoint and `grep -i playwright` is
+// a search, not a browser run.
+const PLAYWRIGHT = /(?:^|[;&|]\s*)(?:[^\s;|&]*\/)?playwright(?:[\s/]|$)|(?:^|[;&|]\s*)(?:sudo\s+)?(?:npx|pnpm|yarn|bun|node)\s+(?:(?:exec|run|dlx|--)\s+)*(?:[^\s;|&]*\/)?playwright(?:[\s/]|$)|mcp__[^\s]*playwright|browser_(?:navigate|click|type|screenshot|close)/i;
 
 function patternKey(record) {
 	const command = record.input?.command;
