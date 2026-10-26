@@ -16,7 +16,8 @@
  *    be ~300 tokens per request restating what the sandbox already enforces.
  *
  * Do NOT use the removed `systemPromptAppend` field or wholesale systemPrompt
- * replacement (see PLAN.md).
+ * replacement (see `AGENTS.md` §Feature: ask and the D5 record in
+ * `.agents/memory/ARCHITECTURE.md`).
  */
 
 export interface AskBannerOptions {

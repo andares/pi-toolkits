@@ -1,7 +1,8 @@
 /**
  * ask feature — read-only consult mode.
  *
- * Design notes (see PLAN.md and AGENTS.md):
+ * Design notes (see AGENTS.md §Feature: ask, plus the D1–D6 records in
+ * .agents/memory/ARCHITECTURE.md):
  *  - Project writes stay impossible: write/edit/powershell are removed from the
  *    active tool set via pi.setActiveTools(), and pi's runtime rejects calls to
  *    non-active tools ("Tool not found"). A gate blocks them again as defence in

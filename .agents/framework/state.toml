@@ -1,0 +1,29 @@
+version = 1
+tool = "0.11.0"
+created = "2026-10-26T11:08:56+08:00"
+updated = "2026-10-26T11:08:56+08:00"
+profile = "core"
+modules = []
+lang = "zh"
+roots = []
+
+[[managed]]
+path = ".agents/memory/README.md"
+sha256 = "a0c93b35e13b13cf81ded2cd01927d14c742bfe81db04cad56c2726597c09cd5"
+template = "memory-readme"
+
+[[managed]]
+path = ".agents/README.md"
+sha256 = "8d094edcd4da361db83cdcaef7dbaf16671e11a3bd3190175794446ff778c423"
+template = "signpost"
+
+[[managed]]
+path = ".agents/framework/.gitignore"
+sha256 = "662701cb1683be0bb8a5648e949f77d846e3e3ea560a7609ec3a0ebb8ad8f07b"
+template = "state-gitignore"
+
+[[migrations]]
+at = "2026-10-26T11:08:56+08:00"
+to = "1"
+notes = "adopt"
+

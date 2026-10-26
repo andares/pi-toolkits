@@ -1,5 +1,21 @@
 # pi-toolkits Project Guidelines
 
+## 记忆与索引
+
+本仓按 agent-framework v1 放东西：给 agent 看的记忆在 `.agents/`，计划在 `specs/`（人审）。
+
+| 想知道 | 读 |
+| --- | --- |
+| 记忆的写规则、预算、压缩办法 | `.agents/memory/README.md`（契约，写之前先读） |
+| 分层、版本基线、仍生效的决策记录 | `.agents/memory/ARCHITECTURE.md` |
+| 已收口的里程碑（摘要 + 证据指针） | `.agents/memory/FINISHED.md` |
+| 延期项与各自的触发条件 | `.agents/memory/FUTURE.md` |
+| 还要做什么、欠着什么债 | `specs/PLAN.md` |
+| 改过什么、证据在哪 | `.agents/implementations/`（一次一记，不改写） |
+
+本文件只放：不变量、命令、宿主兼容纪律、各 feature 的现行规格与已验证结论。AGENTS.md 当前超预算，
+压缩计划（按章节列了去处）记在 `specs/PLAN.md`。
+
 ## Package Management
 
 - **This project uses `pnpm` as the sole package manager.**
@@ -475,12 +491,11 @@ session_start(reason 过滤)
 AGENTS.md                     # 入口：不变量 / 命令 / 路由 / 索引（人也能看）
 specs/PLAN.md + <unit>.md     # 计划与单元方案（人审）
 design/ docs/ legal/          # 人看的东西（可选模块）
-.agents/
-├── README.md                 # 6 行门牌
-├── memory/                   # README(契约) + FINISHED/FUTURE/ARCHITECTURE + 可选 DESIGN/TERMS/REVIEW/DEBUGGING/FUNCTION-*
-├── implementations/          # YYYY-MM-DD_<slug>.md，首行精确到秒
-├── prompts/                  # 口述原文（可选）
-└── framework/                # state.toml + .gitignore + snapshots/ plans/ reports/（后三者 local-only）
+.agents/README.md             # 门牌：这一层放什么
+.agents/memory/               # README(契约) + FINISHED/FUTURE/ARCHITECTURE + 可选 DESIGN/TERMS/REVIEW/DEBUGGING/FUNCTION-*
+.agents/implementations/      # YYYY-MM-DD_<slug>.md，首行精确到秒
+.agents/prompts/              # 口述原文（可选）
+.agents/framework/            # state.toml + .gitignore + snapshots/ plans/ reports/（后三者 local-only）
 ```
 
 ### 审计码（稳定，可跨次对比）
@@ -491,7 +506,7 @@ design/ docs/ legal/          # 人看的东西（可选模块）
 `W-ORDER-01` 附录后又追加 · `W-COV-01` 覆盖表有 OPEN · `W-META-01` FUTURE 缺触发条件 ·
 `W-EVID-01` FINISHED 条目无证据指针 · `W-PLAN-01` spec 全勾却仍在 PLAN ·
 `W-ROOT-01/02` 根下 agent-only 目录 / 零字节文件 · `W-TODO-01` todos 仍在 ·
-`W-OVERRIDE-01` `AGENTS.override.md` 顶替入口 · `W-SCAFFOLD-01` 未填的 `TODO(ask-init)` ·
+`W-OVERRIDE-01` `AGENTS.override.md` 顶替入口 · `W-SCAFFOLD-01` 未填的 ask-init 模板标记（`TODO` 占位） ·
 `I-AGENTS-01` `.agents/skills` 存在（pi 会要求项目信任） · `I-INSTALL-01` 尚未安装框架。
 
 ### 多仓库
