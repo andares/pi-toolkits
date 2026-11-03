@@ -704,4 +704,23 @@ describe("combineUsage", () => {
 		const none = combineUsage(fakeUsage(), fakeUsage());
 		expect(none.cacheWrite1h).toBeUndefined();
 	});
+
+	it("marks the cost provider-reported only when every part is (pi 1.5.0)", () => {
+		const withFlag = (flag?: boolean): UsageLike => {
+			const usage = fakeUsage();
+			if (flag !== undefined) usage.cost.totalFromProvider = flag;
+			return usage;
+		};
+		expect(
+			combineUsage(withFlag(true), withFlag(true)).cost.totalFromProvider,
+		).toBe(true);
+		expect(
+			combineUsage(withFlag(true), withFlag(false)).cost.totalFromProvider,
+		).toBe(false);
+		// Absent on either side is not "provider-reported"; the field is always
+		// written as an explicit boolean, exactly like the built-in.
+		expect(
+			combineUsage(withFlag(), withFlag(true)).cost.totalFromProvider,
+		).toBe(false);
+	});
 });

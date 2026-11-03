@@ -25,3 +25,13 @@
 - 证据：change record `.agents/implementations/2026-10-26_agent-framework-adoption.md`；
   框架 sidecar `.agents/framework/state.toml`（local-only）。
 - 未收口的部分（AGENTS.md 预算债、ask 手动验收、根 `plans/` 归位、审计已知误报）留在 `specs/PLAN.md`。
+
+### M2 — pi 1.5.0 宿主兼容迁移（2026-11-04）
+
+- 窗口前移为 1.2 / 1.3 / 1.4 / 1.5（四版全绿，各 602 passed、键位 ✅）；探针 1.1 / 1.0 / 0.99 全绿，
+  停在 0.87.x（`defaultActive`、`parentToolCallId`），**public floor 仍为 0.99.0**，peer `>=0.99.0` 未变。
+- 镜像同步：`combineUsage` 的 `cost.totalFromProvider` 规则（1.5.0）、模型选择器品名显示（1.5.0）；
+  版本事实声明按 diff 全量校正（含 `cycleModel` 1.2→1.5 字节级一致、`ctrl+f` 仍是死键的确认）。
+- 顺带止住测量噪声：矩阵并发下 vitest 21 worker 的内存压力让不同测试偶发超时（floor 一度被压到 1.0.2），
+  收敛为 `maxWorkers: 4` + 30s 超时 + 静态 import，断言未动。
+- 证据：change record `.agents/implementations/2026-11-04_pi-1.5.0-compat.md`。

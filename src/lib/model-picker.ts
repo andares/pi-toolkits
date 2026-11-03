@@ -9,11 +9,12 @@
  *
  * The component is driven through a small ModelRuntime facade backed by
  * ctx.modelRegistry (pi's extension-facing wrapper). SAFETY: verified
- * against pi 1.1.0–1.4.0 dist (modes/interactive/components/model-selector.js +
- * model-catalog-refresh.js — byte-identical across that span) — the
- * component only calls getAvailableSnapshot, getModel, getError and refresh
- * on modelRuntime, and ModelRegistry provides exactly those
- * (getAvailable/find/getError/refresh).
+ * against pi 1.2.0–1.5.0 dist (modes/interactive/components/model-selector.js +
+ * model-catalog-refresh.js) — the component only calls getAvailableSnapshot,
+ * getModel and getError on modelRuntime (plus refresh, which ModelRegistry
+ * provides) across that whole span. 1.5.0 changed the selector's rendering
+ * and key handling (page keys, disambiguating model names, viewport-input
+ * capture) but not the runtime surface this facade implements.
  *
  * `current` is passed as the component's currentModel: the built-in selector
  * preselects, ✓-marks and sorts-first its currentModel, so one Enter accepts

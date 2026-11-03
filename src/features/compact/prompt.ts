@@ -6,14 +6,16 @@
  * summaries produced by the configured compact model are formatted exactly
  * like pi's own compaction output. Only the executing model differs.
  * Verified byte-identical against every published version of the supported
- * window (1.1.0 → 1.4.0): core/usage-totals.js is unchanged across that
- * span, the only utils.js change (1.2.0 dropping assistant thinking from
- * serializeConversation) does not touch the strings mirrored here — that
- * serializer is imported from the host, not mirrored — and compaction.js
- * changed once, in 1.4.0, in the output budget and the split-turn focus
- * handling (both adopted here, see buildTurnPrefixPromptText). 0.87.0
- * shipped a different split-turn prefix prompt; the text mirrored here is
- * 0.87.1's fix, and the mirror is the only variant any supported host gets
+ * window (1.2.0 → 1.5.0): the only utils.js change (1.2.0 dropping assistant
+ * thinking from serializeConversation) does not touch the strings mirrored
+ * here — that serializer is imported from the host, not mirrored —
+ * compaction.js last changed in 1.4.0, in the output budget and the
+ * split-turn focus handling (both adopted here, see
+ * buildTurnPrefixPromptText), and core/usage-totals.js changed once past
+ * that point, in 1.5.0, which only added the `cost.totalFromProvider` merge
+ * rule mirrored below (the numeric fields are untouched). 0.87.0 shipped a
+ * different split-turn prefix prompt; the text mirrored here is 0.87.1's
+ * fix, and the mirror is the only variant any supported host gets
  * — intentional.
  *
  * Update these strings whenever pi changes its built-in prompts (diff
@@ -213,9 +215,12 @@ export function formatFileOperations(
 
 /**
  * Combine two provider usage records field-wise (pi 0.87.1 compaction.js
- * combineUsage, moved verbatim to core/usage-totals.js in 0.99.0 and
- * unchanged through 1.4.0): used when
- * a split turn produces two summarization calls.
+ * combineUsage, moved verbatim to core/usage-totals.js in 0.99.0; the
+ * numeric fields are unchanged through 1.5.0, which added the
+ * `cost.totalFromProvider` rule at the end of the cost block — a sum counts
+ * as provider-reported only when every part does, and the field is written
+ * as an explicit boolean either way): used when a split turn produces two
+ * summarization calls.
  */
 export function combineUsage<T extends UsageLike>(first: T, second: T): T {
 	return {
@@ -239,6 +244,10 @@ export function combineUsage<T extends UsageLike>(first: T, second: T): T {
 			cacheRead: first.cost.cacheRead + second.cost.cacheRead,
 			cacheWrite: first.cost.cacheWrite + second.cost.cacheWrite,
 			total: first.cost.total + second.cost.total,
+			// A sum is provider-reported only when every part is (pi 1.5.0).
+			totalFromProvider:
+				first.cost.totalFromProvider === true &&
+				second.cost.totalFromProvider === true,
 		},
 	} as T;
 }
@@ -258,5 +267,7 @@ export interface UsageLike {
 		cacheRead: number;
 		cacheWrite: number;
 		total: number;
+		/** pi 1.5.0: true only when the provider reported the cost itself. */
+		totalFromProvider?: boolean;
 	};
 }

@@ -464,4 +464,46 @@ describe("selector patches", () => {
 			"claude-opus-4",
 		]);
 	});
+
+	it("mirrors pi 1.5.0's disambiguating model name after the id", () => {
+		// The name is shown only when it adds words the id does not convey
+		// (pi's getDistinctModelName rule, copied — it is not exported).
+		type LineItem = {
+			provider: string;
+			id: string;
+			model: { provider: string; id: string; name?: string };
+		};
+		const redundant: LineItem = {
+			provider: "anthropic",
+			id: "claude-sonnet-4",
+			model: { provider: "anthropic", id: "claude-sonnet-4", name: "Claude Sonnet 4" },
+		};
+		const renamed: LineItem = {
+			provider: "openrouter",
+			id: "minimax/minimax-m3",
+			model: {
+				provider: "openrouter",
+				id: "minimax/minimax-m3",
+				name: "MiniMax M3 [rasmus@openrouter, parasail]",
+			},
+		};
+		const lines: string[] = [];
+		const selector = fakeSelector({
+			activeModels: [],
+			filteredModels: [redundant, renamed] as unknown as FakeSelector["filteredModels"],
+			listContainer: {
+				clear() {},
+				addChild: (child: unknown) =>
+					lines.push((child as { text?: string }).text ?? ""),
+			},
+		});
+		selector.updateList();
+		const redundantLine = lines.find((l) => l.includes("claude-sonnet-4"));
+		const renamedLine = lines.find((l) => l.includes("minimax/minimax-m3"));
+		expect(redundantLine).toBeDefined();
+		expect(redundantLine).not.toContain("(Claude Sonnet 4)");
+		expect(renamedLine).toContain(
+			"(MiniMax M3 [rasmus@openrouter, parasail])",
+		);
+	});
 });

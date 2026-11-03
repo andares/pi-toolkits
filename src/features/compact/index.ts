@@ -12,8 +12,10 @@
  *  - prompts, message assembly, split-turn handling, summary budgets, and
  *    the summary file-list tail are verbatim pi built-in behavior (copied
  *    from 0.87.1; `core/compaction/compaction.js` stayed byte-identical
- *    1.0.0 → 1.3.0, and 1.4.0 changed only the summary output budget and
- *    the split-turn focus handling mirrored below) — only the executing
+ *    1.0.0 → 1.3.0, 1.4.0 changed only the summary output budget and
+ *    the split-turn focus handling mirrored below, and 1.5.0 left it
+ *    untouched; the only mirrored helper that moved after that span is
+ *    `combineUsage`, see prompt.ts) — only the executing
  *    model differs. The one exception is `serializeConversation`, which is
  *    imported from the host instead of mirrored, so it tracks whatever the
  *    running host does (1.2.0 stopped feeding assistant thinking into the
@@ -133,7 +135,7 @@ async function completeSummary(
  * over).
  *
  * 1.4.0 changed two things this mirror covers, and we follow 1.4.0 for every
- * host in the supported window (1.1.0 → 1.4.0) because both are bug fixes
+ * host in the supported window (1.2.0 → 1.5.0) because both are bug fixes
  * rather than behavior we could sensibly keep per version:
  *  - summaries no longer cap maxTokens at 0.8/0.5 × reserveTokens; the
  *    request omits maxTokens so the provider uses the model's output limit

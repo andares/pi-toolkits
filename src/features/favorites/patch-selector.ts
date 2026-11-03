@@ -21,8 +21,10 @@
  * upgraded internals), patches are skipped with a warning — the extension
  * keeps loading and ctrl+p falls back to stock behavior. The prototype
  * shape touched here (handleInput/updateList/filterModels and the instance
- * fields below) is byte-identical across the mandatory window
- * pi 1.1.0 → 1.4.0 (and exercised by the 0.99.0 → 1.0.4 backward probes).
+ * fields below) is unchanged across the mandatory window
+ * pi 1.2.0 → 1.5.0 (and exercised by the 0.99.0 → 1.1.0 backward probes).
+ * updateList gained one layout change in 1.5.0 — the disambiguating model
+ * name after the id — mirrored here; see distinctModelName below.
  */
 import {
 	ModelSelectorComponent,
@@ -61,7 +63,7 @@ interface SelectorPatchTarget {
 	handleInput(keyData: string): void;
 	updateList(): void;
 	filterModels(query: string): void;
-	/** pi 1.0–1.3: default-model badge source. */
+	/** pi 1.0–1.5: default-model badge source. */
 	isDefaultModel(model: ModelRef): boolean;
 	listContainer: ListContainerLike;
 	searchInput: SearchInputLike;
@@ -93,6 +95,37 @@ export function setSelectorThemeProvider(
 
 function sameModel(a: ModelRef, b: ModelRef): boolean {
 	return a.provider === b.provider && a.id === b.id;
+}
+
+/** Lowercase a label and split it into word tokens (pi's splitModelLabel). */
+function splitModelLabel(value: string): string[] {
+	return value
+		.toLowerCase()
+		.split(/[^\p{L}\p{N}]+/u)
+		.filter(Boolean);
+}
+
+/**
+ * Replica of pi 1.5.0's internal `getDistinctModelName`
+ * (`dist/modes/interactive/model-search.js`). It is not reachable from the
+ * package's `.` entry, so the rule is copied instead of imported: show the
+ * model name only when it has words the id does not already convey, which
+ * keeps renamed overrides visible without repeating `claude-sonnet-4` after
+ * `claude-sonnet-4-20250514`. Mirrored for every host in the window — the
+ * model `name` field exists across it, and one rendering rule is better than
+ * a version branch.
+ */
+function distinctModelName(id: string, name?: string): string | undefined {
+	const trimmed = name?.trim();
+	if (!trimmed) return undefined;
+	const idWords = splitModelLabel(id);
+	const idTokens = new Set(idWords);
+	const compactId = idWords.join("");
+	// Single-character words must match a whole id token: "4" is not covered
+	// by "mistral-small-2603".
+	const isCovered = (word: string): boolean =>
+		idTokens.has(word) || (word.length > 1 && compactId.includes(word));
+	return splitModelLabel(trimmed).every(isCovered) ? undefined : trimmed;
 }
 
 function buildHintText(state: SelectorPatchTarget): string {
@@ -155,10 +188,11 @@ export function applyModelSelectorPatches(): boolean {
 	};
 
 	// ── 2. List rendering: hint row + bold bright yellow favorites ────────
-	// Replicates the built-in updateList layout (pi 1.0–1.3: fixed-width cursor
-	// and ✓ current-marker columns, provider badge, `· default` badge, scroll
-	// indicator, empty/error states, refresh status, Model Name footer) with
-	// one change: favorited model ids render in the favorite style.
+	// Replicates the built-in updateList layout (fixed-width cursor and ✓
+	// current-marker columns, the 1.5.0 disambiguating model name, provider
+	// badge, `· default` badge, scroll indicator, empty/error states, refresh
+	// status, Model Name footer) with one change: favorited model ids render
+	// in the favorite style.
 	proto.updateList = function (this: SelectorPatchTarget): void {
 		const theme = themeProvider();
 		if (!theme) {
@@ -197,8 +231,10 @@ export function applyModelSelectorPatches(): boolean {
 			const currentMarker = isCurrent ? theme.fg("accent", "✓ ") : "  ";
 			const baseText = isSelected ? theme.fg("accent", item.id) : item.id;
 			const modelText = isFavorite ? styleFavorite(item.id) : baseText;
+			const name = distinctModelName(item.id, item.model.name);
+			const nameText = name ? theme.fg("muted", ` (${name})`) : "";
 			const providerBadge = theme.fg("muted", `[${item.provider}]`);
-			const line = `${cursor}${currentMarker}${modelText} ${providerBadge}${defaultBadge}`;
+			const line = `${cursor}${currentMarker}${modelText}${nameText} ${providerBadge}${defaultBadge}`;
 			list.addChild(new Text(line, 0, 0));
 		}
 		if (startIndex > 0 || endIndex < this.filteredModels.length) {

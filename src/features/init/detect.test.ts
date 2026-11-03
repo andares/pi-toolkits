@@ -11,6 +11,10 @@ import {
 	scanRefs,
 } from "./detect.js";
 import { project, remove } from "./test-helpers.js";
+// Static import (not `await import` inside the test): the per-test timeout
+// must not have to cover transforming/loading the deterministic half of the
+// feature — that is what made this test flake under matrix load.
+import { stateToToml } from "./apply.js";
 
 describe("isBareRef", () => {
 	const text = "see memory/DESIGN.md, .agents/memory/X.md, my-memory/y, ~/.pi/agent/memory/z";
@@ -207,8 +211,7 @@ describe("review regressions", () => {
 		expect(countBareRefs(text, "implementations/")).toBe(1);
 	});
 
-	it("round-trips custom budgets through the state TOML keys", async () => {
-		const { stateToToml } = await import("./apply.js");
+	it("round-trips custom budgets through the state TOML keys", () => {
 		const parsed = parseState(
 			stateToToml({
 				version: 1,

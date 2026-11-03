@@ -43,7 +43,7 @@
 最老版本。使用者不需要知道 4 版强制政策，只需要知道 `pi >= <floor>`。它写进
 `peerDependencies`（`>=<floor>`，**不写上界**）和 README 的 Requirements / badge。
 
-（当前：强制窗口 1.1 / 1.2 / 1.3 / 1.4；向后探针 1.0 / 0.99 / 0.87 / 0.86，
+（当前：强制窗口 1.2 / 1.3 / 1.4 / 1.5；向后探针 1.1 / 1.0 / 0.99 / 0.87，
 **停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`（`ask/scratch-tool` 与
 `init/tool` 两处），且 `ToolCallEvent` 上没有 `parentToolCallId`（2026-10-24 审批日志、
 2026-10-26 init 新增的依赖），typecheck 红属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
@@ -51,7 +51,8 @@
 - 窗口每随一条新版本线发布向前滑一格（窗口恒定 4 条），掉出窗口的老线不是“坏了”，
   只是不再被强制保持绿色；它还在不在对外下限里，由**探针**说话：探得到就继续算兼容，
   探不到就停。历史：0.86.x → 0.87.x（2026-10-10，1.1 发布）→ 0.99.x（2026-10-13，
-  1.2 发布）→ 1.0.x（2026-10-17，1.3 发布）→ 1.1.x（2026-10-23，1.4 发布）。
+  1.2 发布）→ 1.0.x（2026-10-17，1.3 发布）→ 1.1.x（2026-10-23，1.4 发布）→
+  1.2.x（2026-11-04，1.5 发布）。
   README 的 Requirements 段、badge、源码注释里的「已验证区间」都随实测结果同步修改。
 - **peer 声明规则**（pi ≥ 0.99 启动时校验）：宿主提供的包（`@earendil-works/pi-*`）
   **只能**放进 `peerDependencies`，进 `dependencies` 会被 pi 告警
@@ -211,13 +212,25 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
 `agent-session.js` 逐文件 diff，有变化就同步代码或改正注释里的版本声明。
 两类区间声明要分开写：**支持声明**（「supported window」等）必须与 peer 下限一致 /
 或注明是强制窗口；**逐版本事实**（某函数在哪个区间字节级一致）按实际 diff 结果写，
-不得为了对齐下限而外扩（例如 `compaction.js` 只在这里说 1.4.0 变过一次）。当前 1.1.0 → 1.4.0：`usage-totals.js` 全窗口
-字节级不变，`utils.js` 最后一次变化是 1.2.0，`agent-session.js` 在 1.2.0（prompt 处理
+不得为了对齐下限而外扩（例如 `compaction.js` 只在这里说 1.4.0 变过一次）。当前 1.2.0 → 1.5.0：
+`usage-totals.js` 在窗口内只变过一次（1.5.0 给 `cost` 加了 `totalFromProvider` 合并规则，
+已镜像；数值字段未动），`utils.js` 最后一次变化是 1.2.0，`agent-session.js` 在 1.2.0（prompt 处理
 重构成 `_prepareRun`/`_startRun`）、1.3.0（tool-restore 路径）、1.4.0（溢出恢复与
-tool-restore）各变一次，但 `cycleModel` 四个版本字节级一致，`compaction.js`
+tool-restore）、1.5.0（摘要请求的 auth 解析改走 stream 函数自带的 runtime；`_applyToolLoadout`
+按「保留顺序 + 追加新增」稳定下来，#11495）各变一次，但 `cycleModel` 在 1.2.0 → 1.5.0
+字节级一致，`compaction.js`
 只在 1.4.0 变了一次点——摘要不再按 `reserveTokens` 设 `maxTokens` 上限（#9512），
 且 `/compact <instructions>` 也追加到 split-turn 前缀（#11058）；两处都按 1.4.0 语义
-镜像到全窗口，注释里写明了为何不做按版本分支）。注意 `compact` 的
+镜像到全窗口，注释里写明了为何不做按版本分支。`model-selector.js` 在 1.5.0 变过一次
+（翻页键、`capturesViewportInput = true`、模型 id 后的去重品名），`updateList` 的布局已
+镜像（品名规则 `getDistinctModelName` 不在包导出面，按源码复刻），翻页键与
+`capturesViewportInput` 由宿主自行生效、我们的 prototype patch 不需处理。`types.d.ts`
+在 1.5.0 全为增量（`KeybindingHints` 混入 `ToolRenderContext`/`MessageRenderOptions`/
+`EntryRenderOptions`、`ui.custom` 的 `blocked`、消息渲染的 `messageId`/`timestamp`）。
+pi-tui 1.5.0：`SelectList`/`SettingsList` 新增 `tui.select.pageUp/pageDown` 与
+`capturesViewportInput`，`tui-alt-screen.js` 把 `shouldDeferViewportInputToOverlay()` 改名
+`shouldDeferViewportInput()` 并让聚焦组件截获视口键——但搜索键分支仍在其**上面**，
+所以 `ctrl+f` 对模型选择器依然是死键。注意 `compact` 的
 `serializeConversation` 是**从宿主导入而非镜像**，自动跟随宿主实现：1.2.0 起它不再把
 assistant thinking 写进摘要请求（thinking 可能不在模型活动上下文里，会让请求比被摘要
 内容还大）。升级 diff 到这类变化时，确认「跟随宿主」仍是预期行为，并同步 README/
@@ -344,10 +357,11 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 30 个文件 / 600 测试全绿；`pnpm check:compat` 在强制窗口
-  1.1.0–1.4.0 全绿，向后探针 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive` 停探
-  （不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
-- 真实 pi 1.4.0 冒烟（项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
+- 测试：`pnpm test` 30 个文件 / 602 测试全绿；`pnpm check:compat` 在强制窗口
+  1.2.0–1.5.0 全绿，向后探针 1.1.x / 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive`
+  停探（不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
+- 真实 pi 1.5.0 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
+  历史冒烟（1.4.0，项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
   第一轮的工具集里就含 `scratchpad`，`plan.md` 写入 `/tmp/pi-ask/<session>/` 成功。
   **冒烟发现并修掉两处**：① 在 `session_start` 里 `setActiveTools` 会被该轮 loadout
   准备覆盖 → 改为在 `before_agent_start` 里重新断言工具集；② 异步建目录会让第一轮
@@ -400,7 +414,7 @@ run = [
    **扩展命令被立即执行，不发给模型**，streaming 中也可执行。1.2.0 把 prompt 内的
    「准备消息 + 启动 run」重构成 `_prepareRun`/`_startRun`，但扩展命令分支仍是最前的
    同一条早退路径；`sendUserMessage` 与 `_tryExecuteExtensionCommand` 两函数在
-   0.99.0–1.4.0 全区间逐字节一致（1.3.0 → 1.4.0 已逐函数 diff 复核）。
+   0.99.0–1.5.0 全区间逐字节一致（1.3.0 → 1.4.0、1.4.0 → 1.5.0 已逐函数 diff 复核）。
 2. **只能支持扩展命令**（/add-dir、/cd、/skill:xxx 等 registerCommand 注册的）；
    内置命令（/compact、/reload、/resume）走 TUI 层，扩展层触发不了；
    skill 命令是展开机制非执行机制——此约束必须写进 README
@@ -519,11 +533,14 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **30 文件 / 600 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
+- `pnpm typecheck` 绿；`pnpm test` **30 文件 / 602 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
-- `pnpm check:compat --skip-tests`：窗口 1.1.0–1.4.0 全绿，探针仍停在 0.87.x（`defaultActive`），
-  floor 0.99.0；评审后另用 `--versions 1.1.0,1.4.0` 跑完整门禁，两个端点各 **588 passed**
-  （该子集跑法会按子集报 floor，不用于改 peer；此前四窗口版本各 574 passed）。
+- `pnpm check:compat`：窗口 1.2.0–1.5.0 全绿（每版 602 passed），探针 1.1.x / 1.0.x / 0.99.x 全绿、
+  0.87.x 因 `defaultActive` 停探，floor 0.99.0。
+- 测试稳定性（2026-11-04）：矩阵并发四沙箱时，vitest 默认 worker 数（22 核 → 21）会因内存
+  压力让**不同的**测试偶发超时（1.0.2 的 git fixture、1.0.1 的动态 import），把 floor 拖到噪声上。
+  已收敛测试环境（`vitest.config.ts`：`maxWorkers: 4`、30s 超时；`detect.test.ts` 的
+  `await import("./apply.js")` 改为静态 import），断言未动。
 - 第三方评审后修正：相对路径引用（`./`/`../`）、根级与遗留 PLAN 的移动/合并/快照、非计划 legacy 文档任务、
   state 预算键往返、未知参数拒绝、无 upgrade recipe 时不写盘、未提交记忆降为 `W-STATE-01`、
   非 UTF-8 文件跳过、`/ask-init roots` 也先快照。
@@ -669,9 +686,9 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 30 个文件 / 600 测试全绿；`pnpm check:compat` 强制窗口
-  1.1.0–1.4.0 + 向后探针 1.0.x / 0.99.x 全绿（floor 0.99.0）；
-  真实 pi 1.4.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
+- 测试：`pnpm test` 30 个文件 / 602 测试全绿；`pnpm check:compat` 强制窗口
+  1.2.0–1.5.0 + 向后探针 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
+  真实 pi 1.5.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
 ### 补充：同一会话的 `session_start` 可能发多次
 
@@ -743,7 +760,7 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 
 **已验证**
 
-- `pnpm test` 30 个文件 / 600 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+- `pnpm test` 30 个文件 / 602 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
   `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
 - 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
   单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、

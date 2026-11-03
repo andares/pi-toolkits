@@ -9,9 +9,9 @@
  * keybinding conflicts arise.
  *
  * Verified against every published version of the supported range
- * (0.99.0 → 1.4.0) keybinding
- * tables + pi-tui input dispatch on WSL2 + Windows Terminal; re-run
- * `pnpm check:keybindings` after every host upgrade before trusting this.
+ * (0.99.0 → 1.5.0) keybinding tables + pi-tui input dispatch on WSL2 +
+ * Windows Terminal; re-run `pnpm check:keybindings` after every host upgrade
+ * before trusting this.
  */
 export const FAVORITES_STATUS_KEY = "favorites";
 
@@ -30,12 +30,17 @@ export const FAVORITES_FILE = "pi-toolkits-favorites.json";
  * Windows/WSL `tui.altScreen.search` resolves to ctrl+f, and
  * `TuiAltScreen.handleViewportInput()` checks it before
  * `shouldDeferViewportInputToOverlay()`, so the keystroke opens transcript
- * search and the selector never sees it (verified in pi-tui 1.4.0
- * `dist/tui-alt-screen.js`: the search check is the first key branch and
- * returns `{ consume: true }` unconditionally; the 1.4.0 changes to that
- * file are exit/teardown only).
+ * search and the selector never sees it (verified in pi-tui 1.5.0
+ * `dist/tui-alt-screen.js`: the search check is still the first key branch
+ * and still returns `{ consume: true }` unconditionally; the 1.5.0 changes to
+ * that file are exit/teardown, word-selection joiners, and a rename of
+ * `shouldDeferViewportInputToOverlay()` to `shouldDeferViewportInput()` —
+ * which now also defers viewport keys to a focused component that declares
+ * `capturesViewportInput`, but that guard sits BELOW the search branch, so
+ * it does not rescue ctrl+f for the selector even though 1.5.0 gives the
+ * selector `capturesViewportInput = true`).
  *
- * Why ctrl+alt+f was discarded: clean at the pi layer across 1.1–1.4 (only
+ * Why ctrl+alt+f was discarded: clean at the pi layer across 1.1–1.5 (only
  * ctrl+alt+] is taken from that family) and byte-distinguishable without
  * kitty — but grabbed at the OS/app layer on the author's machine by a
  * Windows screenshot tool, so it never reached the terminal. Lesson: a key
