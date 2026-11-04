@@ -217,7 +217,7 @@ async function runCompactModelCompaction(
 		if (!summaryText.trim()) {
 			if (!signal.aborted) {
 				ctx.ui.notify(
-					"compact-model: 压缩摘要为空，已回落 pi 默认压缩。",
+					"compact-model: the summary came back empty — falling back to pi's default compaction.",
 					"warning",
 				);
 			}
@@ -244,7 +244,7 @@ async function runCompactModelCompaction(
 		const message =
 			error instanceof Error ? error.message : String(error);
 		ctx.ui.notify(
-			`compact-model: 压缩摘要失败（${message}），已回落 pi 默认压缩。`,
+			`compact-model: summarization failed (${message}) — falling back to pi's default compaction.`,
 			"error",
 		);
 		return undefined;
@@ -261,7 +261,7 @@ export async function pickCompactModel(
 ): Promise<AvailableModel | undefined> {
 	if (!ctx.hasUI) {
 		ctx.ui.notify(
-			"compact-model: 当前环境不支持模型选择对话框，请编辑 <agent-dir>/pi-toolkits-compact.json 手动配置。",
+			"compact-model: this environment has no model picker dialog — edit <agent-dir>/pi-toolkits-compact.json to configure it manually.",
 			"error",
 		);
 		return undefined;
@@ -270,16 +270,17 @@ export async function pickCompactModel(
 	const configuredModel = resolveConfiguredModel(ctx, configured);
 	if (!configuredModel && configured) {
 		ctx.ui.notify(
-			`compact-model: 配置的压缩模型 ${configured} 不存在或不可用，请重新选择。`,
+			`compact-model: the configured compact model ${configured} does not exist or is unavailable — pick another one.`,
 			"warning",
 		);
 	}
 	const model = await openModelPicker(ctx, configuredModel, {
-		selectTitle: "选择压缩模型（首项为当前默认，回车使用）",
+		selectTitle:
+			"Select the compaction model (first entry is the current default; press Enter to use it)",
 	});
 	if (!model) {
 		ctx.ui.notify(
-			"compact-model: 已取消，压缩模型配置未变更。清除配置请编辑 <agent-dir>/pi-toolkits-compact.json（把 model 置为 null）。",
+			"compact-model: cancelled — the compact model is unchanged. To clear the setting, edit <agent-dir>/pi-toolkits-compact.json and set model to null.",
 			"info",
 		);
 		return undefined;
@@ -290,7 +291,7 @@ export async function pickCompactModel(
 		store.setModel(key);
 	}
 	ctx.ui.notify(
-		`compact-model: 压缩模型已设置为「${model.name}」，后续压缩总结将由它执行。`,
+		`compact-model: compact model set to "${model.name}" — it will run the next compaction summary.`,
 		"info",
 	);
 	return model;
@@ -310,7 +311,7 @@ export function registerCompact(pi: ExtensionAPI): void {
 			const model = resolveConfiguredModel(ctx, configured);
 			if (!model) {
 				ctx.ui.notify(
-					`compact-model: 配置的压缩模型 ${configured} 不存在或不可用，已回落 pi 默认压缩。`,
+					`compact-model: the configured compact model ${configured} does not exist or is unavailable — falling back to pi's default compaction.`,
 					"warning",
 				);
 				return undefined;

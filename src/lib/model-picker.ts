@@ -65,7 +65,7 @@ export async function openModelPicker(
 	if (!ctx.hasUI) return undefined;
 	const available = ctx.modelRegistry.getAvailable();
 	if (available.length === 0) {
-		ctx.ui.notify("当前没有可用模型，请先在 pi 中配置模型。", "error");
+		ctx.ui.notify("No models are available — configure a model in pi first.", "error");
 		return undefined;
 	}
 	if (ctx.mode === "tui") {
@@ -96,7 +96,8 @@ export async function openModelPicker(
 		(m: AvailableModel) => `${m.name} (${m.provider}/${m.id})`,
 	);
 	const choice = await ctx.ui.select(
-		options?.selectTitle ?? "选择模型（首项为当前默认，回车使用）",
+		options?.selectTitle ??
+			"Select a model (first entry is the current default; press Enter to use it)",
 		labels,
 	);
 	if (choice === undefined) return undefined;

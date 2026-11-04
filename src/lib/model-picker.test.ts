@@ -115,7 +115,7 @@ describe("openModelPicker", () => {
 		const { ctx, notify } = fakeCtx([]);
 		expect(await openModelPicker(ctx)).toBeUndefined();
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("没有可用模型"),
+			expect.stringContaining("No models are available"),
 			"error",
 		);
 	});
@@ -170,7 +170,7 @@ describe("openModelPicker", () => {
 		const picked = await openModelPicker(ctx, MODELS[1]);
 		expect(custom).not.toHaveBeenCalled();
 		expect(select).toHaveBeenCalledWith(
-			"选择模型（首项为当前默认，回车使用）",
+			"Select a model (first entry is the current default; press Enter to use it)",
 			[
 				"Claude Sonnet 4 (anthropic/claude-sonnet-4)",
 				"Gemini 2.5 Flash (google/gemini-2.5-flash)",
@@ -184,8 +184,10 @@ describe("openModelPicker", () => {
 		(ctx as { mode: string }).mode = "rpc";
 		select.mockResolvedValue(undefined);
 		expect(
-			await openModelPicker(ctx, MODELS[0], { selectTitle: "选择评审模型" }),
+			await openModelPicker(ctx, MODELS[0], {
+				selectTitle: "Select the review model",
+			}),
 		).toBeUndefined();
-		expect(select).toHaveBeenCalledWith("选择评审模型", expect.any(Array));
+		expect(select).toHaveBeenCalledWith("Select the review model", expect.any(Array));
 	});
 });

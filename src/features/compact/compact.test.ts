@@ -296,7 +296,7 @@ describe("pickCompactModel", () => {
 		const { ctx, notify } = fakeCtx({ models: [] });
 		await pickCompactModel(ctx, getCompactStore());
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("没有可用模型"),
+			expect.stringContaining("No models are available"),
 			"error",
 		);
 	});
@@ -308,7 +308,7 @@ describe("pickCompactModel", () => {
 		expect(model).toBeUndefined();
 		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("置为 null"),
+			expect.stringContaining("set model to null"),
 			"info",
 		);
 	});
@@ -326,7 +326,7 @@ describe("pickCompactModel", () => {
 		await pickCompactModel(ctx, getCompactStore());
 		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("已取消"),
+			expect.stringContaining("cancelled"),
 			"info",
 		);
 	});
@@ -336,7 +336,7 @@ describe("pickCompactModel", () => {
 		const { ctx, notify } = fakeCtx({ customResult: MODELS[0] });
 		await pickCompactModel(ctx, getCompactStore());
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("不存在或不可用"),
+			expect.stringContaining("does not exist or is unavailable"),
 			"warning",
 		);
 		expect(getCompactStore().getModel()).toBe("google/gemini-2.5-flash");
@@ -451,7 +451,7 @@ describe("session_before_compact handler", () => {
 		)) as SessionBeforeCompactResult | undefined;
 		expect(result).toBeUndefined();
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("摘要为空"),
+			expect.stringContaining("came back empty"),
 			"warning",
 		);
 	});

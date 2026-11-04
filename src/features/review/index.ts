@@ -57,7 +57,7 @@ export async function pickReviewModel(
 	// headless contexts have no dialogs, so fall back to a manual-config hint.
 	if (!ctx.hasUI) {
 		ctx.ui.notify(
-			"third-review: 当前环境不支持模型选择对话框，请编辑 <agent-dir>/pi-toolkits-review.json 手动配置。",
+			"third-review: this environment has no model picker dialog — edit <agent-dir>/pi-toolkits-review.json to configure it manually.",
 			"error",
 		);
 		return undefined;
@@ -66,15 +66,16 @@ export async function pickReviewModel(
 	const configuredModel = resolveConfiguredModel(ctx, configured);
 	if (!configuredModel && configured) {
 		ctx.ui.notify(
-			`third-review: 配置的评审模型 ${configured} 不存在或不可用，请重新选择。`,
+			`third-review: the configured review model ${configured} does not exist or is unavailable — pick another one.`,
 			"warning",
 		);
 	}
 	const model = await openModelPicker(ctx, configuredModel, {
-		selectTitle: "选择评审模型（首项为当前默认，回车使用）",
+		selectTitle:
+			"Select the review model (first entry is the current default; press Enter to use it)",
 	});
 	if (!model) {
-		ctx.ui.notify("third-review: 已取消，评审模型配置未变更。", "info");
+		ctx.ui.notify("third-review: cancelled — the review model is unchanged.", "info");
 		return undefined;
 	}
 	const key = modelKey(model);
@@ -82,7 +83,7 @@ export async function pickReviewModel(
 		// Persist immediately (disk + in-memory + footer) — next run defaults here.
 		store.setModel(key);
 		ctx.ui.notify(
-			`third-review: 评审模型已保存为「${model.name}」，下次默认使用。`,
+			`third-review: review model saved as "${model.name}" — it will be the default next time.`,
 			"info",
 		);
 	}
@@ -103,12 +104,12 @@ export function createReviewRunner(
 
 	return async (ctx) => {
 		if (running) {
-			ctx.ui.notify("third-review: 评审已在执行中，请稍候。", "warning");
+			ctx.ui.notify("third-review: a review is already running — please wait.", "warning");
 			return;
 		}
 		if (!ctx.isIdle()) {
 			ctx.ui.notify(
-				"third-review: 当前任务仍在进行中，请等待完成后再触发。",
+				"third-review: the current task is still running — wait for it to finish before starting a review.",
 				"warning",
 			);
 			return;
@@ -129,7 +130,7 @@ export function createReviewRunner(
 				model = resolveConfiguredModel(ctx, store.getModel());
 				if (!model) {
 					ctx.ui.notify(
-						"third-review: 当前环境不支持模型选择对话框，请编辑 <agent-dir>/pi-toolkits-review.json 手动配置。",
+						"third-review: this environment has no model picker dialog — edit <agent-dir>/pi-toolkits-review.json to configure it manually.",
 						"error",
 					);
 					return;
@@ -138,13 +139,13 @@ export function createReviewRunner(
 			const switched = await pi.setModel(model);
 			if (!switched) {
 				ctx.ui.notify(
-					`third-review: 无法切换到评审模型「${model.name}」（缺少 API key 或鉴权未配置）。`,
+					`third-review: cannot switch to the review model "${model.name}" (missing API key or auth not configured).`,
 					"error",
 				);
 				return;
 			}
 			ctx.ui.notify(
-				`third-review: 已切换到评审模型「${model.name}」执行评审（查+修）；评审完成后会话保持该模型。`,
+				`third-review: switched to the review model "${model.name}" for this review (check + fix); the session stays on it afterwards.`,
 				"info",
 			);
 			pi.sendUserMessage(REVIEW_PROMPT);

@@ -7,25 +7,30 @@
  * it makes — stays in the current session transcript right next to the work
  * under review.
  *
- * The three focus points the user asked for (本轮需求实现 / 是否有遗漏 /
- * 是否有错误) are spelled out verbatim in the prompt, together with a hard
+ * The three focus points the user asked for (requirement coverage / anything
+ * missing / anything wrong — originally stated as 本轮需求实现 / 是否有遗漏 /
+ * 是否有错误) are spelled out one by one in the prompt, together with a hard
  * scope constraint: the review must stay within this round's changes.
+ *
+ * The prompt is English because everything the model and the operator see at
+ * runtime is English (TUI notices, tool text, prompts); keep it that way when
+ * editing, and keep the three focus points and the scope rule intact.
  */
 
-export const REVIEW_PROMPT = `请以第三方代码评审的身份，对本次会话中刚完成的开发任务进行 Review。
+export const REVIEW_PROMPT = `Act as a third-party code reviewer and review the development task that was just completed in this session.
 
-本轮需求、开发过程和代码改动都在当前会话上下文中，请结合上下文，并用 read/grep 等工具实际检查仓库代码，不要凭空猜测。
+The requirement for this round, the development process and the code changes are all in the current session context. Use that context, and actually inspect the repository with tools such as read/grep — do not guess.
 
-请重点检查以下三点（逐项给出结论）：
-1. 本轮需求实现：本轮需求是否已完整、正确地实现？实现与需求描述是否一致？
-2. 是否有遗漏：需求中是否有遗漏的功能点、边界情况、异常处理、兼容性、测试等？
-3. 是否有错误：代码中是否存在逻辑错误、潜在 bug、类型/编译错误、安全与性能隐患等？
+Focus on the following three points and give a conclusion for each:
+1. Requirement coverage: was this round's requirement implemented completely and correctly? Does the implementation match the requirement as described?
+2. Anything missing: are there requirement points, edge cases, error handling, compatibility concerns, or tests that were left out?
+3. Anything wrong: are there logic errors, potential bugs, type/compile errors, or security and performance risks in the code?
 
-范围强约束：
-- 本次 Review 仅限当前本轮修改内容（本轮需求对应的代码改动），避免扩大范围；
-- 本轮改动范围内确认的问题才直接修复；范围外的问题（历史遗留、无关代码）只记录提示，不要动手修改。
+Hard scope constraint:
+- Review only this round's changes (the code changes that correspond to this round's requirement); do not widen the scope;
+- Only fix problems confirmed inside this round's changes directly; for problems outside that scope (pre-existing issues, unrelated code) record them as notes — do not touch them.
 
-要求：
-- 对确认的问题直接修复（write/edit），并简要说明改了什么、为什么改；
-- 无法确认或不宜直接改的问题，列出：位置（文件/行）、问题描述、建议方案；
-- 最后输出评审报告：发现问题清单（已修复 / 未修复）、修复说明、总体结论（通过 / 需修改）与剩余风险。`;
+Requirements:
+- Fix confirmed problems directly (write/edit) and briefly state what you changed and why;
+- For problems you cannot confirm or should not fix directly, list: location (file/line), description of the problem, and a suggested approach;
+- Finish with a review report: the list of findings (fixed / not fixed), the fix notes, an overall verdict (pass / needs changes) and the remaining risks.`;

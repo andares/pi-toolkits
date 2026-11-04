@@ -256,7 +256,7 @@ describe("pickReviewModel", () => {
 		expect(await pickReviewModel(ctx, store)).toBeUndefined();
 		expect(custom).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("没有可用模型"),
+			expect.stringContaining("No models are available"),
 			"error",
 		);
 	});
@@ -267,7 +267,7 @@ describe("pickReviewModel", () => {
 		expect(await pickReviewModel(ctx, store)).toBeUndefined();
 		expect(custom).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("不支持模型选择对话框"),
+			expect.stringContaining("has no model picker dialog"),
 			"error",
 		);
 	});
@@ -302,7 +302,7 @@ describe("pickReviewModel", () => {
 		const { ctx, notify } = fakeCtx({ customResult: undefined });
 		await pickReviewModel(ctx, store);
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("不存在或不可用"),
+			expect.stringContaining("does not exist or is unavailable"),
 			"warning",
 		);
 	});
@@ -325,7 +325,7 @@ describe("pickReviewModel", () => {
 		expect(picked).toBe(MODELS[2]);
 		expect(store.getModel()).toBe("openrouter/openai/gpt-5");
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("已保存为"),
+			expect.stringContaining("review model saved as"),
 			"info",
 		);
 	});
@@ -339,7 +339,7 @@ describe("createReviewRunner", () => {
 		const { ctx, notify } = fakeCtx({ idle: false });
 		await createReviewRunner(pi)(ctx);
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("等待完成"),
+			expect.stringContaining("wait for it to finish"),
 			"warning",
 		);
 		expect(pi.setModel).not.toHaveBeenCalled();
@@ -356,7 +356,7 @@ describe("createReviewRunner", () => {
 		expect(setModel).toHaveBeenCalledWith(MODELS[0]);
 		expect(sendUserMessage).toHaveBeenCalledWith(REVIEW_PROMPT);
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("已切换到评审模型"),
+			expect.stringContaining("switched to the review model"),
 			"info",
 		);
 	});
@@ -387,7 +387,7 @@ describe("createReviewRunner", () => {
 		const { ctx, notify, custom } = fakeCtx({ customResult: MODELS[0] });
 		await createReviewRunner(pi)(ctx);
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("不存在或不可用"),
+			expect.stringContaining("does not exist or is unavailable"),
 			"warning",
 		);
 		expect(getReviewStore().getModel()).toBe("anthropic/claude-sonnet-4");
@@ -414,7 +414,7 @@ describe("createReviewRunner", () => {
 		expect(setModel).toHaveBeenCalledWith(MODELS[0]);
 		expect(sendUserMessage).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("无法切换到评审模型"),
+			expect.stringContaining("cannot switch to the review model"),
 			"error",
 		);
 	});
@@ -449,7 +449,7 @@ describe("createReviewRunner", () => {
 		} as unknown as ExtensionContext;
 		await runner(ctx2);
 		expect(notify2).toHaveBeenCalledWith(
-			expect.stringContaining("评审已在执行中"),
+			expect.stringContaining("a review is already running"),
 			"warning",
 		);
 		release?.(MODELS[0]);

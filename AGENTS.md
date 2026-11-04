@@ -27,6 +27,14 @@
 - Do **not** run `npm install`, `npm publish`, `npx`, or `npm whoami` in this
   project — always use the pnpm form.
 
+## 文案语言（不变量）
+
+- **运行时能看到的文本一律英文**：`ctx.ui.notify`、选择器标题/选项、footer 状态、拒绝理由与
+  审计报告、工具声明（`description` / `promptGuidelines` / 参数描述）、发给模型的提示词
+  （如 `REVIEW_PROMPT`、`scratchpad` 声明）与系统提示横幅。测试断言写对应英文子串。
+- 中文只保留在：源码注释、`README.zh-CN.md`、`AGENTS.md` 与本仓内部维护脚本；以及 init 按
+  `--lang` 写进项目的正文（「正文跟随项目语言」是既有契约，不属本条）。
+
 ## pi 宿主兼容
 
 **核心纪律：兼容区间是实测结论，不是愿望——而且只能往回测。** 上游只会向前发版，
