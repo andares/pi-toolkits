@@ -149,7 +149,7 @@ let patched = false;
 export function applyModelSelectorPatches(): boolean {
 	if (patched) return true;
 	// SAFETY: ModelSelectorComponent's members are TS-private (compile-time
-	// only); the structural view matches pi 1.0–1.3's prototype shape
+	// only); the structural view matches pi 1.0–1.5's prototype shape
 	// (byte-identical across that span) and every touched method is
 	// existence-checked below before any patching happens.
 	const proto =

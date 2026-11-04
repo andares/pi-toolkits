@@ -176,7 +176,9 @@ function kittyBytes(keyId) {
 //   2. searchNext/Previous/Close       → only while the transcript search box
 //                                        itself is focused (never with a dialog
 //                                        open — so those are NOT fatal)
-//   3. shouldDeferViewportInputToOverlay() → overlay (dialog) gets the key
+//   3. shouldDeferViewportInput()          → overlay (dialog) gets the key
+//      (renamed in 1.5.0; also defers to a focused component that declares
+//      capturesViewportInput)
 //   4. pageUp/halfPage/lineUp/previousPrompt/nextPrompt/top/bottom
 //                                      → viewport scrolling; below the defer
 //                                        guard, i.e. only when nothing is

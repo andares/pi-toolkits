@@ -59,7 +59,7 @@ interface CycleSessionInternals {
 		setDefaultModelAndProvider(provider: string, id: string): void;
 	};
 	/**
-	 * pi 1.0–1.3: keeps a persisted default usable when cycling inside a
+	 * pi 1.0–1.5: keeps a persisted default usable when cycling inside a
 	 * non-empty --models scope.
 	 */
 	_addPersistedDefaultToNonEmptyScope(model: unknown): void;
@@ -142,7 +142,7 @@ export function applyCyclePatch(): boolean {
 			return original.call(this, direction, options);
 		}
 
-		// Same source and availability filtering as pi's stock cycling (1.0–1.3).
+		// Same source and availability filtering as pi's stock cycling (1.0–1.5).
 		const scoped = this._scopedModels.length > 0;
 		let candidates: CycleCandidate[];
 		if (scoped) {
@@ -187,7 +187,7 @@ export function applyCyclePatch(): boolean {
 				: this._getThinkingLevelForModelSwitch();
 		this.agent.state.model = next.model;
 		this.sessionManager.appendModelChange(next.model.provider, next.model.id);
-		// pi 1.0–1.3: only persist the default model when the caller asked for it.
+		// pi 1.0–1.5: only persist the default model when the caller asked for it.
 		if (options.persist) {
 			this.settingsManager.setDefaultModelAndProvider(
 				next.model.provider,

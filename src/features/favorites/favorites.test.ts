@@ -39,6 +39,7 @@ import {
 	setSharedFavoritesStore,
 } from "./store.js";
 import { applyCyclePatch } from "./patch-cycle.js";
+import { styleFavorite } from "./constants.js";
 import {
 	applyModelSelectorPatches,
 	setSelectorThemeProvider,
@@ -504,6 +505,41 @@ describe("selector patches", () => {
 		expect(redundantLine).not.toContain("(Claude Sonnet 4)");
 		expect(renamedLine).toContain(
 			"(MiniMax M3 [rasmus@openrouter, parasail])",
+		);
+		// The full line pins the 1.5.0 column order (id → name → provider badge)
+		// and the favorite highlight not leaking ANSI codes into the name. The
+		// two spaces after → are the (empty) current-marker column; the fake
+		// selector has no currentModel, so no ✓ is drawn.
+		expect(redundantLine).toBe("→   claude-sonnet-4 [anthropic]");
+		expect(renamedLine).toBe(
+			"    minimax/minimax-m3 (MiniMax M3 [rasmus@openrouter, parasail]) [openrouter]",
+		);
+	});
+
+	it("keeps the favorite highlight while appending the disambiguating name", () => {
+		// Regression guard: the 1.5.0 name text must land AFTER the styled id
+		// (and outside its ANSI reset), or favorited ids would lose their color.
+		const favoriteModel = {
+			provider: "anthropic",
+			id: "claude-opus-4",
+			name: "Claude Opus 4 (max)",
+		};
+		getFavoritesStore().toggle(favoriteModel);
+		const lines: string[] = [];
+		const selector = fakeSelector({
+			activeModels: [],
+			filteredModels: [
+				{ provider: favoriteModel.provider, id: favoriteModel.id, model: favoriteModel },
+			] as unknown as FakeSelector["filteredModels"],
+			listContainer: {
+				clear() {},
+				addChild: (child: unknown) =>
+					lines.push((child as { text?: string }).text ?? ""),
+			},
+		});
+		selector.updateList();
+		expect(lines[0]).toBe(
+			`→   ${styleFavorite("claude-opus-4")} (Claude Opus 4 (max)) [anthropic]`,
 		);
 	});
 });

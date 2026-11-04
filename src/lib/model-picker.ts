@@ -43,9 +43,10 @@ function modelRuntimeFacade(ctx: ExtensionContext): ModelRuntime {
 		refresh: (options?: { signal?: AbortSignal }) =>
 			ctx.modelRegistry.refresh(options),
 	};
-	// SAFETY: the selector only touches the four members above (pi 1.0–1.3
-	// model-selector.js); everything else on ModelRuntime is never reached
-	// from this component.
+	// SAFETY: the selector only touches the four members above (pi 1.0–1.5
+	// model-selector.js; the 1.5.0 rendering/page-key changes add no runtime
+	// call); everything else on ModelRuntime is never reached from this
+	// component.
 	return facade as unknown as ModelRuntime;
 }
 

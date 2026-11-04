@@ -525,6 +525,61 @@ describe("session_before_compact handler", () => {
 		expect(compaction.usage?.input).toBe(107);
 	});
 
+	it("keeps the cost provider-reported only when both split-turn parts report it", async () => {
+		// 1.5.0's combineUsage rule end-to-end: the merged compaction usage, not
+		// just the helper. A part that reports no provider cost is enough to make
+		// the sum "not provider-reported"; only both parts reporting it flips it
+		// to true (asserted below on a second run). The flag is cost provenance,
+		// not the token sum.
+		getCompactStore().setModel("google/gemini-2.5-flash");
+		const { handler } = registeredHandler();
+		const withFlag = (flag: boolean | undefined) => {
+			const usage = fakeUsage();
+			if (flag !== undefined) usage.cost.totalFromProvider = flag;
+			return usage;
+		};
+		const { ctx } = fakeCtx({
+			complete: vi.fn(async (_model, context) => {
+				const text = (context.messages[0]?.content as Array<{ text?: string }>)[0]
+					?.text;
+				return text?.includes("# Instructions")
+					? fakeResponse("TURN PREFIX", { usage: withFlag(true) })
+					: fakeResponse("HISTORY", { usage: withFlag(undefined) });
+			}),
+		});
+		const event = fakeEvent({
+			turnPrefixMessages: [userMessage("prefix msg")],
+			isSplitTurn: true,
+		});
+		const result = (await handler(
+			event as never,
+			ctx,
+		)) as SessionBeforeCompactResult | undefined;
+		// Read through the structural view, not the host's `CompleteUsage`:
+		// `cost.totalFromProvider` only exists on pi ≥ 1.5.0's types, so reading
+		// it directly from the host type breaks typecheck on the 1.2–1.4 window
+		// even though the runtime field we write is the same.
+		const mergedUsage = result!.compaction!.usage as unknown as UsageLike;
+		expect(mergedUsage.cost.totalFromProvider).toBe(false);
+
+		// Same split turn, but both summaries report the cost themselves → true.
+		const both = fakeCtx({
+			complete: vi.fn(async (_model, context) => {
+				const text = (context.messages[0]?.content as Array<{ text?: string }>)[0]
+					?.text;
+				return text?.includes("# Instructions")
+					? fakeResponse("TURN PREFIX", { usage: withFlag(true) })
+					: fakeResponse("HISTORY", { usage: withFlag(true) });
+			}),
+		});
+		const bothResult = (await handler(
+			event as never,
+			both.ctx,
+		)) as SessionBeforeCompactResult | undefined;
+		const bothUsage = bothResult!.compaction!.usage as unknown as UsageLike;
+		expect(bothUsage.cost.totalFromProvider).toBe(true);
+	});
+
 	it("keeps the previous summary as history text on split turns with no messages", async () => {
 		getCompactStore().setModel("google/gemini-2.5-flash");
 		const { handler } = registeredHandler();

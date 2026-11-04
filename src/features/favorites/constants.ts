@@ -29,7 +29,8 @@ export const FAVORITES_FILE = "pi-toolkits-favorites.json";
  * (0.87–0.99 defaulted to `regular`, where the binding is inert). On
  * Windows/WSL `tui.altScreen.search` resolves to ctrl+f, and
  * `TuiAltScreen.handleViewportInput()` checks it before
- * `shouldDeferViewportInputToOverlay()`, so the keystroke opens transcript
+ * `shouldDeferViewportInput()` (named `shouldDeferViewportInputToOverlay()`
+ * through 1.4.0), so the keystroke opens transcript
  * search and the selector never sees it (verified in pi-tui 1.5.0
  * `dist/tui-alt-screen.js`: the search check is still the first key branch
  * and still returns `{ consume: true }` unconditionally; the 1.5.0 changes to
