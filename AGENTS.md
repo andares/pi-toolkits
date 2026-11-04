@@ -257,8 +257,11 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
   （已删）。`--audit` 列出 npm 已发布版本 ↔ GitHub Release ↔ 远端 tag 的差集
   （`--allow-gaps` 把历史缺口降为警告）；**每次发布后跑一次 `--audit`**——只在
   npm 上、没有 Release 的版本，其提交会被下一版的 `generate_release_notes`
-  吞进下一版（对照的是上一个已发布 Release），GitHub 的版本线就与 npm 对不上
-  （0.1.0 就是这样一条历史缺口）。
+  吞进下一版（对照的是上一个已发布 Release），GitHub 的版本线就与 npm 对不上。
+  唯一的先例是 0.1.0（早期发版时 tag 还不在流程里）：**2026-11-04 已补建完毕**——
+  tag 指向 `8a0e2fb`，建 Release 时用 `make_latest: false` + 回填 `created_at`，
+  所以 Latest 与 `git describe` 仍是 v0.11.3（证据：
+  `.agents/implementations/2026-11-04_backfill-v0.1.0-release.md`）。
 - GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（fine-grained token，
   Contents: write）；未设置时只提示——且 `pnpm release` 会在 `pnpm publish`
   **之前**先警告一次：npm 会照常发布，Release 事后用 `pnpm release:github` 补。
