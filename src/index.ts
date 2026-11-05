@@ -13,6 +13,7 @@
  *  - autostart — replay project-declared slash commands at session start (/add-dir persistence)
  *  - permission — session-scoped boundary permission checks (/ask-perm)
  *  - init — agent memory framework install / adoption (/ask-init)
+ *  - quit-guard — quit watchdog: force-exit when pi's shutdown hangs (/quit-guard)
  *
  * `ask` and `permission` are independent gates on one bus: each answers its own
  * question and the strictest answer wins, so they compose rather than replace
@@ -27,6 +28,7 @@ import { registerCompact } from "./features/compact/index.js";
 import { registerFavorites } from "./features/favorites/index.js";
 import { registerInit } from "./features/init/index.js";
 import { registerPermission } from "./features/permission/index.js";
+import { registerQuitGuard } from "./features/quit-guard/index.js";
 import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
 
@@ -44,6 +46,7 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	registerCompact(pi);
 	registerFavorites(pi);
 	registerInit(pi);
+	registerQuitGuard(pi);
 	registerReview(pi);
 	registerStash(pi);
 

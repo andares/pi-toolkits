@@ -808,3 +808,83 @@ A+B 落地后这批 7 次里 5 次免弹；剩余 2 次是解析器能力问题�
 - 启发式，不是沙箱：进程替换走 opaque、Windows Git-Bash 路径拼写只近似（实测目标是 POSIX）、
   PowerShell 不拆解、子代理会话不继承父会话状态。
 - 项目内的破坏性操作靠固定表兜，不靠沙箱。
+
+## Feature: quit-guard（退出看门狗，2026-11-05 立项并实现）
+
+### 起因（实测，2026-11-05）
+
+pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（还原终端、重绘最后一帧）
+→ `await runtimeHost.dispose()`（**串行 await 每个扩展的 `session_shutdown`，无超时**）
+→ `process.exit(0)`。任一扩展的收尾 Promise 永不 settle，进程就在「终端已还给你、画面
+却停在最后一帧」的状态下永远挂着；宿主 `isShuttingDown` 置位后 Ctrl+C / SIGTERM / SIGHUP
+都会被吞掉，只有 `kill -9` 有效。上游 issue
+[#9997](https://github.com/earendil-works/pi/issues/9997)（0.86/0.87 就有，机器人自动关闭），
+1.5.0 与 `main` 的 `interactive-mode.ts` 仍是同一个无界 await。
+
+本机实测（20 个扩展包，tmux，`PI_TUI_WRITE_LOG` 计时）：健康退出 2.1 s / 5.0 s；
+`pi -ne` 121 ms；同一环境三次 `/quit` 有一次**永不退出**。卡死时进程 0% CPU，
+`pgrep -a pi` 可见（PPID=1、无 tty 的孤儿就是关窗后残留的实体）。
+
+### 决策
+
+- **触发源用终端收尾序列，不用 `session_shutdown`**：pi 串行 await，卡死处理器若比本包先
+  加载，我们自己的 `session_shutdown` 根本不会运行——按事件挂看门狗会正好漏掉要抓的场景。
+  `\x1b[?2004l`（`ProcessTerminal.stop()`，regular/fullscreen 都写）与
+  `\x1b[?1049l`（fullscreen 退备用屏）都早于收尾阶段。
+- **解除条件**：`\x1b[?2004h` / `\x1b[?1049h`（TUI 重新进入）与 `SIGCONT`。覆盖两种合法
+  的「停 TUI 但会话还活着」：`/settings` 切 TUI 模式（`switchTuiMode` 先 stop 旧渲染器再
+  start 新的）与 Ctrl+Z 挂起/resume（`handleCtrlZ` 先 `ui.stop()`，SIGCONT 里 `ui.start()`）。
+  到期回调延迟一拍（setImmediate），保证 resume 赢过已过期的定时器。
+- **触发前再验一次 `process.stdin.isRaw`**：收尾序列也可能出现在被渲染的内容里（工具输出、文件正文
+  恰好含该转义序列），而 raw mode 不会撒谎——TUI 收尾时把 raw mode 关掉，所以 `isRaw===true`
+  说明 TUI 还活着，直接解除而不杀。
+- **默认开启、10 s、写报告**。10 s 从「收尾序列写出」起算，不把你按 Enter 到 TUI 停下的
+  时间算进去；实测健康退出在收尾后最多 2 s，余量充足。可 `/quit-guard <ms>` 调（钳制
+  2000–60000），`/quit-guard off` 关闭，配置落 `<agent-dir>/pi-toolkits-quit-guard.json`。
+- **触发时写报告再退出**：`<agent-dir>/quit-guard/quit-hang-<ts>-<pid>.json`，含
+  `activeHandles` / `activeRequests` / 宿主 `process.report` 的 libuv 表。空表 + 活进程
+  = 卡在永不 settle 的 Promise 上（区别于阻塞 socket / 残留子进程）。报告是 0700 目录下的
+  0600 文件，`argv` 走上游 `redactText` + 位置式旗标脱敏（`--api-key <opaque>`、`--token=…`），
+  避免把密钥写进盘。**报告链路整体 try/catch**：`process.cwd()` 在目录被删后会抛 ENOENT
+  （pi 1.5.0 自己也为此加了启动保护），诊断失败绝不能挡住强制退出。
+- **退出用 `process.exit(0)`，外加 SIGKILL 兜底**（先排 500 ms 定时器，再 exit，正常路径
+  定时器不会触发）。测试中实际撞到过一次 exit 之后进程仍停在事件循环里；会话 JSONL 是
+  增量落盘的，报告也已同步写完，硬杀不丢可恢复内容。
+
+### 落位
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/features/quit-guard/constants.ts` | 收尾/重启标记、默认值与钳制区间、理由注释 |
+| `src/features/quit-guard/guard.ts` | 纯状态机（注入 clock/scheduler/defer），arm/disarm/fire |
+| `src/features/quit-guard/store.ts` | 配置读写（原子写、损坏回落默认、时长时间钳制） |
+| `src/features/quit-guard/report.ts` | 报告采集与同步落盘（失败只警告，绝不阻塞退出） |
+| `src/features/quit-guard/index.ts` | 进程接线：stdout 单例包装、SIGCONT、`/quit-guard` 命令 |
+| `src/features/quit-guard/quit-guard.test.ts` | 45 个用例（状态机、钳制、存储、报告与脱敏/权限位、命令面板、stdout 单例、raw-mode 兜底、探针异常） |
+
+不变量：stdout 包装**每进程只装一次**（`Symbol.for` 存在 `globalThis`，`/reload` 只刷新
+配置与状态，不重复包装）；计时用 `performance.now()`（单调时钟——测试里撞到过 WSL 墙上时钟
+回跳，`Date.now()` 会把 10 s 记成 7.2 s）；报告写盘失败不影响退出。
+
+### 已验证
+
+- `pnpm typecheck`、`pnpm test`：**31 文件 / 649 测试**全绿。
+- 真实 pi 1.5.0 冒烟（tmux，`-ne -e ./src/index.ts`，卡死探针为「`session_shutdown` 返回
+  永不 resolve 的 Promise」，且探针**先于**本包加载以证明不依赖处理器顺序）：
+  - fullscreen：收尾后 **2.15 s** 退出（timeout 2000 ms），报告写出；
+  - `tuiMode: "regular"`：同样 **2.15 s** 退出（走 `?2004l`）；
+  - 无卡死探针：**0.11 s** 退出（看守不拖慢正常退出）；
+  - `/quit-guard 4500` 持久化生效：下次退出 **4.66 s**；
+  - 默认值（10 s、真实 agent dir）首次冒烟：报告 `elapsedMs≈10000`、`marker=?2004l`。
+- 宿主事实：`?2004l` 由 `ProcessTerminal.stop()` 直接 `process.stdout.write`，**不经过**
+  `PI_TUI_WRITE_LOG`（该日志只记 `terminal.write`）；所以调试看门狗用
+  `PI_QUIT_GUARD_DEBUG=<file>`（记录 register/arm/disarm/fire），不要拿 TUI 写日志对时间。
+
+### 已知边界（有意为之）
+
+- **只覆盖交互式 TUI**：print/JSON/RPC 不写收尾序列，看守完全不生效。
+- 只覆盖**收尾之后**的卡死；TUI 停下之前就卡住的情况（未观察到，`drainInput` 上限 1 s）不管。
+- 触发即跳过剩余扩展清理（挂住的就是它）；不判断「哪个扩展」——报告只给进程状态。
+- `/reload` + `-e` TypeScript 扩展在 tmux 夹具里表现不稳定（换掉本包、甚至完全不加包装也
+  一样），属宿主/夹具噪声，不是本功能的回归；真实会话里 `/reload` 后看守仍按单例接线工作。
+- 这是对宿主缺口的权宜之计：pi 若给 `session_shutdown` 加上限，本功能可整体删除。

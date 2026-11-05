@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: seven ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model` and **session startup automation** `autostart` — with more to come.
+In a nutshell: nine ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, and a **quit watchdog** `quit-guard` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.0 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -57,6 +57,7 @@ After installing, verify in any pi session:
   - [🗜️ compact — dedicated compaction model](#compact)
   - [🚀 autostart — session startup automation](#autostart)
   - [🧠 init — agent memory framework](#init)
+  - [🧯 quit-guard — quit watchdog](#quit-guard)
 - [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
@@ -77,6 +78,7 @@ After installing, verify in any pi session:
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
+| 🧯 **quit-guard** quit watchdog | `/quit-guard` | force-exit when pi's shutdown hangs after the TUI is gone (an extension `session_shutdown` that never settles), write a hang report, and give the shell prompt back; TUI restarts and Ctrl+Z resume disarm it |
 
 ---
 
@@ -451,6 +453,77 @@ published); text written *into* a project follows that project's language.
 > framework version lives in `.agents/framework/state.toml`; a project whose state
 > version is newer than the installed tool is never migrated.
 
+## 🧯 quit-guard — quit watchdog
+
+<a name="quit-guard"></a>
+
+**The problem.** pi's interactive `/quit` stops the TUI and then awaits every extension's
+`session_shutdown` handler, one after another, **with no timeout**
+(`runtimeHost.dispose()` → `emitSessionShutdownEvent()`; upstream
+[issue #9997](https://github.com/earendil-works/pi/issues/9997), still unbounded in 1.5.0 and on
+`main`). One handler that never settles leaves pi alive at 0% CPU *after* the terminal has
+already been restored and the final frame reprinted: the screen looks like a frozen "exit
+screen", and the shell prompt never comes back. Ctrl+C and SIGTERM did not end the hung process
+in our measurements (SIGKILL did); once that phase starts, the host has no way out of it.
+Measured with a 20-extension setup (2026-11-05): a healthy quit spends 0.1–3 s in that phase,
+`pi -ne` 0.12 s — and one of three quits with the same setup never finished at all.
+
+**What this does.** The guard watches the terminal instead of the event stream, so it still
+works when the handler that hangs was loaded *before* this package (in that case our own
+`session_shutdown` would never run). It arms on the TUI's teardown sequence
+(`\x1b[?2004l` / `\x1b[?1049l`); if the process is still alive `timeoutMs` later, it writes a
+hang report and forces the exit. A TUI that comes back disarms it — an interactive mode switch
+(`/settings` → TUI mode) and Ctrl+Z suspend/resume both re-enter the TUI, and a live session
+must never be killed.
+
+### Commands
+
+| Command | Effect |
+| --- | --- |
+| `/quit-guard` | status: on/off, timeout, report on/off, newest hang report |
+| `/quit-guard on` / `/quit-guard off` | enable/disable, persisted |
+| `/quit-guard <ms>` | set the deadline (clamped to 2000–60000 ms), persisted |
+
+**Configuration** — `<agent-dir>/pi-toolkits-quit-guard.json`, written by the commands; every
+field is optional:
+
+```json
+{
+  "enabled": true,
+  "timeoutMs": 10000,
+  "report": true
+}
+```
+
+`timeoutMs` counts **from the teardown write**, not from the moment you press Enter, so the time
+the TUI spends stopping is not charged against a slow-but-finishing shutdown. Keep it below your
+slowest healthy quit; 10 s leaves a wide margin (the slowest healthy quit measured above was 5 s
+end to end, of which ~2 s came after the teardown).
+
+**Hang reports** — `<agent-dir>/quit-guard/quit-hang-<timestamp>-<pid>.json` records the
+arm/fire timing, the teardown marker, and the process state at the deadline (`activeHandles`,
+`activeRequests`, and the host's libuv handle table). An empty `libuv` table next to a live
+process is the signature of a promise nobody will ever resolve, as opposed to a blocked socket
+or a lingering child process. The file is owner-only (0600 in an 0700 directory) and process
+arguments are redacted with the same rules as the approval log, so `pi --api-key …` does not
+leave the key on disk.
+
+`PI_QUIT_GUARD_DEBUG=<file>` appends one line per `arm` / `disarm` / `fire` (plus one per
+extension registration); once the TUI is gone it is the only channel left.
+
+### Boundaries
+
+- Interactive TUI only. Print (`-p`), JSON, and RPC sessions never write the teardown
+  sequences, so the guard stays inert there.
+- The deadline covers the **post-teardown** phase. A shutdown that hangs before the TUI stops
+  (not observed; `drainInput` is bounded at 1 s) is out of scope.
+- When it fires, the remaining extension cleanup is skipped **by design** — that cleanup is what
+  was hanging. Session entries are appended to the session JSONL as they happen, so the
+  transcript is intact up to the last written entry. The process exits 0; if `process.exit()`
+  itself is turned into a no-op by an `exit` listener, a 500 ms fallback sends `SIGKILL`.
+- This is a workaround for a host gap. If pi ever bounds `session_shutdown`, the guard becomes
+  a no-op safety net and can be removed.
+
 ---
 
 ## 🛠️ Development
@@ -493,6 +566,8 @@ src/
     ├── permission/       # session-scoped boundary permission: modes, panel,
     │                     #           bash units, policy, session grants, prompt,
     │                     #           audit payload, tests
+    ├── quit-guard/       # quit watchdog: terminal-teardown trigger, settings
+    │                     #           store, hang report, tests
     ├── review/           # third-party review: input/command triggers,
     │                     #           review-model config store, prompt, tests
     └── stash/            # prompt stash: hotkey state machine + tests

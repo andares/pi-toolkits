@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含七个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`,后续持续追加。
+一句话介绍:目前包含九个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**退出看门狗** `quit-guard`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.0 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -57,6 +57,7 @@ pi -e ./src/index.ts
   - [🗜️ compact — 独立压缩模型](#compact)
   - [🚀 autostart — 会话启动自动化](#autostart)
   - [🧠 init — agent 记忆框架](#init)
+  - [🧯 quit-guard — 退出看门狗](#quit-guard)
 - [开发](#development)
 - [贡献](#contributing)
 - [许可](#license)
@@ -77,6 +78,7 @@ pi -e ./src/index.ts
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 | 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计漂移、预算与重复事实 |
+| 🧯 **quit-guard** 退出看门狗 | `/quit-guard` | TUI 已停、进程却卡在扩展 `session_shutdown` 上时，超时后写诊断报告并强制退出，把命令行提示符还给你；TUI 重启（切换显示模式）与 Ctrl+Z 恢复都会解除看守 |
 
 ---
 
@@ -435,6 +437,46 @@ run = [
 > **跑完记得 `/reload`**,让新的 `AGENTS.md` 进入提示词。框架版本记在
 > `.agents/framework/state.toml`;若项目的状态版本比当前工具新,则拒绝迁移。
 
+## 🧯 quit-guard — 退出看门狗
+
+<a name="quit-guard"></a>
+
+**要解决的问题**。pi 的 `/quit` 先停 TUI，然后**逐个 await** 每个扩展的 `session_shutdown` 处理器,且**没有任何超时**(`runtimeHost.dispose()` → `emitSessionShutdownEvent()`;上游
+[issue #9997](https://github.com/earendil-works/pi/issues/9997),1.5.0 与 `main` 至今未修)。只要有一个处理器永不 settle,pi 就会在终端已还原、最后一帧已重绘之后,以 0% CPU 永远挂着:画面看起来像「停在退出界面」,提示符再也不回来;实测 Ctrl+C 与 SIGTERM 都无法结束这个进程(只有 SIGKILL 有效)——进了这段收尾,宿主自己也没有出口。20 个扩展的环境实测(2026-11-05):健康退出在这段收尾上花 0.1–3 秒,`pi -ne` 0.12 秒;同一环境三次 `/quit` 就有一次**永远不结束**。
+
+**这个功能做什么**。看守盯的是**终端写出的收尾序列**,而不是事件流——所以即使卡死的处理器比本包**先**加载(那样我们自己的 `session_shutdown` 根本不会运行),它照样能触发。它在 TUI 收尾序列(`\x1b[?2004l` / `\x1b[?1049l`)出现时开始计时;若 `timeoutMs` 之后进程还活着,就写一份诊断报告并强制退出。TUI **回来**时自动解除:`/settings` 里切换 TUI 显示模式、Ctrl+Z 挂起后 `fg` 恢复,都会让 TUI 重新进入,绝不能误杀活着的会话。
+
+### 命令
+
+| 命令 | 作用 |
+| --- | --- |
+| `/quit-guard` | 查看状态:开关、超时、报告开关、最近一份诊断报告 |
+| `/quit-guard on` / `/quit-guard off` | 开启/关闭,并持久化 |
+| `/quit-guard <ms>` | 设置超时(钳制在 2000–60000 ms),并持久化 |
+
+**配置** —— `<agent-dir>/pi-toolkits-quit-guard.json`,由命令写入;所有字段都可省略:
+
+```json
+{
+  "enabled": true,
+  "timeoutMs": 10000,
+  "report": true
+}
+```
+
+`timeoutMs` 从**收尾序列写出**那一刻开始算,不是从你按下 Enter 开始算——TUI 自己停下来的时间不计入,所以「慢但能完成」的收尾(记忆库 flush、MCP 关闭)不会被误杀。把它设在「你最慢的健康退出」之上;10 秒余量很大(上例最慢的健康退出端到端 5 秒,其中约 2 秒发生在收尾之后)。
+
+**诊断报告** —— `<agent-dir>/quit-guard/quit-hang-<时间戳>-<pid>.json`,记录开始计时/触发的时间、触发用的收尾序列,以及截止时进程的状态(`activeHandles`、`activeRequests`、宿主 libuv 句柄表)。**进程还活着但 `libuv` 表是空的**,就是「有个 Promise 永远不会 settle」的特征,区别于阻塞的 socket 或残留子进程。报告文件**仅本人可读**(0700 目录下的 0600 文件),进程参数按审批日志同一套规则脱敏,所以 `pi --api-key …` 不会把密钥留在盘上。
+
+`PI_QUIT_GUARD_DEBUG=<文件>` 会把每次 `arm` / `disarm` / `fire`(以及每次扩展注册)追加一行;TUI 已经没了的时候,这是唯一还能观察的通道。
+
+### 边界
+
+- 只覆盖交互式 TUI。`-p`(print)、JSON、RPC 模式不会写这些收尾序列,看守在那里完全不生效。
+- 计时覆盖的是**收尾之后**的阶段;在 TUI 停下之前就卡住的情况(未观察到;`drainInput` 上限 1 秒)不在范围内。
+- 触发时**按设计跳过**剩余扩展清理——挂住的就是它。会话条目是随发生随写入 JSONL 的,所以最后一条已写入的记录不会丢。正常路径退出码 0;若 `process.exit()` 本身被 `exit` 监听器变成空操作,500 ms 后会补一记 `SIGKILL`。
+- 这是对宿主缺口的权宜之计:哪天 pi 给 `session_shutdown` 加上限时,看守就退化成无害的保险,可以直接删掉。
+
 ---
 
 ## 🛠️ 开发
@@ -476,6 +518,8 @@ src/
     ├── permission/       # 会话级边界权限:模式、面板、bash 拆解、
     │                     #           策略、会话授权、确认对话框、
     │                     #           审计 payload、测试
+    ├── quit-guard/       # 退出看门狗:终端收尾触发、配置存储、
+    │                     #           诊断报告、测试
     ├── review/           # 第三方评审:输入/指令触发、
     │                     #           评审模型配置存储、提示词、测试
     └── stash/            # 提示词暂存:热键状态机 + 测试
