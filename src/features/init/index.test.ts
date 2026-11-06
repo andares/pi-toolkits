@@ -83,6 +83,7 @@ describe("parseInitArgs", () => {
 		expect(parseInitArgs("").sub).toBe("run");
 		expect(parseInitArgs("check").sub).toBe("check");
 		expect(parseInitArgs("roots").sub).toBe("roots");
+		expect(parseInitArgs("scrub").sub).toBe("scrub");
 		expect(parseInitArgs("plan --deep").sub).toBe("plan");
 	});
 
@@ -324,6 +325,46 @@ describe("review regressions", () => {
 			expect(h.sent).toHaveLength(0);
 			expect(readFileSync(join(root, ".agents/framework/state.toml"), "utf8")).toBe(before);
 			expect(h.messages.some((item) => /no automatic upgrade recipe/.test(item.message))).toBe(true);
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("scrubs retired language fields, once, and honours --dry-run", async () => {
+		const state = [
+			"version = 1",
+			'tool = "0.11.0"',
+			'created = "2026-01-01T00:00:00+08:00"',
+			'updated = "2026-01-01T00:00:00+08:00"',
+			'profile = "core"',
+			"modules = []",
+			'lang = "zh"',
+			"",
+		].join("\n");
+		const plan = `${JSON.stringify({ framework: "agent-framework", language: "zh", tasks: [] }, null, 2)}\n`;
+		const root = project({
+			".agents/framework/state.toml": state,
+			".agents/framework/plans/plan-old.json": plan,
+		});
+		try {
+			const dry = harness(root);
+			registerInit(dry.pi, { now: NOW, toolVersion: "test" });
+			await dry.run("scrub --dry-run");
+			expect(dry.messages.at(-1)?.message).toMatch(/would clean/);
+			expect(readFileSync(join(root, ".agents/framework/state.toml"), "utf8")).toBe(state);
+			expect(readFileSync(join(root, ".agents/framework/plans/plan-old.json"), "utf8")).toBe(plan);
+
+			const h = harness(root);
+			registerInit(h.pi, { now: NOW, toolVersion: "test" });
+			await h.run("scrub");
+			expect(h.messages.at(-1)?.message).toMatch(/cleaned/);
+			expect(readFileSync(join(root, ".agents/framework/state.toml"), "utf8")).not.toMatch(/^\s*lang\s*=/m);
+			expect(readFileSync(join(root, ".agents/framework/plans/plan-old.json"), "utf8")).not.toMatch(/"language"/);
+
+			const again = harness(root);
+			registerInit(again.pi, { now: NOW, toolVersion: "test" });
+			await again.run("scrub");
+			expect(again.messages.at(-1)?.message).toMatch(/nothing to scrub/);
 		} finally {
 			remove(root);
 		}

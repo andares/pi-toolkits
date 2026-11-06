@@ -35,6 +35,7 @@ import {
 	IMPLEMENTATIONS_DIR,
 	MEMORY_DIR,
 	PLAN_FILE,
+	PLANS_DIR,
 	REPORTS_DIR,
 	SIGNPOST_FILE,
 	SPECS_DIR,
@@ -374,7 +375,6 @@ export function stateToToml(state: FrameworkState): string {
 		updated: state.updated,
 		profile: state.profile,
 		modules: state.modules,
-		lang: state.lang,
 		budgets: state.budgets
 			? compact({
 					agents_md_soft_chars: state.budgets.agentsMdSoftChars,
@@ -618,6 +618,7 @@ export function applyPlan(plan: Plan, options: ApplyOptions = {}): ApplyResult {
 			? writeCoverageFile(plan, plan.artifacts.coverage)
 			: undefined;
 	const planPath = !ctx.dryRun && plan.artifacts.plan ? writeWorkOrder(plan, ctx) : undefined;
+	const scrubbedPlans = planPath ? scrubPlanArtifacts(join(plan.root, PLANS_DIR), false) : 0;
 
 	const summary: string[] = [];
 	if (ctx.snapshot) summary.push(`snapshot: ${ctx.snapshot.dir} (${ctx.snapshot.files} files)`);
@@ -628,6 +629,7 @@ export function applyPlan(plan: Plan, options: ApplyOptions = {}): ApplyResult {
 	if (ctx.created.length > 0) summary.push(`created ${ctx.created.length} files`);
 	if (coverageWritten) summary.push(`coverage worklist: ${coverageWritten}`);
 	if (planPath) summary.push(`work order: ${planPath}`);
+	if (scrubbedPlans > 0) summary.push(`removed obsolete fields from ${scrubbedPlans} plan artifact(s)`);
 	if (ctx.skipped.length > 0) summary.push(`skipped ${ctx.skipped.length} (see report)`);
 
 	return {
@@ -664,6 +666,102 @@ function writeWorkOrder(plan: Plan, ctx: ApplyContext): string | undefined {
 		"utf8",
 	);
 	return plan.artifacts.plan;
+}
+
+/**
+ * Remove retired language directives from every plan artifact in a directory.
+ * Covers the top-level `language` key and the retired survey-task line that old
+ * runs serialized into `tasks[].detail`. Local-only run artefacts; unreadable
+ * files are left untouched. Returns how many files were (or would be) rewritten.
+ */
+const RETIRED_DETAIL_LINES = [
+	"Language for everything you write: en.",
+	"Language for everything you write: zh.",
+];
+
+function scrubPlanArtifacts(dir: string, dryRun: boolean): number {
+	if (!existsSync(dir)) return 0;
+	let scrubbed = 0;
+	for (const name of readdirSync(dir).sort()) {
+		if (!name.endsWith(".json")) continue;
+		const file = join(dir, name);
+		try {
+			const value = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown> | null;
+			if (value === null || typeof value !== "object" || Array.isArray(value)) continue;
+			let changed = false;
+			if ("language" in value) {
+				delete value.language;
+				changed = true;
+			}
+			if (Array.isArray(value.tasks)) {
+				for (const task of value.tasks) {
+					if (task === null || typeof task !== "object") continue;
+					const record = task as Record<string, unknown>;
+					if (typeof record.detail !== "string") continue;
+					const kept = record.detail
+						.split("\n")
+						.filter((line) => !RETIRED_DETAIL_LINES.includes(line))
+						.join("\n");
+					if (kept === record.detail) continue;
+					record.detail = kept;
+					changed = true;
+				}
+			}
+			if (!changed) continue;
+			scrubbed += 1;
+			if (!dryRun) writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+		} catch {
+			// Not ours to fix: malformed artifacts stay as they are.
+		}
+	}
+	return scrubbed;
+}
+
+/**
+ * A retired `lang` key, in the shapes TOML accepts. Only the top-level region of
+ * the state file is filtered: an identically named key inside a table belongs to
+ * that table, not to us.
+ */
+const RETIRED_STATE_LINE = /^\s*lang\s*=\s*["'](?:zh|en)["']\s*(?:#.*)?$/;
+
+function scrubStateLang(raw: string): string {
+	const lines = raw.split("\n");
+	const firstTable = lines.findIndex((line) => /^\s*\[/.test(line));
+	const limit = firstTable === -1 ? lines.length : firstTable;
+	return lines.filter((line, index) => index >= limit || !RETIRED_STATE_LINE.test(line)).join("\n");
+}
+
+export interface ScrubOptions {
+	/** Report what would change without touching the files. */
+	readonly dryRun?: boolean;
+}
+
+export interface ScrubResult {
+	/** state.toml lost (in a dry run: would lose) the retired key. */
+	readonly stateScrubbed: boolean;
+	/** Plan artifacts that were (in a dry run: would be) rewritten. */
+	readonly plansScrubbed: number;
+}
+
+/**
+ * Maintenance entry: remove retired language fields from an installed
+ * framework (the `lang` line in state.toml, the `language` key and the retired
+ * survey line in plan artifacts). Idempotent — a second call reports nothing to
+ * do. Files outside the three retired shapes are not rewritten.
+ */
+export function scrubRetiredFields(root: string, options: ScrubOptions = {}): ScrubResult {
+	const dryRun = options.dryRun === true;
+	const stateFile = join(root, STATE_FILE);
+	let stateScrubbed = false;
+	if (existsSync(stateFile)) {
+		const raw = readFileSync(stateFile, "utf8");
+		const kept = scrubStateLang(raw);
+		if (kept !== raw) {
+			stateScrubbed = true;
+			if (!dryRun) writeFileSync(stateFile, kept, "utf8");
+		}
+	}
+	return { stateScrubbed, plansScrubbed: scrubPlanArtifacts(join(root, PLANS_DIR), dryRun) };
 }
 
 /** Write state, refreshing the hashes of files this framework manages. */

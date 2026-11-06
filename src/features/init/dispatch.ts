@@ -26,7 +26,6 @@ const MODE_LABEL: Record<Plan["mode"], string> = {
 
 export function buildWorkOrder(input: WorkOrderInput): string {
 	const { plan, applied } = input;
-	const language = plan.language === "zh" ? "Chinese" : "English";
 
 	const done: string[] = [];
 	if (applied) {
@@ -65,7 +64,6 @@ export function buildWorkOrder(input: WorkOrderInput): string {
 		`AGENT FRAMEWORK v${plan.frameworkVersion} — ${MODE_LABEL[plan.mode]}`,
 		"",
 		`Repository: ${plan.root}`,
-		`Prose language for anything you write: ${language}.`,
 		`Plan (machine-readable): ${input.planPath ?? plan.artifacts.plan ?? "(see the plan task)"}`,
 		"",
 		"The deterministic half has already run. Do not repeat it, and do not move, rename or scaffold directories yourself unless a task says so.",
@@ -112,7 +110,6 @@ export function serializeWorkOrder(plan: Plan, applied?: ApplyResult): string {
 			version: plan.frameworkVersion,
 			mode: plan.mode,
 			root: plan.root,
-			language: plan.language,
 			createdAt: plan.createdAt,
 			tool: plan.toolVersion,
 			artifacts: plan.artifacts,

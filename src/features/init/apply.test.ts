@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { applyPlan, rewriteText, stateToToml } from "./apply.js";
+import { applyPlan, rewriteText, scrubRetiredFields, stateToToml } from "./apply.js";
 import { parseState } from "./detect.js";
 import { detect } from "./detect.js";
 import { buildPlan } from "./plan.js";
@@ -96,7 +96,10 @@ describe("applyPlan", () => {
 			const state = parseState(readFileSync(join(root, ".agents/framework/state.toml"), "utf8"));
 			expect(state.version).toBe(1);
 			expect(state.migrations.length).toBeGreaterThan(0);
-			expect(state.lang).toBe("zh");
+			// The rendering language is computed per run and never persisted.
+			expect(readFileSync(join(root, ".agents/framework/state.toml"), "utf8")).not.toMatch(
+				/^\s*lang\s*=/m,
+			);
 			expect(applied.planPath).toMatch(/^\.agents\/framework\/plans\/plan-.*\.json$/);
 			const order = JSON.parse(readFileSync(join(root, applied.planPath ?? ""), "utf8")) as {
 				tasks: Array<{ id: string }>;
@@ -111,6 +114,35 @@ describe("applyPlan", () => {
 		} finally {
 			remove(root);
 		}
+	});
+
+	describe("retired-field cleanup", () => {
+		it("scrubs old plan artifacts during a mutating run", () => {
+			const old = `${JSON.stringify(
+				{
+					framework: "agent-framework",
+					mode: "adopt",
+					language: "zh",
+					tasks: [{ id: "survey", detail: "Read.\nLanguage for everything you write: zh." }],
+				},
+				null,
+				2,
+			)}\n`;
+			const root = project({ ...LEGACY, ".agents/framework/plans/plan-old.json": old });
+			try {
+				const applied = applyPlan(planFor(root), {
+					now: new Date("2026-10-26T10:00:00+08:00"),
+				});
+				expect(applied.summary.some((line) => line.includes("removed obsolete fields"))).toBe(true);
+				const scrubbed = JSON.parse(
+					readFileSync(join(root, ".agents/framework/plans/plan-old.json"), "utf8"),
+				) as { language?: unknown; tasks: Array<{ detail: string }> };
+				expect("language" in scrubbed).toBe(false);
+				expect(scrubbed.tasks[0].detail).toBe("Read.");
+			} finally {
+				remove(root);
+			}
+		});
 	});
 
 	it("is safe to run twice", () => {
@@ -170,7 +202,6 @@ describe("applyPlan", () => {
 				updated: "2026-01-02T00:00:00+08:00",
 				profile: "core" as const,
 				modules: ["design"],
-				lang: "zh" as const,
 				roots: [
 					{
 						label: "api",
@@ -261,4 +292,129 @@ it("does not corrupt non-UTF-8 files during reference rewriting", () => {
 	} finally {
 		remove(root);
 	}
+});
+
+describe("scrubRetiredFields", () => {
+	const STATE = [
+		"version = 1",
+		'tool = "0.11.0"',
+		'created = "2026-01-01T00:00:00+08:00"',
+		'updated = "2026-01-01T00:00:00+08:00"',
+		'profile = "core"',
+		"modules = []",
+		'lang = "zh"',
+		"",
+		"[[managed]]",
+		'path = ".agents/memory/README.md"',
+		'sha256 = "abc"',
+		'template = "memory-readme"',
+		"",
+	].join("\n");
+
+	function artifact(withLanguage: boolean, retiredDetail = false): string {
+		const detail = retiredDetail
+			? "Read the project.\nLanguage for everything you write: en."
+			: "Read the project.";
+		return `${JSON.stringify(
+			{
+				framework: "agent-framework",
+				mode: "adopt",
+				...(withLanguage ? { language: "en" } : {}),
+				tasks: [{ id: "survey", kind: "survey", detail, acceptance: [] }],
+			},
+			null,
+			2,
+		)}\n`;
+	}
+
+	it("removes the retired state line and plan key, idempotently", () => {
+		const root = project({
+			".agents/framework/state.toml": STATE,
+			".agents/framework/plans/plan-a.json": artifact(true, true),
+			".agents/framework/plans/plan-b.json": artifact(false),
+		});
+		try {
+			const first = scrubRetiredFields(root);
+			expect(first).toEqual({ stateScrubbed: true, plansScrubbed: 1 });
+			expect(readFileSync(join(root, ".agents/framework/state.toml"), "utf8")).not.toMatch(/^\s*lang\s*=/m);
+			// Everything except the retired line survives untouched.
+			expect(readFileSync(join(root, ".agents/framework/state.toml"), "utf8")).toContain('template = "memory-readme"');
+			const a = JSON.parse(readFileSync(join(root, ".agents/framework/plans/plan-a.json"), "utf8")) as {
+				tasks: Array<{ detail: string }>;
+			};
+			expect("language" in a).toBe(false);
+			expect((a as { mode?: string }).mode).toBe("adopt");
+			expect(a.tasks[0].detail).toBe("Read the project.");
+
+			const second = scrubRetiredFields(root);
+			expect(second).toEqual({ stateScrubbed: false, plansScrubbed: 0 });
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("is a no-op on a clean or missing install", () => {
+		const clean = project({
+			".agents/framework/state.toml": STATE.replace('lang = "zh"\n', ""),
+			".agents/framework/plans/plan-c.json": artifact(false),
+		});
+		try {
+			expect(scrubRetiredFields(clean)).toEqual({ stateScrubbed: false, plansScrubbed: 0 });
+		} finally {
+			remove(clean);
+		}
+		const empty = project({ "README.md": "# demo\n" });
+		try {
+			expect(scrubRetiredFields(empty)).toEqual({ stateScrubbed: false, plansScrubbed: 0 });
+		} finally {
+			remove(empty);
+		}
+	});
+
+	it("leaves malformed plan artifacts untouched", () => {
+		const root = project({
+			".agents/framework/state.toml": STATE,
+			".agents/framework/plans/broken.json": "{ not json",
+		});
+		try {
+			expect(scrubRetiredFields(root)).toEqual({ stateScrubbed: true, plansScrubbed: 0 });
+			expect(readFileSync(join(root, ".agents/framework/plans/broken.json"), "utf8")).toBe("{ not json");
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("changes nothing under --dry-run", () => {
+		const root = project({
+			".agents/framework/state.toml": STATE,
+			".agents/framework/plans/plan-a.json": artifact(true, true),
+		});
+		try {
+			const before = readFileSync(join(root, ".agents/framework/state.toml"), "utf8");
+			const beforePlan = readFileSync(join(root, ".agents/framework/plans/plan-a.json"), "utf8");
+			expect(scrubRetiredFields(root, { dryRun: true })).toEqual({
+				stateScrubbed: true,
+				plansScrubbed: 1,
+			});
+			expect(readFileSync(join(root, ".agents/framework/state.toml"), "utf8")).toBe(before);
+			expect(readFileSync(join(root, ".agents/framework/plans/plan-a.json"), "utf8")).toBe(beforePlan);
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("only filters the top-level region, never a table key with the same name", () => {
+		const withTableKey = `${STATE}\n[[roots]]\nlabel = "api"\nlang = "zh"\n`;
+		const root = project({ ".agents/framework/state.toml": withTableKey });
+		try {
+			scrubRetiredFields(root);
+			const text = readFileSync(join(root, ".agents/framework/state.toml"), "utf8");
+			// The top-level line is gone; the root entry keeps its own key.
+			expect(text.split("\n").filter((line) => line === 'lang = "zh"')).toHaveLength(1);
+			expect(text).toContain("[[roots]]");
+			expect(text).toContain('label = "api"');
+		} finally {
+			remove(root);
+		}
+	});
 });

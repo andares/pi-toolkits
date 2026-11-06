@@ -401,7 +401,7 @@ repository root stays readable: `AGENTS.md`, `specs/`, `design/`, `docs/`,
 | `/ask-init check` | audit the installed framework (read-only; writes only a runtime report under `.agents/framework/reports/`) |
 | `/ask-init roots` | sync the directories added with `pi-add-dir` into the framework state |
 | `/ask-init --yes` | skip the confirmation panel |
-| `/ask-init --lang zh\|en` | language for generated prose (default: detected from the project's own docs) |
+| `/ask-init --lang zh\|en` | rendering language for framework-generated files (per run; default: detected from the project's own docs) |
 
 **What the mechanical half guarantees**:
 
@@ -447,7 +447,8 @@ root entry must stay a **scope card** (≤30 lines: what lives there, its comman
 which main-repo memory file describes it) — never a second copy of the rules.
 
 The framework contract shipped into a project is English (it is read by models and
-published); text written *into* a project follows that project's language.
+published); framework-generated files are rendered in that project's language. The
+package never directs the model which language to write or reply in.
 
 > **After the run**, `/reload` so the new `AGENTS.md` enters the prompt. The
 > framework version lives in `.agents/framework/state.toml`; a project whose state

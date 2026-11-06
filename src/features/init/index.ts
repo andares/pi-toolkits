@@ -31,7 +31,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { stateToToml } from "./apply.js";
-import { applyPlan } from "./apply.js";
+import { applyPlan, scrubRetiredFields } from "./apply.js";
 import { audit, countFindings, renderFindings } from "./audit.js";
 import { detect } from "./detect.js";
 import { buildWorkOrder } from "./dispatch.js";
@@ -60,7 +60,7 @@ export interface InitOptions {
 }
 
 export interface ParsedInitArgs {
-	readonly sub: "run" | "plan" | "check" | "roots" | "help";
+	readonly sub: "run" | "plan" | "check" | "roots" | "scrub" | "help";
 	readonly dryRun: boolean;
 	readonly deep: boolean;
 	readonly yes: boolean;
@@ -74,9 +74,9 @@ const USAGE = [
 	"/ask-init plan [--deep]   show the plan only (writes nothing)",
 	"/ask-init check           audit the installed framework (read-only)",
 	"/ask-init roots           sync pi-add-dir roots into the framework state",
-	"/ask-init --dry-run       same as plan",
+	"/ask-init --dry-run       report only, write nothing (same as plan)",
 	"/ask-init --yes           skip the confirmation panel",
-	"/ask-init --lang zh|en    language for generated prose",
+	"/ask-init --lang zh|en    rendering language for framework-generated files",
 ].join("\n");
 
 export function parseInitArgs(input: string): ParsedInitArgs {
@@ -89,7 +89,7 @@ export function parseInitArgs(input: string): ParsedInitArgs {
 	const unknown: string[] = [];
 	for (let index = 0; index < tokens.length; index += 1) {
 		const token = tokens[index];
-		if (token === "plan" || token === "check" || token === "roots" || token === "help") {
+		if (token === "plan" || token === "check" || token === "roots" || token === "scrub" || token === "help") {
 			sub = token;
 			continue;
 		}
@@ -231,7 +231,7 @@ function planText(plan: Plan): string {
 	const lines = [
 		`/ask-init — ${plan.mode}`,
 		`root: ${plan.root}`,
-		`framework: v${plan.frameworkVersion} · language: ${plan.language}`,
+		`framework: v${plan.frameworkVersion}`,
 		"",
 		"## plan",
 		...plan.summary.map((line) => `- ${line}`),
@@ -443,6 +443,27 @@ function createRunHandler(
 			return;
 		}
 
+		// Hidden maintenance subcommand (not in USAGE): removes retired fields
+		// from an installed framework. Documented in AGENTS.md only; obeys
+		// `--dry-run` because that flag promises "nothing is written".
+		if (parsed.sub === "scrub") {
+			const result = scrubRetiredFields(root, { dryRun: parsed.dryRun });
+			const parts: string[] = [];
+			if (result.stateScrubbed) parts.push(".agents/framework/state.toml");
+			if (result.plansScrubbed > 0) {
+				parts.push(`${result.plansScrubbed} plan artifact(s)`);
+			}
+			const verb = parsed.dryRun ? "would clean" : "cleaned";
+			const suffix = parsed.dryRun ? " — nothing was written." : "";
+			ctx.ui.notify(
+				parts.length > 0
+					? `ask-init scrub: ${verb} ${parts.join(" · ")}${suffix}`
+					: "ask-init scrub: nothing to scrub — state and plan artifacts are already clean.",
+				"info",
+			);
+			return;
+		}
+
 		const toolVersion = options.toolVersion ?? packageVersion();
 		const now = options.now ?? new Date();
 		const addedRoots = options.addedRoots ?? addedRootsFromBranch(ctx);
@@ -558,11 +579,11 @@ export function registerInit(pi0: ExtensionAPI, options: InitOptions = {}): void
 				{ value: "plan", label: "plan", description: "show the plan only (writes nothing)" },
 				{ value: "check", label: "check", description: "audit the installed framework" },
 				{ value: "roots", label: "roots", description: "sync pi-add-dir roots into state" },
-				{ value: "--dry-run", label: "--dry-run", description: "same as plan" },
+				{ value: "--dry-run", label: "--dry-run", description: "report only, write nothing" },
 				{ value: "--deep", label: "--deep", description: "allow structural rewrites" },
 				{ value: "--yes", label: "--yes", description: "skip the confirmation panel" },
-				{ value: "--lang zh", label: "--lang zh", description: "Chinese prose" },
-				{ value: "--lang en", label: "--lang en", description: "English prose" },
+				{ value: "--lang zh", label: "--lang zh", description: "render framework text in Chinese" },
+				{ value: "--lang en", label: "--lang en", description: "render framework text in English" },
 			].filter((item) => item.value.startsWith(prefix)),
 		handler: createRunHandler(pi, options, runtime),
 	});

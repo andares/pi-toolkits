@@ -32,8 +32,13 @@
 - **运行时能看到的文本一律英文**：`ctx.ui.notify`、选择器标题/选项、footer 状态、拒绝理由与
   审计报告、工具声明（`description` / `promptGuidelines` / 参数描述）、发给模型的提示词
   （如 `REVIEW_PROMPT`、`scratchpad` 声明）与系统提示横幅。测试断言写对应英文子串。
+- **全仓禁止对模型的语言指令（每一字节）**：不得在任何提示词、工作单、落盘字段里要求模型
+  用某种语言写文件或沟通——语言由模型自判（看项目文档自然跟随）。库内文案用英语是我们
+  自己的输出选择，不是对模型的要求（2026-11-06 崔总定稿；init 曾在工作单里写
+  `Prose language for anything you write: English.`、在 state.toml/plans 落盘 `lang`/
+  `language` 字段，模型把它们连成「用英语」的证据链，全部清除并加了 `/ask-init scrub`）。
 - 中文只保留在：源码注释、`README.zh-CN.md`、`AGENTS.md` 与本仓内部维护脚本；以及 init 按
-  `--lang` 写进项目的正文（「正文跟随项目语言」是既有契约，不属本条）。
+  `--lang` 渲染的框架生成文件（见 Feature: init）。
 
 ## pi 宿主兼容
 
@@ -490,8 +495,16 @@ session_start(reason 过滤)
 - **`specs/` 是计划的家**：路线级 `specs/PLAN.md` + 单元 `specs/<unit>.md`。原
   `memory/PLAN.md` 用 `move-file` **原样**搬到 `specs/PLAN.md`（零内容改动），模型只做整形。
 - **`todos/` 退役**：需求即 spec；复杂需求直接写 `specs/<unit>.md` 的「需求原文（照录）」节。
-- **框架自带文本英文**（契约、模板、审计码、工作单）；写进项目的正文跟随项目语言
-  （按 AGENTS/README 的 CJK 比例判定，`--lang` 可覆盖，结果写进 state）。
+- **框架自带文本英文**（契约、模板、审计码、工作单）；框架生成的文件（骨架、种子、索引表头）
+  按 AGENTS/README 的 CJK 比例现算渲染语言，`--lang` 可覆盖。渲染语言**每次现算、永不落盘**
+  （所以 `--lang` 是单次生效，下次 run 重新现算）：state.toml 不存 `lang`，plan 工件不存
+  `language`；工作单与任务里没有任何语言指令（见上方不变量）。
+  旧版落盘过这些字段，已 init 项目用 `/ask-init scrub [--dry-run]`（隐藏维护子命令，不进
+  USAGE/README）一次性清除：state 的顶层 `lang` 行、plans/*.json 的 `language` 键与内嵌的
+  旧指令行；新的 mutating run 也会自动顺带擦 plans 目录。
+  scrub **不写快照、不进表内表**（顶层之外的同名键属于那张表）；`snapshots/` 是 sha256
+  背书的不可变备份，含旧指令的历史快照不自动改写——要字节级彻底清干净就整体删掉
+  `.agents/framework/snapshots/`（对应源文件都在 git 历史里）。
 - **确认后直接派发模型**（`sendUserMessage` 工作单）；`plan` / `check` / `roots` 是分步入口。
 - **默认保守 pass**：只装框架 + 修机械漂移（墓碑、重复章节、附录顺序）+ 覆盖表；
   AGENTS.md 超预算只登记债务，`--deep` 才允许结构性改写。

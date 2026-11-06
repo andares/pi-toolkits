@@ -60,7 +60,6 @@ export interface FrameworkState {
 	updated: string;
 	profile: "core" | "full";
 	modules: string[];
-	lang: ProjectLanguage;
 	budgets?: {
 		agentsMdSoftChars?: number;
 		agentsMdHardChars?: number;

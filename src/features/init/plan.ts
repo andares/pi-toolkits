@@ -216,7 +216,6 @@ function buildState(
 		updated: iso(now),
 		profile: "core",
 		modules: [...new Set(modules)],
-		lang: facts.language,
 		budgets: previous?.budgets,
 		roots: facts.roots.length > 0 ? facts.roots : (previous?.roots ?? []),
 		managed: previous?.managed ?? [],
@@ -249,7 +248,6 @@ function surveyTask(facts: Facts): Task {
 			"Read the project and record only evidence; anything you cannot verify is `TBD`.",
 			`Read: ${read.join(", ") || "(no manifests found — walk the tree)"}`,
 			`Also: directory tree (depth 2-3, skip build dirs), \`git log --oneline -20\`, README.`,
-			`Language for everything you write: ${facts.language}.`,
 		].join("\n"),
 		acceptance: [
 			"every command in AGENTS.md was read from a manifest/CI/script, not guessed",

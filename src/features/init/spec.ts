@@ -308,9 +308,11 @@ export type AuditCode = (typeof AUDIT_CODES)[keyof typeof AUDIT_CODES];
 /* -------------------------------------------------------------------------- */
 
 /**
- * Framework-owned text (contract, plan headers, audit codes) ships in English:
- * it is read by models and published on npm. Text *written into a project*
- * follows that project's language (`zh` when its docs are mostly CJK).
+ * Rendering language for framework-generated files (skeleton, seeds, index
+ * tables). This is our own output choice, never a directive to the model:
+ * nothing in this package tells the model which language to write or reply in —
+ * the model judges that itself from the project's own docs. The value is
+ * computed per run and is never persisted to state or plan artifacts.
  */
 export type ProjectLanguage = "zh" | "en";
 

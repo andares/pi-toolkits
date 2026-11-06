@@ -192,7 +192,7 @@ describe("detect", () => {
 	it("parses a deliberately partial state file", () => {
 		const state = parseState('version = 1\nroots = []\n');
 		expect(state.version).toBe(1);
-		expect(state.lang).toBe("en");
+		expect(Object.keys(state)).not.toContain("lang");
 		expect(state.profile).toBe("core");
 	});
 });
@@ -220,7 +220,6 @@ describe("review regressions", () => {
 				updated: "2026-01-01T00:00:00+08:00",
 				profile: "core",
 				modules: [],
-				lang: "en",
 				budgets: {
 					agentsMdSoftChars: 9000,
 					agentsMdHardChars: 16000,

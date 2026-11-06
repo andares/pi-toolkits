@@ -1,7 +1,7 @@
 /**
  * init feature — markdown fragments shared by the plan, the scaffold and the
- * work order. Kept language-aware: the framework's own text is English, but
- * anything written into a project follows that project's language.
+ * work order. Language-aware only for the framework's own rendered text — never
+ * a directive to the model about which language to use.
  */
 import {
 	MEMORY_DIR,

@@ -389,7 +389,6 @@ export function parseState(raw: string): FrameworkState {
 	const updated = String(data.updated ?? created);
 	const profile = data.profile === "full" ? "full" : "core";
 	const modules = Array.isArray(data.modules) ? data.modules.map(String) : [];
-	const lang = data.lang === "zh" ? "zh" : "en";
 	const budgets = data.budgets as Record<string, unknown> | undefined;
 	const roots = Array.isArray(data.roots)
 		? (data.roots as Array<Record<string, unknown>>).map((entry) => ({
@@ -429,7 +428,6 @@ export function parseState(raw: string): FrameworkState {
 		updated,
 		profile,
 		modules,
-		lang,
 		budgets: budgets
 			? {
 					agentsMdSoftChars: numberOrUndefined(
@@ -798,7 +796,7 @@ export function detect(root: string, options: DetectOptions = {}): Facts {
 		modulesPresent: readModulesPresent(root, memory),
 		refs: scanRefs(root),
 		project: detectProject(root),
-		language: options.lang ?? state?.lang ?? detectLanguage(root),
+		language: options.lang ?? detectLanguage(root),
 		roots: mergeRoots(root, state?.roots ?? [], options.addedRoots ?? []),
 		warnings: contextWarnings(context, state, stateError),
 	};
