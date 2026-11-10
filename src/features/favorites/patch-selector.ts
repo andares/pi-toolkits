@@ -22,9 +22,13 @@
  * keeps loading and ctrl+p falls back to stock behavior. The prototype
  * shape touched here (handleInput/updateList/filterModels and the instance
  * fields below) is unchanged across the mandatory window
- * pi 1.2.0 → 1.5.0 (and exercised by the 0.99.0 → 1.1.0 backward probes).
+ * pi 1.2.0 → 1.5.1 (and exercised by the 0.99.0 → 1.1.0 backward probes).
  * updateList gained one layout change in 1.5.0 — the disambiguating model
  * name after the id — mirrored here; see distinctModelName below.
+ * filterModels gained a second `preferredModel` argument in 1.5.1 (keep the
+ * selection when a background catalog refresh lands, #9109). The override
+ * forwards it as-is: hosts before 1.5.1 ignore the extra argument, hosts from
+ * 1.5.1 keep the highlighted row instead of jumping back to the top.
  */
 import {
 	ModelSelectorComponent,
@@ -62,7 +66,8 @@ interface ListContainerLike {
 interface SelectorPatchTarget {
 	handleInput(keyData: string): void;
 	updateList(): void;
-	filterModels(query: string): void;
+	/** pi 1.5.1+: `preferredModel` is forwarded to the built-in implementation. */
+	filterModels(query: string, preferredModel?: ModelRef): void;
 	/** pi 1.0–1.5: default-model badge source. */
 	isDefaultModel(model: ModelRef): boolean;
 	listContainer: ListContainerLike;
@@ -85,6 +90,44 @@ interface SelectorPatchTarget {
 }
 
 let themeProvider: () => Theme | undefined = () => undefined;
+
+/** The slice of the selector the "only favorites" swap reads and writes. */
+export interface FilterModelsScope {
+	activeModels: Array<{ model: ModelRef }>;
+	__favoritesOnly?: boolean;
+}
+
+/**
+ * Core of the `filterModels` override, kept callable so the favorites-only
+ * swap and the `preferredModel` forwarding can be tested without depending
+ * on which host is installed.
+ *
+ * `preferredModel` is pi 1.5.1's second argument (#9109: keep the highlighted
+ * row when a background catalog refresh lands). It is forwarded unconditionally
+ * because every host before 1.5.1 declares one parameter and ignores the extra
+ * argument; dropping it here would silently restore the jump-to-top behavior
+ * on 1.5.1+.
+ */
+export function runFilterModels(
+	target: FilterModelsScope,
+	original: (query: string, preferredModel?: ModelRef) => void,
+	query: string,
+	preferredModel?: ModelRef,
+): void {
+	if (!target.__favoritesOnly) {
+		original.call(target, query, preferredModel);
+		return;
+	}
+	const saved = target.activeModels;
+	target.activeModels = saved.filter((item) =>
+		getFavoritesStore().has(item.model),
+	);
+	try {
+		original.call(target, query, preferredModel);
+	} finally {
+		target.activeModels = saved;
+	}
+}
 
 /** Called by registerFavorites once the live theme proxy is available. */
 export function setSelectorThemeProvider(
@@ -149,9 +192,10 @@ let patched = false;
 export function applyModelSelectorPatches(): boolean {
 	if (patched) return true;
 	// SAFETY: ModelSelectorComponent's members are TS-private (compile-time
-	// only); the structural view matches pi 1.0–1.5's prototype shape
-	// (byte-identical across that span) and every touched method is
-	// existence-checked below before any patching happens.
+	// only); the structural view matches pi 1.0–1.5.1's prototype shape (same
+	// methods across that span; 1.5.1 only added filterModels' optional second
+	// parameter) and every touched method is existence-checked below before any
+	// patching happens.
 	const proto =
 		ModelSelectorComponent.prototype as unknown as SelectorPatchTarget;
 	if (
@@ -282,20 +326,9 @@ export function applyModelSelectorPatches(): boolean {
 	proto.filterModels = function (
 		this: SelectorPatchTarget,
 		query: string,
+		preferredModel?: ModelRef,
 	): void {
-		if (this.__favoritesOnly) {
-			const saved = this.activeModels;
-			this.activeModels = saved.filter((item) =>
-				getFavoritesStore().has(item.model),
-			);
-			try {
-				originalFilterModels.call(this, query);
-			} finally {
-				this.activeModels = saved;
-			}
-		} else {
-			originalFilterModels.call(this, query);
-		}
+		runFilterModels(this, originalFilterModels, query, preferredModel);
 	};
 
 	// ── helpers injected onto the prototype ───────────────────────────────

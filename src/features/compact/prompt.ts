@@ -6,14 +6,16 @@
  * summaries produced by the configured compact model are formatted exactly
  * like pi's own compaction output. Only the executing model differs.
  * Verified byte-identical against every published version of the supported
- * window (1.2.0 → 1.5.0): the only utils.js change (1.2.0 dropping assistant
- * thinking from serializeConversation) does not touch the strings mirrored
- * here — that serializer is imported from the host, not mirrored —
- * compaction.js last changed in 1.4.0, in the output budget and the
- * split-turn focus handling (both adopted here, see
- * buildTurnPrefixPromptText), and core/usage-totals.js changed once past
- * that point, in 1.5.0, which only added the `cost.totalFromProvider` merge
- * rule mirrored below (the numeric fields are untouched). 0.87.0 shipped a
+ * window (1.2.0 → 1.5.1): the only utils.js changes (1.2.0 dropping assistant
+ * thinking from serializeConversation; 1.5.1 routing `truncateText` through
+ * `sliceHead` so a truncation never splits a surrogate pair) do not touch the
+ * strings mirrored here — that serializer is imported from the host, not
+ * mirrored — compaction.js last changed in 1.4.0, in the output budget and
+ * the split-turn focus handling (both adopted here, see
+ * buildTurnPrefixPromptText) and is untouched in 1.5.1, and
+ * core/usage-totals.js changed once past that point, in 1.5.0, which only
+ * added the `cost.totalFromProvider` merge rule mirrored below (the numeric
+ * fields are untouched; 1.5.1 left it alone). 0.87.0 shipped a
  * different split-turn prefix prompt; the text mirrored here is 0.87.1's
  * fix, and the mirror is the only variant any supported host gets
  * — intentional.

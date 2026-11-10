@@ -9,7 +9,7 @@
  * keybinding conflicts arise.
  *
  * Verified against every published version of the supported range
- * (0.99.0 → 1.5.0) keybinding tables + pi-tui input dispatch on WSL2 +
+ * (0.99.0 → 1.5.1) keybinding tables + pi-tui input dispatch on WSL2 +
  * Windows Terminal; re-run `pnpm check:keybindings` after every host upgrade
  * before trusting this.
  */
@@ -31,7 +31,7 @@ export const FAVORITES_FILE = "pi-toolkits-favorites.json";
  * `TuiAltScreen.handleViewportInput()` checks it before
  * `shouldDeferViewportInput()` (named `shouldDeferViewportInputToOverlay()`
  * through 1.4.0), so the keystroke opens transcript
- * search and the selector never sees it (verified in pi-tui 1.5.0
+ * search and the selector never sees it (verified in pi-tui 1.5.1
  * `dist/tui-alt-screen.js`: the search check is still the first key branch
  * and still returns `{ consume: true }` unconditionally; the 1.5.0 changes to
  * that file are exit/teardown, word-selection joiners, and a rename of
@@ -39,7 +39,10 @@ export const FAVORITES_FILE = "pi-toolkits-favorites.json";
  * which now also defers viewport keys to a focused component that declares
  * `capturesViewportInput`, but that guard sits BELOW the search branch, so
  * it does not rescue ctrl+f for the selector even though 1.5.0 gives the
- * selector `capturesViewportInput = true`).
+ * selector `capturesViewportInput = true`; 1.5.1's only change to that file
+ * is Kitty image draw ordering, and its only keybinding-table change is
+ * adding `ctrl+v` next to `alt+v` for `app.clipboard.pasteImage` on
+ * Windows/WSL — neither touches this key).
  *
  * Why ctrl+alt+f was discarded: clean at the pi layer across 1.1–1.5 (only
  * ctrl+alt+] is taken from that family) and byte-distinguishable without

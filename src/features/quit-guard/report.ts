@@ -167,7 +167,7 @@ export function collectHangReport(
 		marker: input.marker,
 		uptimeSeconds: attempt(() => Math.round(proc.uptime()), 0),
 		// `process.cwd()` throws ENOENT when the directory was removed during
-		// the session (a startup crash pi itself guards against in 1.5.0). The
+		// the session (a startup crash pi itself guards against in 1.5.1). The
 		// report is written on the exit path, so it must survive that.
 		cwd: options.cwd ?? attempt(() => proc.cwd(), UNKNOWN_CWD),
 		argv: attempt(

@@ -15,7 +15,7 @@
 
 一句话介绍:目前包含九个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**退出看门狗** `quit-guard`,后续持续追加。
 
-**版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.0 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
+**版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.1 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
 ---
 
@@ -289,7 +289,7 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | auto-compact 阈值触发 | 压缩模型总结 |
 | context overflow 恢复 | 压缩模型总结,重试行为不变 |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在 1.2.0 → 1.5.0 内字节级不变 —— 除了此处采纳的两项 1.4.0 修正:摘要请求使用模型自身的输出上限而非 `reserveTokens` 的固定比例,以及 `/compact <instructions>` 也会进入 split-turn 前缀,外加 1.5.0 的 `cost.totalFromProvider` 合并规则(用量统计);只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在 1.2.0 → 1.5.1 内字节级不变 —— 除了此处采纳的两项 1.4.0 修正:摘要请求使用模型自身的输出上限而非 `reserveTokens` 的固定比例,以及 `/compact <instructions>` 也会进入 split-turn 前缀,外加 1.5.0 的 `cost.totalFromProvider` 合并规则(用量统计);只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
 
 - **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
 - **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
@@ -370,7 +370,7 @@ run = [
 
 **关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
 
-> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`,`sendUserMessage` 与 `_tryExecuteExtensionCommand` 在 1.2.0–1.5.0 全区间字节级一致,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`;`_tryExecuteExtensionCommand` 在 1.2.0–1.5.1 全区间字节级一致,1.5.1 虽把 `sendUserMessage` 其余部分重构进 `_preparePrompt`,扩展命令分支仍是它最前面的早退路径,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
 
 ---
 
@@ -443,7 +443,7 @@ run = [
 <a name="quit-guard"></a>
 
 **要解决的问题**。pi 的 `/quit` 先停 TUI，然后**逐个 await** 每个扩展的 `session_shutdown` 处理器,且**没有任何超时**(`runtimeHost.dispose()` → `emitSessionShutdownEvent()`;上游
-[issue #9997](https://github.com/earendil-works/pi/issues/9997),1.5.0 与 `main` 至今未修)。只要有一个处理器永不 settle,pi 就会在终端已还原、最后一帧已重绘之后,以 0% CPU 永远挂着:画面看起来像「停在退出界面」,提示符再也不回来;实测 Ctrl+C 与 SIGTERM 都无法结束这个进程(只有 SIGKILL 有效)——进了这段收尾,宿主自己也没有出口。20 个扩展的环境实测(2026-11-05):健康退出在这段收尾上花 0.1–3 秒,`pi -ne` 0.12 秒;同一环境三次 `/quit` 就有一次**永远不结束**。
+[issue #9997](https://github.com/earendil-works/pi/issues/9997),1.5.1 与 `main` 至今未修,1.5.1 还在处理器循环前加了 `await session.abort()`、之后加了凭据写盘等待——同一条没有超时的链上又多了两个 await)。只要有一个处理器永不 settle,pi 就会在终端已还原、最后一帧已重绘之后,以 0% CPU 永远挂着:画面看起来像「停在退出界面」,提示符再也不回来;实测 Ctrl+C 与 SIGTERM 都无法结束这个进程(只有 SIGKILL 有效)——进了这段收尾,宿主自己也没有出口。20 个扩展的环境实测(2026-11-05):健康退出在这段收尾上花 0.1–3 秒,`pi -ne` 0.12 秒;同一环境三次 `/quit` 就有一次**永远不结束**。
 
 **这个功能做什么**。看守盯的是**终端写出的收尾序列**,而不是事件流——所以即使卡死的处理器比本包**先**加载(那样我们自己的 `session_shutdown` 根本不会运行),它照样能触发。它在 TUI 收尾序列(`\x1b[?2004l` / `\x1b[?1049l`)出现时开始计时;若 `timeoutMs` 之后进程还活着,就写一份诊断报告并强制退出。TUI **回来**时自动解除:`/settings` 里切换 TUI 显示模式、Ctrl+Z 挂起后 `fg` 恢复,都会让 TUI 重新进入,绝不能误杀活着的会话。
 

@@ -56,7 +56,7 @@
 最老版本。使用者不需要知道 4 版强制政策，只需要知道 `pi >= <floor>`。它写进
 `peerDependencies`（`>=<floor>`，**不写上界**）和 README 的 Requirements / badge。
 
-（当前：强制窗口 1.2 / 1.3 / 1.4 / 1.5；向后探针 1.1 / 1.0 / 0.99 / 0.87，
+（当前：强制窗口 1.2 / 1.3 / 1.4 / 1.5，1.5 线含 1.5.0 与 1.5.1；向后探针 1.1 / 1.0 / 0.99 / 0.87，
 **停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`（`ask/scratch-tool` 与
 `init/tool` 两处），且 `ToolCallEvent` 上没有 `parentToolCallId`（2026-10-24 审批日志、
 2026-10-26 init 新增的依赖），typecheck 红属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
@@ -225,13 +225,14 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
 `agent-session.js` 逐文件 diff，有变化就同步代码或改正注释里的版本声明。
 两类区间声明要分开写：**支持声明**（「supported window」等）必须与 peer 下限一致 /
 或注明是强制窗口；**逐版本事实**（某函数在哪个区间字节级一致）按实际 diff 结果写，
-不得为了对齐下限而外扩（例如 `compaction.js` 只在这里说 1.4.0 变过一次）。当前 1.2.0 → 1.5.0：
+不得为了对齐下限而外扩（例如 `compaction.js` 只在这里说 1.4.0 变过一次）。当前 1.2.0 → 1.5.1：
 `usage-totals.js` 在窗口内只变过一次（1.5.0 给 `cost` 加了 `totalFromProvider` 合并规则，
-已镜像；数值字段未动），`utils.js` 最后一次变化是 1.2.0，`agent-session.js` 在 1.2.0（prompt 处理
+已镜像；数值字段未动），`utils.js` 最后一次变化是 1.5.1（`truncateText` 换 `sliceHead`，
+只影响我们从宿主导入的序列化器），`agent-session.js` 在 1.2.0（prompt 处理
 重构成 `_prepareRun`/`_startRun`）、1.3.0（tool-restore 路径）、1.4.0（溢出恢复与
 tool-restore）、1.5.0（摘要请求的 auth 解析改走 stream 函数自带的 runtime；`_applyToolLoadout`
-按「保留顺序 + 追加新增」稳定下来，#11495）各变一次，但 `cycleModel` 在 1.2.0 → 1.5.0
-字节级一致，`compaction.js`
+按「保留顺序 + 追加新增」稳定下来，#11495）、1.5.1（五处，见下）各变一次，
+但 `cycleModel` 在 1.2.0 → 1.5.1 字节级一致，`compaction.js`
 只在 1.4.0 变了一次点——摘要不再按 `reserveTokens` 设 `maxTokens` 上限（#9512），
 且 `/compact <instructions>` 也追加到 split-turn 前缀（#11058）；两处都按 1.4.0 语义
 镜像到全窗口，注释里写明了为何不做按版本分支。`model-selector.js` 在 1.5.0 变过一次
@@ -248,6 +249,37 @@ pi-tui 1.5.0：`SelectList`/`SettingsList` 新增 `tui.select.pageUp/pageDown` �
 assistant thinking 写进摘要请求（thinking 可能不在模型活动上下文里，会让请求比被摘要
 内容还大）。升级 diff 到这类变化时，确认「跟随宿主」仍是预期行为，并同步 README/
 注释里对它的描述。
+
+1.5.1（补丁线，窗口内新增一个版本）逐文件结论：
+
+- `compaction.js`、`usage-totals.js` 未动；`compaction/utils.js` 只把 `truncateText` 换成
+  `sliceHead`（截断不再劈开代理对）——`serializeConversation` 是**从宿主导入**的，自动跟随，
+  没有要镜像的字符串。
+- `agent-session.js` 动了五处：`sendUserMessage` 的其余部分抽进 `_preparePrompt`
+  （`_promptPreflightCount` 预留上下文，#9154），扩展命令分支仍是包装层最前面的早退；
+  `_cycleScopedModel`/`_cycleAvailableModel` 抽出 `getNextCycleIndex`，并让「当前模型不在
+  列表里」走 forward 第一 / backward 最后（单条目列表也会选中它，#11806）——`cycleModel`
+  本身在 1.2.0 → 1.5.1 仍字节级一致，我们的 favorites patch 自带索引逻辑（语义与新 helper
+  相同），不受影响；队列中消息的图片改为投递时归一化（#11738）；`_recordSelection` 拆成
+  `_recordModelSelection` + `_recordThinkingLevel`（#11451）；`reload()` 在流式/压缩中直接
+  抛错，`prompt()` 在压缩中同时拒绝 branch summary 进行中的提交。
+- `model-selector.js`：`updateList` 布局一字未动；`filterModels(query, preferredModel)` 多了
+  第二个参数，后台刷新落地时保持高亮行（#9109），刷新前先取 `filteredModels[selectedIndex]`
+  ——我们的 `filterModels` patch 现在原样转发该参数（1.5.1 之前宿主忽略多余实参），
+  否则会把「跳回顶部」的老行为偷偷带回来。
+- `types.d.ts` 全为增量/语义澄清：`registerMarkdownTransformer(transformer, options?)`、
+  `MarkdownMessageType` 新增 `custom`/`summary`/`changelog`、扩展状态里的
+  `markdownTransformer` 变成 `{ transformer, messageTypes }` 注册对象、`ui.custom` 的
+  `blocked` 对 overlay 改为「显示到 `done()` 为止」（含 `setHidden()` 期间）。我们都不使用。
+- `interactive-mode.js` / `agent-session-runtime.js`：收尾仍是无超时的
+  `await runtimeHost.dispose()`；`dispose()` 新增 `await session.abort()` 与
+  `await settleCredentialWrites()`，即同一条无界链上又多了两个 await——quit-guard 仍然必要。
+- pi-tui 1.5.1：`SelectList`/`SettingsList`/键位相关文件**一字未动**；变化只有编辑器粘贴占位符
+  修复、Markdown/Mermaid、终端图片、光标标记清理，以及 `tui-alt-screen.js` 的 Kitty 图片
+  绘制顺序（搜索键分支仍在最上面，`ctrl+f` 依旧是选择器的死键）。键位表唯一变化是
+  Windows/WSL 的 `app.clipboard.pasteImage` 变成 `["alt+v", "ctrl+v"]`（与我们三个键无关）。
+- 破坏性变更两条均不涉及我们：`GrepOperations.readFile` 不再为上下文行回调（我们没实现
+  GrepOperations）；OpenAI 兼容模型在「本轮禁用全部工具」时不再发 `"tools": []`（属宿主行为）。
 
 ## Release
 
@@ -373,10 +405,10 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 30 个文件 / 602 测试全绿；`pnpm check:compat` 在强制窗口
-  1.2.0–1.5.0 全绿，向后探针 1.1.x / 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive`
+- 测试：`pnpm test` 32 个文件 / 660 测试全绿；`pnpm check:compat` 在强制窗口
+  1.2.0–1.5.1 全绿，向后探针 1.1.x / 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive`
   停探（不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
-- 真实 pi 1.5.0 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
+- 真实 pi 1.5.1 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
   历史冒烟（1.4.0，项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
   第一轮的工具集里就含 `scratchpad`，`plan.md` 写入 `/tmp/pi-ask/<session>/` 成功。
   **冒烟发现并修掉两处**：① 在 `session_start` 里 `setActiveTools` 会被该轮 loadout
@@ -429,8 +461,10 @@ run = [
 1. `sendUserMessage("/cmd args")` 走 `prompt()` → `_tryExecuteExtensionCommand()`：
    **扩展命令被立即执行，不发给模型**，streaming 中也可执行。1.2.0 把 prompt 内的
    「准备消息 + 启动 run」重构成 `_prepareRun`/`_startRun`，但扩展命令分支仍是最前的
-   同一条早退路径；`sendUserMessage` 与 `_tryExecuteExtensionCommand` 两函数在
-   0.99.0–1.5.0 全区间逐字节一致（1.3.0 → 1.4.0、1.4.0 → 1.5.0 已逐函数 diff 复核）。
+   同一条早退路径；1.5.1 又把其余部分抽进 `_preparePrompt`（#9154），扩展命令分支的位置
+   不变。逐函数事实：`_tryExecuteExtensionCommand` 在 0.99.0–1.5.1 全区间逐字节一致
+   （1.3.0 → 1.4.0、1.4.0 → 1.5.0、1.5.0 → 1.5.1 已逐函数 diff 复核）；`sendUserMessage`
+   只在 1.5.1 变过一次（同一次抽取），因此不能再声称它全区间一致。
 2. **只能支持扩展命令**（/add-dir、/cd、/skill:xxx 等 registerCommand 注册的）；
    内置命令（/compact、/reload、/resume）走 TUI 层，扩展层触发不了；
    skill 命令是展开机制非执行机制——此约束必须写进 README
@@ -557,9 +591,9 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **30 文件 / 602 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
+- `pnpm typecheck` 绿；`pnpm test` **32 文件 / 660 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
-- `pnpm check:compat`：窗口 1.2.0–1.5.0 全绿（每版 602 passed），探针 1.1.x / 1.0.x / 0.99.x 全绿、
+- `pnpm check:compat`：窗口 1.2.0–1.5.1 全绿（每版 660 passed），探针 1.1.x / 1.0.x / 0.99.x 全绿、
   0.87.x 因 `defaultActive` 停探，floor 0.99.0。
 - 测试稳定性（2026-11-04）：矩阵并发四沙箱时，vitest 默认 worker 数（22 核 → 21）会因内存
   压力让**不同的**测试偶发超时（1.0.2 的 git fixture、1.0.1 的动态 import），把 floor 拖到噪声上。
@@ -710,9 +744,9 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 30 个文件 / 602 测试全绿；`pnpm check:compat` 强制窗口
-  1.2.0–1.5.0 + 向后探针 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
-  真实 pi 1.5.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
+- 测试：`pnpm test` 32 个文件 / 660 测试全绿；`pnpm check:compat` 强制窗口
+  1.2.0–1.5.1 + 向后探针 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
+  真实 pi 1.5.1 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
 ### 补充：同一会话的 `session_start` 可能发多次
 
@@ -784,7 +818,7 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 
 **已验证**
 
-- `pnpm test` 30 个文件 / 602 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+- `pnpm test` 32 个文件 / 660 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
   `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
 - 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
   单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、
@@ -832,7 +866,8 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 却停在最后一帧」的状态下永远挂着；宿主 `isShuttingDown` 置位后 Ctrl+C / SIGTERM / SIGHUP
 都会被吞掉，只有 `kill -9` 有效。上游 issue
 [#9997](https://github.com/earendil-works/pi/issues/9997)（0.86/0.87 就有，机器人自动关闭），
-1.5.0 与 `main` 的 `interactive-mode.ts` 仍是同一个无界 await。
+1.5.1 与 `main` 的 `interactive-mode.ts` 仍是同一个无界 await（1.5.1 只是在它前后又
+各加了一个 await：`session.abort()` 与凭据写盘等待 `settleCredentialWrites()`）。
 
 本机实测（20 个扩展包，tmux，`PI_TUI_WRITE_LOG` 计时）：健康退出 2.1 s / 5.0 s；
 `pi -ne` 121 ms；同一环境三次 `/quit` 有一次**永不退出**。卡死时进程 0% CPU，
@@ -859,7 +894,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   = 卡在永不 settle 的 Promise 上（区别于阻塞 socket / 残留子进程）。报告是 0700 目录下的
   0600 文件，`argv` 走上游 `redactText` + 位置式旗标脱敏（`--api-key <opaque>`、`--token=…`），
   避免把密钥写进盘。**报告链路整体 try/catch**：`process.cwd()` 在目录被删后会抛 ENOENT
-  （pi 1.5.0 自己也为此加了启动保护），诊断失败绝不能挡住强制退出。
+  （pi 1.5.1 自己也为此加了启动保护），诊断失败绝不能挡住强制退出。
 - **退出用 `process.exit(0)`，外加 SIGKILL 兜底**（先排 500 ms 定时器，再 exit，正常路径
   定时器不会触发）。测试中实际撞到过一次 exit 之后进程仍停在事件循环里；会话 JSONL 是
   增量落盘的，报告也已同步写完，硬杀不丢可恢复内容。
@@ -881,14 +916,19 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck`、`pnpm test`：**31 文件 / 649 测试**全绿。
-- 真实 pi 1.5.0 冒烟（tmux，`-ne -e ./src/index.ts`，卡死探针为「`session_shutdown` 返回
-  永不 resolve 的 Promise」，且探针**先于**本包加载以证明不依赖处理器顺序）：
-  - fullscreen：收尾后 **2.15 s** 退出（timeout 2000 ms），报告写出；
-  - `tuiMode: "regular"`：同样 **2.15 s** 退出（走 `?2004l`）；
-  - 无卡死探针：**0.11 s** 退出（看守不拖慢正常退出）；
-  - `/quit-guard 4500` 持久化生效：下次退出 **4.66 s**；
-  - 默认值（10 s、真实 agent dir）首次冒烟：报告 `elapsedMs≈10000`、`marker=?2004l`。
+- `pnpm typecheck`、`pnpm test`：**32 文件 / 660 测试**全绿。
+- 真实 pi 1.5.1 冒烟（tmux，`-ne -e ./src/index.ts`，卡死探针为「`session_shutdown` 返回
+  永不 resolve 的 Promise」，且探针**先于**本包加载以证明不依赖处理器顺序；每轮独立
+  `PI_CODING_AGENT_DIR` + `timeoutMs: 2000`）：
+  - fullscreen：收尾后 **2.11–2.15 s** 退出（8 轮中 7 轮；报告写出，`marker=?2004l`）；
+  - `tuiMode: "regular"`：**2.10–2.13 s** 退出（走 `?2004l`）；
+  - 无卡死探针：**0.12 s** 退出（2 轮，看守不拖慢正常退出）；
+  - 1.5.1 新增的 `await session.abort()` / `settleCredentialWrites()` 都在同一条无界链上，
+    没有改变结论；
+  - 一轮测得 0.28 s 的墙上时钟退出、而报告 `elapsedMs=2032`（单调时钟）——WSL 墙上时钟回跳
+    的已知现象（`Date.now()` 曾把 10 s 记成 7.2 s），不是看守提前放手；
+  - 历史（1.5.0）：fullscreen/regular 2.15 s、无探针 0.11 s、`/quit-guard 4500` → 4.66 s、
+    默认 10 s → `elapsedMs≈10000`。
 - 宿主事实：`?2004l` 由 `ProcessTerminal.stop()` 直接 `process.stdout.write`，**不经过**
   `PI_TUI_WRITE_LOG`（该日志只记 `terminal.write`）；所以调试看门狗用
   `PI_QUIT_GUARD_DEBUG=<file>`（记录 register/arm/disarm/fire），不要拿 TUI 写日志对时间。

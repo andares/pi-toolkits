@@ -4,7 +4,10 @@
  * Problem this solves: pi's interactive `/quit` stops the TUI, then awaits
  * `runtimeHost.dispose()` — every extension's `session_shutdown` handler,
  * one after another, with no timeout (upstream issue #9997; still unbounded
- * in 1.5.0 and on main). One handler that never settles leaves the process
+ * in 1.5.1 and on main — 1.5.1 added `await session.abort()` before the
+ * handler loop and `await settleCredentialWrites()` after it, i.e. more awaits
+ * in the same untimed chain, which makes the failure mode more likely, not
+ * less). One handler that never settles leaves the process
  * alive at 0% CPU, the terminal already restored and the final frame
  * reprinted: the screen looks like a frozen "exit screen" and the shell
  * prompt never comes back. The `isShuttingDown` latch in the host then

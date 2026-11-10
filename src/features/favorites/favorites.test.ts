@@ -42,6 +42,7 @@ import { applyCyclePatch } from "./patch-cycle.js";
 import { styleFavorite } from "./constants.js";
 import {
 	applyModelSelectorPatches,
+	runFilterModels,
 	setSelectorThemeProvider,
 } from "./patch-selector.js";
 
@@ -357,7 +358,7 @@ interface FakeSelector {
 	__favoritesHint?: { setText(_t: string): void };
 	handleInput(d: string): void;
 	updateList(): void;
-	filterModels(q: string): void;
+	filterModels(q: string, preferredModel?: ModelLike): void;
 }
 
 function item(model: ModelLike) {
@@ -464,6 +465,29 @@ describe("selector patches", () => {
 			"claude-sonnet-4",
 			"claude-opus-4",
 		]);
+	});
+
+	it("forwards pi 1.5.1's preferredModel through the favorites-only swap", () => {
+		getFavoritesStore().toggle(models[0]);
+		const calls: Array<[string, ModelLike | undefined, number]> = [];
+		// Host-independent: the spy stands in for whatever the installed host
+		// declares. 1.2.0–1.5.0 ignore the extra argument; 1.5.1+ use it.
+		const original = function (
+			this: FakeSelector,
+			query: string,
+			preferredModel?: ModelLike,
+		) {
+			calls.push([query, preferredModel, this.activeModels.length]);
+		};
+		const selector = fakeSelector({
+			activeModels: models.map(item),
+			__favoritesOnly: true,
+		});
+		runFilterModels(selector, original, "claude", models[1]);
+		// One call, preferred model intact, and it ran on the one-entry subset…
+		expect(calls).toEqual([["claude", models[1], 1]]);
+		// …with the full list restored afterwards.
+		expect(selector.activeModels).toHaveLength(3);
 	});
 
 	it("mirrors pi 1.5.0's disambiguating model name after the id", () => {

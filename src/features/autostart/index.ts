@@ -26,9 +26,12 @@
  * Dispatch uses `sendUserMessage(cmd, { expandPromptTemplates: true })` —
  * that flag is what routes "/cmd args" through _tryExecuteExtensionCommand
  * instead of the model prompt path. The wrapper defaults it to false in this
- * package (each byte-identical across every published version of the supported
- * window, 1.2.0 → 1.5.0; see AGENTS.md host-compat discipline for the version
- * matrix).
+ * package. `_tryExecuteExtensionCommand` is byte-identical across every
+ * published version of the supported window (1.2.0 → 1.5.1); `sendUserMessage`
+ * itself was refactored in 1.5.1 (the rest of the body moved into
+ * `_preparePrompt`, #9154), but the extension-command branch is still the
+ * first early exit of the wrapper, so `/cmd args` never reaches the model
+ * prompt path. See AGENTS.md host-compat discipline for the version matrix.
  *
  * Only extension commands can run this way. Built-in commands (/compact,
  * /reload, /resume, …) are dispatched at the TUI layer and cannot be

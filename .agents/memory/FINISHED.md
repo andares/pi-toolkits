@@ -35,3 +35,15 @@
 - 顺带止住测量噪声：矩阵并发下 vitest 21 worker 的内存压力让不同测试偶发超时（floor 一度被压到 1.0.2），
   收敛为 `maxWorkers: 4` + 30s 超时 + 静态 import，断言未动。
 - 证据：change record `.agents/implementations/2026-11-04_pi-1.5.0-compat.md`。
+
+### M3 — pi 1.5.1 宿主兼容（同一条 1.5 线内，2026-11-10）
+
+- 窗口定义按中版本线，所以 1.5.1 落进既有窗口而窗口不新增线：1.2.0–1.5.0 + 1.5.1 全绿
+  （各 660 passed，键位 ✅）；探针与停留点不变，**public floor 0.99.0**，peer 未动。
+- 唯一代码改动：`favorites` 的 `filterModels` patch 原样转发 1.5.1 新增的 `preferredModel`
+  （后台刷新保持高亮行，#9109），覆写核心抽成可测的 `runFilterModels` + 1 个宿主无关单测；
+  测试 32 文件 / 660。
+- dist 判读：`compaction.js`/`usage-totals.js`/`updateList` 未动；`agent-session.js` 五处变化都不碰
+  `cycleModel`（仍 1.2.0→1.5.1 字节级一致）或 autostart 的扩展命令早退；`types.d.ts` 全增量；
+  quit-guard 面对的收尾链又多了两个 await，结论不变。
+- 证据：change record `.agents/implementations/2026-11-10_pi-1.5.1-compat.md`。

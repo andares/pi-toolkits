@@ -15,7 +15,7 @@
 
 In a nutshell: nine ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, and a **quit watchdog** `quit-guard` — with more to come.
 
-**Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.0 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
+**Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.1 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
 ---
 
@@ -289,7 +289,7 @@ pi's `/compact` and auto-compact summarize the context **with the current sessio
 | auto-compact threshold reached | summarized by the compaction model |
 | context overflow recovery | summarized by the compaction model, retry behavior unchanged |
 
-**Parts that are identical to pi's built-in behavior after takeover** (the built-in implementation is mirrored verbatim — copied from 0.87.1, byte-identical across 1.2.0 → 1.5.0 apart from the two 1.4.0 fixes adopted here: summaries request the model's output limit instead of a fixed fraction of `reserveTokens`, and `/compact <instructions>` also reaches the split-turn prefix, plus the 1.5.0 `cost.totalFromProvider` merge rule in the usage accounting — and only the executing model changes; the conversation serializer itself is imported from the host, so it follows whatever the running host does, e.g. 1.2.0 stops feeding assistant thinking back into the summarization request):
+**Parts that are identical to pi's built-in behavior after takeover** (the built-in implementation is mirrored verbatim — copied from 0.87.1, byte-identical across 1.2.0 → 1.5.1 apart from the two 1.4.0 fixes adopted here: summaries request the model's output limit instead of a fixed fraction of `reserveTokens`, and `/compact <instructions>` also reaches the split-turn prefix, plus the 1.5.0 `cost.totalFromProvider` merge rule in the usage accounting — and only the executing model changes; the conversation serializer itself is imported from the host, so it follows whatever the running host does, e.g. 1.2.0 stops feeding assistant thinking back into the summarization request):
 
 - **Summary format** — the structured Goal / Progress / Key Decisions checkpoint; when a summary already exists, the iterative-update prompt is used so information carries over instead of being lost
 - **Split behavior** — the `keepRecentTokens` retention policy, and `firstKeptEntryId` / `tokensBefore` passed back unchanged
@@ -370,7 +370,7 @@ An **identical command line** declared by both sources runs once: a duplicate is
 
 **Key constraint: extension commands only**. Commands registered via `registerCommand` such as `/add-dir` (pi-add-dir) and `/cd` (pi-cd) work; built-in commands (`/compact`, `/reload`, `/resume`, …) are dispatched in the TUI layer and cannot be triggered from the extension layer; skill commands (`/skill:name`) are an expansion mechanism rather than an execution mechanism. The target extension you depend on (e.g. pi-add-dir) must be installed first.
 
-> **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; `sendUserMessage` and `_tryExecuteExtensionCommand` are byte-identical across 1.2.0–1.5.0, see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
+> **Implementation notes**: execution uses `sendUserMessage(cmd, { expandPromptTemplates: true })` — that option routes `/cmd args` into command dispatch instead of the model prompt path (the wrapper defaults to `false`; `_tryExecuteExtensionCommand` is byte-identical across 1.2.0–1.5.1, and although 1.5.1 moved the rest of `sendUserMessage` into `_preparePrompt`, the extension-command branch is still its first early exit — see the host-compatibility discipline in AGENTS.md). Pre-validation uses `pi.getCommands()` (accepting only `source: "extension"`). Depends on `smol-toml` (zero-dependency, ~10KB, TOML 1.0).
 
 ---
 
@@ -461,8 +461,9 @@ package never directs the model which language to write or reply in.
 **The problem.** pi's interactive `/quit` stops the TUI and then awaits every extension's
 `session_shutdown` handler, one after another, **with no timeout**
 (`runtimeHost.dispose()` → `emitSessionShutdownEvent()`; upstream
-[issue #9997](https://github.com/earendil-works/pi/issues/9997), still unbounded in 1.5.0 and on
-`main`). One handler that never settles leaves pi alive at 0% CPU *after* the terminal has
+[issue #9997](https://github.com/earendil-works/pi/issues/9997), still unbounded in 1.5.1 and on
+`main` — 1.5.1 added `await session.abort()` before the handler loop and a credential-write
+settle after it, i.e. more awaits in the same untimed chain). One handler that never settles leaves pi alive at 0% CPU *after* the terminal has
 already been restored and the final frame reprinted: the screen looks like a frozen "exit
 screen", and the shell prompt never comes back. Ctrl+C and SIGTERM did not end the hung process
 in our measurements (SIGKILL did); once that phase starts, the host has no way out of it.
