@@ -180,7 +180,7 @@ if (dryRun) {
 	console.log(`\n${C.dim}--dry-run -- nothing changed. Would run:${C.reset}`);
 	console.log(`  0. 工作区必须干净（有未提交变更则直接中止）`);
 	if (skipTailCheck) {
-		console.log(`  0б. 上一版 ${tailTag} 的尾部校验 —— ${TAIL_LABEL.skipped}`);
+		console.log(`  0b. 上一版 ${tailTag} 的尾部校验 —— ${TAIL_LABEL.skipped}`);
 	} else {
 		const tail = await releaseTailGap({ cwd: ROOT, git, tag: tailTag });
 		console.log(
