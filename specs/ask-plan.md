@@ -1,137 +1,282 @@
-# SPEC（草案）: `/ask-plan` — 从 ask 讨论出计划，在浏览器里按「块」批注，确认后落成 spec
+# SPEC: `/ask-plan` — 浏览器批注式计划评审（简化版 plannotator）
 
-> 状态：调研 + 提案，待崔总拍板。
-> 调研对象：本机 `~/.pi/agent/npm/node_modules/@plannotator/pi-extension@0.28.59`
-> （pi 里已 disable），以及同目录 `@plannotator/webtui@0.1.0`。
+> 状态：**已定稿待实施**（崔总 2026-11-11 拍板）。实施后本文件随代码一起维护。
+> 调研底稿见同目录 git 历史（`85112d7` 的调研版）。
 
-## 1. plannotator 实测画像
+## 0. 目标
 
-| 维度 | 实测值 |
+`/ask` 讨论 → `/ask-plan` 调研 → 模型把结论写成计划 → **浏览器里按块批注** → 多轮 → 批准 →
+落 `specs/<slug>.md` → 直接实施。
+
+一句话：把 plannotator 的「计划评审」那一小块拿出来，用**块**替代它的**文本引用锚**，
+其余全部砍掉。
+
+## 1. 范围
+
+**做**：计划期状态机、`plan_submit` 工具、块解析与块级 diff、本地 HTTP 服务 + SolidStart 界面、
+两级批注（全局 / 块）、版本落盘与回看、批准后写 spec、ask-perm 自动开启。
+
+**不做**（明确边界）：
+
+- **绝不切模型。** 本功能任何代码路径都不得调用 `pi.setModel`；plannotator 的自动切模型
+  在 2026-09 把崔总的现金额度烧掉 100 多元，这类错误不再犯。（守卫见 §9.4）
+- 不做 live-app 反代批注、代码/PR 评审、Inbox、Ask-AI、浏览器终端、Mermaid/Graphviz、
+  Obsidian/reference、多标签租约、remote TLS、VS Code 集成。
+- 不做字符级/行级 diff：diff 的粒度就是块。
+- 不做「计划期允许写仓库文件」：计划期唯一的写入通道是 `plan_submit`。
+
+## 2. 已确认的决策（崔总）
+
+| # | 决策 | 说明 |
+| --- | --- | --- |
+| D1 | 调研期允许用 `ask_user_question` 提问 | 问完再提交计划；提问走 pi 现有对话框，不在浏览器里答 |
+| D2 | 界面用 **SolidStart** 搭 | 用 SPA 模式（`ssr: false`），产物是静态资源 |
+| D3 | **块 = markdown 的一段**（空行分隔） | 不解析 AST；围栏代码块内不切分 |
+| D4 | 批注只有两级：**全局 + 块** | 不做文本选区锚、不做行内批注 |
+| D5 | 历史落盘 | `<agent-dir>/ask-plan/<slug>/vNNN.md` + `state.json` |
+| D6 | spec 位置固定为 `specs/<slug>.md` | 沿用 ask-init 框架 |
+| D7 | 批准后**直接开工** | 不再二次确认 |
+| D8 | 界面中英双语可切换，记忆在 `localStorage` | 默认跟 `navigator.language` |
+| D9 | 闸门复用现有 permission | 进入计划期自动 `/ask-perm` 默认参数，用户可手动关 |
+| D10 | 服务器要能唤起 **Windows 浏览器** | WSL 内 chrome 不算数（见 §3） |
+
+## 3. WSL 打开 Windows 浏览器：已实测，方案确定
+
+本机实测（2026-11-11，WSL2 NAT 模式，`/mnt/c/Users/*/.wslconfig` 无 `localhostForwarding`）：
+
+| 场景 | 结果 |
 | --- | --- |
-| 代码量 | TypeScript ≈ **93k 行**（根 7.9k / `generated/` 66.9k / `server/` 19k），另 7.5k 行测试 |
-| 前端 | 预构建单文件 HTML：`plannotator.html` **24 MB**、`review-editor.html` **17.8 MB** |
-| 依赖 | `@pierre/diffs`、`diff`、`chokidar`、`turndown`+`parse5`（md→html）、`@plannotator/webtui`（xterm + node-pty + ws） |
-| 命令面 | `/plannotator-plan-mode`、`-review`、`-annotate`、`-last`、`-inbox`；可选 `plannotator` / `plannotator_inbox` 工具 |
-| 玩法面 | 计划评审 + 代码/PR 评审 + 任意 md 批注 + **live-app 反代批注** + 消息批注 + Inbox + 归档浏览 + Ask-AI 面板 + 浏览器内终端 |
-| 传输 | `node:http` + **SSE** 推送；端口 19432（remote）/ 本机随机 |
+| 服务绑 `127.0.0.1:8123`，Windows 访问 `localhost:8123` | ❌ 连不上 |
+| 服务绑 `127.0.0.1:8123`，Windows 访问 `127.0.0.1:8123` | ❌ 连不上 |
+| 服务绑 `0.0.0.0:8124`，Windows 访问 `localhost:8124` | ❌ 连不上 |
+| 服务绑 `0.0.0.0:8124`，Windows 访问 `172.24.47.146:8124`（WSL eth0 IP） | ✅ 200 |
+| `cmd.exe /c start "" "http://172.24.47.146:8125/"` | ✅ Windows 浏览器真的打进来了（服务器日志有 `GET /`） |
 
-### 1.1 值得抄的五件事
+同时确认了旧坑：本机 **`/usr/bin/google-chrome` 存在**，`xdg-open` 会把它拉起来——正是
+「WSL 内的 chrome」那种失败。
 
-1. **提交工具不阻塞**（README 与 `generated/plannotator-tool.ts` 均明说 "returns at once"）：
-   `plannotator_submit_plan` 打开评审就返回，agent 的回合**当场结束**；用户的决定稍后作为
-   **新消息**回到会话。代价是工具不再能"等待结果"，收益是评审期间两边都能继续说话。
-2. **决定回投走 `pi.sendUserMessage`**（普通用户消息），不是工具返回值。浏览器 POST
-   `/api/approve` / `/api/deny` → 服务器 resolve 一个 awaited promise → 扩展拼一条消息。
-   **格式化的活在前端做**（`feedback` 是一整段 markdown），服务端只搬运。
-3. **版本历史按「文件路径」记，不按内容**：slug = 文件名 + 路径哈希，内容哈希去重，
-   每次打开把当前内容与上一版一起发下去（`diffCurrent` / `previousPlan`），前端算 diff。
-   写历史失败只降级、不报错（"storage is an enhancement, never a gate"）。
-4. **安全姿态**（`server/request-origin-guard.ts` + `request-host-guard.ts`）：绑回环、
-   Host 白名单、跨站发起的写请求一律 403（防 DNS rebinding / 恶意网页 CSRF）、端口可配。
-5. **阶段约束靠「指令 + 工具裁剪」**（`plannotator.json` 的 `phases`）：计划期把 activeTools
-   收窄到 `grep/find/ls/submit`，并写死一段指令（不许改代码、每轮只能"提问"或"提交"）。
+**结论（必须照做）**：
 
-### 1.2 两处我们可以做得更好
+1. **绑 `0.0.0.0`**（WSL 下），URL 用 **WSL 的 eth0 IP**，不用 `localhost`。
+2. **打开器按序探测**：`wslview`（wslu，本机未装）→ `cmd.exe /c start "" "<url>"` →
+   `powershell.exe -NoProfile -Command Start-Process '<url>'` →（非 WSL）`xdg-open`。
+   WSL 下**绝不先试 `xdg-open`**。
+3. `cmd.exe` 的 cwd 要设成 `/mnt/c`（或任意 Windows 路径），否则它把 UNC 路径
+   `\\wsl.localhost\...` 当 cwd 并打印警告（实测出现过，URL 仍能打开但要消掉噪声）。
+4. 非 WSL：绑 `127.0.0.1`，URL 用 `127.0.0.1`，`xdg-open`/`open` 均可。
+5. 永远把 URL 打出来（TUI notify + 工具返回值），打开失败也能手动复制。
+6. 每次提交**不重复弹新标签**：第一次打开发 URL，之后靠 SSE 刷新；需要重开时
+   `plan_submit` 的返回值和 `/ask-plan open` 都给 URL。
 
-- **锚定方式**：他们的批注是**引用文本锚**（`originalText` + `anchor` + `additionalAnchors`），
-  改版后要重新锚定——`generated/annotate-draft.ts` 里有 "an annotate client re-anchors" 的补丁
-  逻辑。我们改成**块身份**（block id），批注直接挂在块上，改版后按块 diff 定位，不需要重新猜位置。
-- **粒度**：他们的 round-over-round diff 是文本级（`diff` 包在前端跑，24MB 的 UI 里渲染）。
-  我们只做块级：不细到字/行，改动在块上标「新增 / 修改 / 删除」。
-
-### 1.3 明确不抄（简化项与理由）
-
-| 不抄 | 理由 |
-| --- | --- |
-| live-app 反向代理批注（`bridge-script.ts` 1000+ 行） | 我们要批注的是计划文本，不是运行中的网页 |
-| 代码/PR 评审（`review-editor.html` 17.8 MB） | 本轮目标是 `/ask-plan`；`/ask-review` 已经覆盖代码评审 |
-| Inbox / 归档浏览 / Ask-AI 面板 | 各自是独立产品面，与"计划评审"无关 |
-| 浏览器内终端（node-pty + xterm） | 我们要的是批注，不是第二个终端 |
-| Mermaid / Graphviz / Obsidian / reference | 计划文本用不着；`parse5`+`turndown` 只是为了 md↔html 互转 |
-| 多标签租约、remote TLS、VS Code 集成 | 单机会话用不上 |
-| 预构建大 HTML 包 | 我们直接手写一个单文件 HTML + 原生 JS，无构建链 |
-
-## 2. 我们要的工作流
+## 4. 用户旅程
 
 ```text
-/ask 讨论  ──▶  /ask-plan 进入计划期  ──▶  计划 v1 落盘(草稿)
-                    ▲                         │
-                    │                         ▼
-              模型改计划 ◀── 浏览器批注/答题 ◀── 服务器 + 界面（SSE）
-                    │                         │
-                    └── 新一轮 v2/v3 … ──────▶│  块级 diff 高亮
-                                              ▼
-                                    Approve ──▶ 写 specs/<slug>.md ──▶ 实施
+/ask 讨论 ──▶ /ask-plan ──▶ 计划期(只读 + ask_user_question)
+                              │
+                              ├─ 模型调研、提问、写计划
+                              ▼
+                        plan_submit(content)          ← 工具立即返回，回合结束
+                              │
+                              ├─ 落 v001.md，算块，开服务器，开 Windows 浏览器
+                              ▼
+                   浏览器：块级 diff 徽标 + 块批注 + 全局批注
+                              │
+              ┌───────────────┴───────────────┐
+        提交修改意见(deny)                  批准(approve)
+              │                               │
+              ▼                               ▼
+   pi.sendUserMessage(反馈 markdown)      写 specs/<slug>.md
+   → 模型改计划 → plan_submit(v002)      → 退出计划期、恢复闸门状态
+   → 浏览器 SSE 刷新（v1↔v2 块级 diff）   → 模型直接开工
 ```
 
-- **进入方式**：`/ask-plan`（可在 `/ask` 讨论后直接进，也可直接进；带上刚讨论的内容作为上下文）。
-- **计划期约束**：只允许写计划文件（+ 只读工具），复用现有 permission/ask 的闸门能力。
-- **提问**：计划里的「待你回答」是块的一种（`question` 类型），浏览器里渲染成问题卡
-  （单选 / 多选 / 自由文本），答案随提交一起回到会话。
-- **多轮**：每次模型提交新版本，浏览器收到 SSE 刷新；未变的块折叠，变了的块打徽标。
+## 5. 块模型
 
-## 3. 块模型（本轮的核心创新）
+### 5.1 解析（`blocks.ts`）
+
+- 逐行状态机，跟踪 ``` / ~~~ 围栏；围栏内**不切分**。
+- 以「空行（≥2 个 `\n`）」分段；每段 = 一个块。标题行自然是单行块。
+- 去掉首尾空行，块内保留原始 markdown（渲染时再走 markdown 渲染器）。
+- 块字段：
 
 ```text
-parse(markdown) → blocks[] {
-  id     短哈希(path + 归一化文本)  ← 稳定的块身份
-  kind   heading | para | list-item | code | table | quote | question
-  path   标题链（如 "Approach > 2. 步骤"），给人看的定位
-  text   原始 markdown 片段
-  hash   归一化文本的哈希（用于判"改没改"）
+{ id, kind, text, hash, index }
+  kind: heading | text | list | code | table | quote
+  hash: sha1(归一化文本).slice(0,12)   // 归一化 = 压空白、去行尾空格
+  id  : hash + (同 hash 的第几次出现)   // 重复段落也能区分
+```
+
+### 5.2 块级 diff（`diff.ts`，无依赖）
+
+1. **同 id 匹配** → `unchanged`。
+2. 未匹配的，在相邻缺口里两两配对：token Jaccard ≥ 0.5 → `modified`；
+   否则旧的记 `removed`、新的记 `added`。
+3. 输出 `{ id, status, prevId? }`，界面按状态上徽标（新增/已改/删除/未变）。
+
+> 为什么不用行级 diff：块是「讨论单元」，改一个字和改一段在评审里是同一件事；
+> 行级 diff 还要处理表格/围栏对齐，收益与成本不成比例。
+
+### 5.3 批注数据
+
+```json
+{
+  "global": [{ "verdict": "change|suggest|question", "comment": "..." }],
+  "blocks": [{ "blockId": "ab12cd34ef56#0", "verdict": "change", "comment": "..." }]
 }
 ```
 
-版本比较（`diffBlocks(prev, next)`）：
+- `verdict` 三档：`change`（必须改）/ `suggest`（建议）/ `question`（疑问，可不改）。
+- 每块可挂多条；界面显示条数徽标。
+- 提交时前端拼成固定模板的 markdown（模板在 `feedback.ts`，单测覆盖）：
 
-| 情形 | 判定 |
+```text
+## Plan feedback — v2 (3 blocks changed)
+
+### Global
+- [change] 整体方向没问题，但不要把权限开关藏进计划流程里。
+
+### Block: ## 5. 里程碑  (modified)
+> 原块首行：1. 块模型 + 服务器
+- [change] 里程碑 1 太大了，拆成 块模型 与 服务器 两步。
+```
+
+## 6. 服务器（`server.ts`，`node:http`）
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| GET | `/` | 静态资源（SolidStart 构建产物） |
+| GET | `/api/state?t=<token>` | 当前版本、块、diff、历史、批注、决策状态 |
+| GET | `/api/version/:n` | 指定版本原文（历史抽屉用） |
+| GET | `/api/events` | SSE：版本变化、批注变化、决策 |
+| POST | `/api/annotate` | 增/改/删某块或全局批注 |
+| POST | `/api/decide` | `{ action: "approve" \| "deny" }` |
+
+安全（因为 WSL 必须绑 `0.0.0.0`）：
+
+- 每个会话一个随机 token，放在打开 URL 的 query 里；页面把它写进 `X-Plan-Token` 头，
+  所有写请求校验该头——外部站点拿不到 token（同源策略）。
+- Host 白名单：`127.0.0.1:<port>`、`<wsl-ip>:<port>`、`localhost:<port>`。
+- 写请求校验 `Origin`/`Sec-Fetch-Site`，跨站一律 403（照 plannotator 的立场）。
+- 服务器只在计划评审打开期间存活；决策落地或 `session_shutdown` 即关闭；空闲 2 小时自关。
+
+## 7. 界面（`ui/`，SolidStart SPA）
+
+```text
+ui/
+├── vite.config.ts        # solidStart({ ssr: false }) + 静态输出
+├── src/
+│   ├── app.tsx           # 单页：计划视图 / 历史抽屉
+│   ├── i18n.ts           # zh/en 词典 + localStorage 记忆
+│   ├── blocks.tsx        # 块卡片：徽标、批注气泡、编辑框
+│   ├── diff.tsx          # 块级 diff 视图（默认折叠未变块）
+│   └── api.ts            # fetch + EventSource 封装
+└── dist/  → 构建产物拷到 src/features/plan/assets/（随包发布）
+```
+
+- 顶部：版本选择（v3 of 5）、`3 changed`、语言切换、全局批注按钮、Approve/Deny。
+- 主体：块列表。未变块默认折叠成一行「… 4 blocks unchanged …」；变了的块带左边框色标
+  （新增=绿、修改=黄、删除=灰删除线）。
+- 块批注：点击块右侧「+」→ 气泡（verdict 三选 + 文本框）；再次点开可改/删。
+- 全局批注：顶部按钮打开侧栏。
+- 历史抽屉：v1…vN 列表（时间、块数、变更数），点开只读查看并可「与上一版对比」。
+- 首次进入显示「URL 已复制/打开方式」提示（若自动打开失败）。
+
+## 8. 与 pi 的接线（`index.ts`）
+
+### 8.1 命令
+
+| 命令 | 作用 |
 | --- | --- |
-| 同一 `id` 两版都在 | 未变（可折叠） |
-| `path` 相同、`hash` 不同 | **修改**（徽标「已改」） |
-| 只在下一版出现 | **新增**（徽标「新增」） |
-| 只在上一版出现 | **删除**（徽标「删除」，展示为删除线卡片） |
+| `/ask-plan [标题]` | 进入计划期（自动开 ask-perm 默认参数；若在 ask 模式则先退出并提示） |
+| `/ask-plan open` | 重新打开浏览器（或打印 URL） |
+| `/ask-plan off` | 退出计划期（不产生 spec） |
 
-批注 = `{ blockId, verdict: change | suggest | question, comment }`。反馈模板按块输出：
-
-```text
-### ## Approach > 2. 步骤  （已改）
-> 原第 2 条：先写 store 再写 UI
-批注（必须改）：顺序反了，先定 UI 结构再定 store 字段。
-```
-
-## 4. 架构（提案）
+### 8.2 工具 `plan_submit`
 
 ```text
-src/features/plan/
-├── index.ts     # /ask-plan 命令、计划期状态机、submit 工具、会话接线
-├── blocks.ts    # markdown → blocks（解析 + 归一化 + 哈希）
-├── diff.ts      # 块级 diff（LCS on id，产出 added/modified/removed/unchanged）
-├── store.ts     # <agent-dir>/ask-plan/<slug>/{v001.md,state.json}（原子写）
-├── server.ts    # node:http @ 127.0.0.1:随机端口 + SSE + Host/Origin 守卫
-├── feedback.ts  # 批注/答题 → 喂给模型的消息（模板固定，可测）
-├── prompt.ts    # 计划期指令（照 plannotator.json 的思路写死）
-└── assets/plan.html  # 单文件界面：无构建、原生 JS、fetch + EventSource
+plan_submit({ content: string, slug?: string })
 ```
 
-HTTP 面（最小集）：`GET /`（界面）、`GET /api/state`（当前版本 + 块 + 批注 + 历史）、
-`GET /api/events`（SSE）、`POST /api/annotate`（增删批注）、`POST /api/answers`（答题）、
-`POST /api/decide`（approve / deny）。
+- 写入 `vNNN.md`，解析块、算 diff、广播 SSE，**立即返回**：
+  `{ version, blocks, changed, url }`。
+- 返回即结束回合（与 plannotator 同一套「不阻塞」语义，理由：评审期间两边都能继续说话）。
+- 批准/驳回从浏览器回到会话时，用 `pi.sendUserMessage(feedbackMarkdown)` 作为**新消息**进入。
 
-不引入构建链、不引入前端框架；`node:http` + 手写 HTML 与 `SSE`，与 plannotator 的安全姿态一致
-（回环绑定 + Host 白名单 + 跨站写 403）。
+### 8.3 门与模式
 
-## 5. 待崔总拍板（5 个问题）
+- 计划期不提供写仓库的工具通道：`write`/`edit`/`bash` 的写操作由 **复用 permission 的既有闸门**
+  拦截（D9）；额外注册一条 plan gate：`write`/`edit` 一律拒绝（计划期唯一写口是 `plan_submit`）。
+- 进入计划期：若 permission 未启用 → 用 `DEFAULT_MODES` 启用；若已启用 → 记住原状态。
+  退出/批准：**恢复**进入前的状态（user 若中途手动改过，以他的手改为准，不再覆盖）。
+- ask 模式：进入计划期时若 `/ask` 开着 → 自动退出并提示（计划期本身就是只读+提交）。
 
-1. **答题在哪**：浏览器里答（问题块）还是终端对话框？——建议浏览器，能批量答完再提交。
-2. **每版是否落盘**：`v001.md`…（历史可回看）还是只留最新版 + 一份 diff 日志？——建议落盘，成本极低。
-3. **spec 落地**：`specs/<slug>.md`（本仓已有 `specs/`）？外部项目是否可配置（`plans/` 之类）？
-4. **approve 之后**：直接开始实施，还是先落 spec、看一眼 diff 再开工？
-5. **界面语言**：英文（与现有运行时文案一致）还是中英双语？——建议英文。
+### 8.4 模型
 
-## 6. 规模与风险
+**本功能不读写模型状态。** 代码里不出现 `pi.setModel` / `ctx.model` 的写操作；
+计划期的"模型"就是当前会话模型，用户要换自己 `/model`。
 
-- 预计实现量：块模型 + diff ≈ 300 行，服务器 + 反馈模板 ≈ 300 行，界面（HTML/JS）≈ 400–600 行，
-  测试 ≈ 400 行；合计 **1.2–1.6k 行**，是 plannotator 的 1.5% 左右。
-- 主要风险：① 块的边界（一个长列表算一块还是每项一块）——先按「标题 + 原子块」定；
-  ② 版本漂移下批注失效——有 block id 兜底，块被删就明确告诉用户"批注所在块已删除"；
-  ③ 服务器常驻泄漏——只在评审打开期间活着，`session_shutdown` 关掉，退出时清理端口文件。
+## 9. 落盘
+
+### 9.1 目录
+
+```text
+<agent-dir>/ask-plan/<slug>/
+├── v001.md … vNNN.md     # 每版原文
+├── state.json            # 版本元数据、批注（按版本）、决策、时间戳
+└── spec.md               # 批准时的最终产物快照（与 specs/<slug>.md 同字节）
+```
+
+### 9.2 保留策略
+
+- 版本默认全留（文本很小）；超过 50 版时删最旧的**未批准**版本，保留被批准的那一版。
+- 同一 slug 的下一轮（第二天再来一遍）新建 `-2` 后缀目录，不覆盖历史。
+
+### 9.3 spec 写入
+
+- 批准时由**代码**写 `specs/<slug>.md`（不是模型调 `write`）：内容 = 被批准的版本原文，
+  末尾追加半行元数据注释：`<!-- ask-plan: v3 of 5, approved 2026-11-11T01:20+08:00 -->`。
+- 目标目录不存在则创建；已存在同名文件则写 `-2` 并在 notify 里说明。
+
+### 9.4 不切模型的守卫
+
+- 单测：`plan` 目录下所有源码 `grep` 不到 `setModel`（源码级断言，防回退）。
+- AGENTS.md 不变量段追加一行：「除 `/ask-review` 外，任何功能不得切换模型」。
+
+## 10. 实施里程碑
+
+| M | 内容 | 验收 |
+| --- | --- | --- |
+| **M1** | `blocks.ts` + `diff.ts` + `feedback.ts`（纯函数，无 IO） | 单测：围栏/表格/重复段落/三态 diff/反馈模板 |
+| **M2** | `store.ts`（版本落盘）+ `server.ts`（路由、token、SSE、WSL 打开器） | 单测 + 手工：curl 打全部路由；WSL 下 `cmd.exe start` 打开 |
+| **M3** | `ui/`（SolidStart SPA）：块卡片、diff 徽标、两级批注、i18n、历史抽屉 | 手工 + Playwright 冒烟（可选） |
+| **M4** | `index.ts` 接线：命令、`plan_submit`、plan gate、ask-perm 开关、spec 写入；文档 | 端到端冒烟：`/ask-plan` → 提交 → 浏览器批注 → 批准 → `specs/x.md` 出现 |
+
+## 11. 测试
+
+- 单测（vitest，与现有 667 例同套）：块解析边界、diff 三态、反馈模板字节、token/Host/Origin 守卫、
+  打开器选择（用假 spawn 断言命令串）、版本保留、spec 写入路径冲突。
+- 手工冒烟（tmux + 真实 pi）：§10 M4 的端到端，外加「不开浏览器也能用 URL 手工打开」。
+- 不引入浏览器 E2E 到 CI（Playwright 已有 skill，按需手跑）。
+
+## 12. 风险
+
+| 风险 | 对策 |
+| --- | --- |
+| WSL 与 Windows 的网络差异（mirrored 模式、localhostForwarding 开启） | bind 0.0.0.0 + 依次尝试 WSL IP 与 localhost；URL 里两条都打印 |
+| 端口被占 | 随机端口 + 3 次重试；`PLAN_PORT` 环境变量可指定 |
+| 模型不按模板提交（漏块、整篇重写） | 提示词里写死「只改被点名的块」+ 反馈模板；diff 徽标会暴露整篇重写 |
+| 批注指向的块被删 | 界面明确标「该块已删除」，反馈里保留引用文本 |
+| 服务器进程泄漏 | 会话结束/决策后关闭，空闲 2h 自关，端口文件写 pid |
+| SolidStart v2 的构建链折腾 | 先用 SPA 模式；若 Nitro 预设不配合，**退回 Solid + Vite 单页**（产物形态相同，接口不变） |
+
+## 13. 我的建议（供拍板）
+
+1. **SolidStart 只用它的 SPA 模式**，不要 SSR：我们没有 SSR 需求，多一个 Nitro 运行时只会多一类 bug；
+   若构建链卡住，直接退到 Solid + Vite（同一份界面代码，去掉路由层）。
+2. **构建产物提交进仓库**（`src/features/plan/assets/`）并加 `pnpm ui:check`
+   （重建后 `git diff --exit-code`），避免「源码改了、包里还是旧界面」；产物预计 150–300 KB。
+3. **不阻塞的提交工具 + 决定走新消息**是这套交互的命门，先做 M1/M2 把它跑通，界面再漂亮也是后话。
+4. **token + Origin 守卫不要省**：为了 Windows 浏览器我们必须绑 `0.0.0.0`，这就比纯 loopback 多开了一扇窗。
+5. **计划期彻底禁写仓库**（只留 `plan_submit`），比「prompt 里请求模型别写」可靠一个数量级。
+6. 先做「单文件计划 + 单页界面 + 全局/块两级批注」的最小闭环，**历史抽屉和 i18n 放最后**——
+   它们不影响主流程是否正确。
