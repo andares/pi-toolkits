@@ -40,12 +40,14 @@ export const QUIT_GUARD_REPORT_DIR = "quit-guard";
  *
  * Measured on a 20-extension setup (2026-11-05): a healthy `/quit` spends
  * ~0.1–3 s between the teardown write and `process.exit(0)` (the whole
- * `runtimeHost.dispose()` / extension-shutdown phase), and 0.12 s with
- * `pi -ne`. 10 s leaves a wide margin for a slow-but-finishing shutdown
- * (e.g. a memory flush or an MCP server close) while still returning the
- * prompt quickly when something never settles.
+ * `runtimeHost.dispose()` / extension-shutdown phase), 5 s worst case end to
+ * end, and 0.12 s with `pi -ne`. 8 s keeps ~3 s of margin over the slowest
+ * healthy quit observed (enough for a memory flush or an MCP server close)
+ * while returning the prompt sooner than the original 10 s when something
+ * never settles. Set by the operator (2026-11-10); it is a default, not a
+ * floor — `/quit-guard <ms>` still overrides it.
  */
-export const DEFAULT_TIMEOUT_MS = 10_000;
+export const DEFAULT_TIMEOUT_MS = 8_000;
 
 /** Floor for `/quit-guard <ms>`: below this, a healthy slow quit would be cut. */
 export const MIN_TIMEOUT_MS = 2_000;

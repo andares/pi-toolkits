@@ -486,21 +486,22 @@ must never be killed.
 | `/quit-guard on` / `/quit-guard off` | enable/disable, persisted |
 | `/quit-guard <ms>` | set the deadline (clamped to 2000–60000 ms), persisted |
 
-**Configuration** — `<agent-dir>/pi-toolkits-quit-guard.json`, written by the commands; every
-field is optional:
+**Configuration** — the guard is **on by default** (8 s after the teardown write, hang report
+on), so an install is protected without any setup. It persists to
+`<agent-dir>/pi-toolkits-quit-guard.json`, written by the commands; every field is optional:
 
 ```json
 {
   "enabled": true,
-  "timeoutMs": 10000,
+  "timeoutMs": 8000,
   "report": true
 }
 ```
 
 `timeoutMs` counts **from the teardown write**, not from the moment you press Enter, so the time
-the TUI spends stopping is not charged against a slow-but-finishing shutdown. Keep it below your
-slowest healthy quit; 10 s leaves a wide margin (the slowest healthy quit measured above was 5 s
-end to end, of which ~2 s came after the teardown).
+the TUI spends stopping is not charged against a slow-but-finishing shutdown. Keep it above your
+slowest healthy quit: the default is **8 s**, and the slowest healthy quit measured above was 5 s
+end to end (of which ~2 s came after the teardown), leaving ~3 s of margin.
 
 **Hang reports** — `<agent-dir>/quit-guard/quit-hang-<timestamp>-<pid>.json` records the
 arm/fire timing, the teardown marker, and the process state at the deadline (`activeHandles`,

@@ -29,7 +29,7 @@
  *    `<agent-dir>/pi-toolkits-quit-guard.json`.
  *
  * Settings file (all fields optional, defaults shown):
- *   { "enabled": true, "timeoutMs": 10000, "report": true }
+ *   { "enabled": true, "timeoutMs": 8000, "report": true }
  */
 import { appendFileSync, existsSync, readdirSync, writeSync } from "node:fs";
 import { join } from "node:path";

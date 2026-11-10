@@ -455,17 +455,17 @@ run = [
 | `/quit-guard on` / `/quit-guard off` | 开启/关闭,并持久化 |
 | `/quit-guard <ms>` | 设置超时(钳制在 2000–60000 ms),并持久化 |
 
-**配置** —— `<agent-dir>/pi-toolkits-quit-guard.json`,由命令写入;所有字段都可省略:
+**配置** —— 看守**默认开启**(收尾序列写出后 8 秒、写诊断报告),装上就有保护,不用先配置。状态持久化在 `<agent-dir>/pi-toolkits-quit-guard.json`,由命令写入;所有字段都可省略:
 
 ```json
 {
   "enabled": true,
-  "timeoutMs": 10000,
+  "timeoutMs": 8000,
   "report": true
 }
 ```
 
-`timeoutMs` 从**收尾序列写出**那一刻开始算,不是从你按下 Enter 开始算——TUI 自己停下来的时间不计入,所以「慢但能完成」的收尾(记忆库 flush、MCP 关闭)不会被误杀。把它设在「你最慢的健康退出」之上;10 秒余量很大(上例最慢的健康退出端到端 5 秒,其中约 2 秒发生在收尾之后)。
+`timeoutMs` 从**收尾序列写出**那一刻开始算,不是从你按下 Enter 开始算——TUI 自己停下来的时间不计入,所以「慢但能完成」的收尾(记忆库 flush、MCP 关闭)不会被误杀。默认 **8 秒**;上例实测最慢的健康退出端到端 5 秒(其中约 2 秒发生在收尾之后),余量约 3 秒。
 
 **诊断报告** —— `<agent-dir>/quit-guard/quit-hang-<时间戳>-<pid>.json`,记录开始计时/触发的时间、触发用的收尾序列,以及截止时进程的状态(`activeHandles`、`activeRequests`、宿主 libuv 句柄表)。**进程还活着但 `libuv` 表是空的**,就是「有个 Promise 永远不会 settle」的特征,区别于阻塞的 socket 或残留子进程。报告文件**仅本人可读**(0700 目录下的 0600 文件),进程参数按审批日志同一套规则脱敏,所以 `pi --api-key …` 不会把密钥留在盘上。
 

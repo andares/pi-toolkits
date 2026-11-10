@@ -104,7 +104,7 @@ export class QuitGuard {
 	constructor(timeoutMs: number, deps: QuitGuardDeps) {
 		this.timeoutMs = timeoutMs;
 		// performance.now() is monotonic: a wall-clock jump (NTP, WSL VM
-		// resume, manual `date`) must not make a 10 s deadline look like 7 s,
+		// resume, manual `date`) must not make an 8 s deadline look like 5 s,
 		// and `elapsedMs` in the hang report must measure real time spent.
 		this.now = deps.now ?? (() => performance.now());
 		this.schedule =

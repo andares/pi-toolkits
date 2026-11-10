@@ -886,8 +886,9 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 - **触发前再验一次 `process.stdin.isRaw`**：收尾序列也可能出现在被渲染的内容里（工具输出、文件正文
   恰好含该转义序列），而 raw mode 不会撒谎——TUI 收尾时把 raw mode 关掉，所以 `isRaw===true`
   说明 TUI 还活着，直接解除而不杀。
-- **默认开启、10 s、写报告**。10 s 从「收尾序列写出」起算，不把你按 Enter 到 TUI 停下的
-  时间算进去；实测健康退出在收尾后最多 2 s，余量充足。可 `/quit-guard <ms>` 调（钳制
+- **默认开启、8 s、写报告**（2026-11-10 崔总定：默认值由 10 s 改为 8 s）。8 s 从「收尾序列
+  写出」起算，不把你按 Enter 到 TUI 停下的时间算进去；实测健康退出端到端最慢 5 s、收尾后
+  最多 2 s，余量约 3 s。可 `/quit-guard <ms>` 调（钳制
   2000–60000），`/quit-guard off` 关闭，配置落 `<agent-dir>/pi-toolkits-quit-guard.json`。
 - **触发时写报告再退出**：`<agent-dir>/quit-guard/quit-hang-<ts>-<pid>.json`，含
   `activeHandles` / `activeRequests` / 宿主 `process.report` 的 libuv 表。空表 + 活进程
@@ -923,6 +924,10 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   - fullscreen：收尾后 **2.11–2.15 s** 退出（8 轮中 7 轮；报告写出，`marker=?2004l`）；
   - `tuiMode: "regular"`：**2.10–2.13 s** 退出（走 `?2004l`）；
   - 无卡死探针：**0.12 s** 退出（2 轮，看守不拖慢正常退出）；
+  - 默认值（**无配置文件**、`enabled=true`、`timeoutMs=8000`）实测：卡死探针下 **8.12 s**
+    退出，报告 `timeoutMs=8000 / elapsedMs=8005 / marker=?2004l`；健康退出 **0.12 s**（5 轮，
+    含先执行 `/quit-guard` 查看状态的两轮）；`/quit-guard` 状态行显示
+    `on · timeout 8000ms · report on`；
   - 1.5.1 新增的 `await session.abort()` / `settleCredentialWrites()` 都在同一条无界链上，
     没有改变结论；
   - 一轮测得 0.28 s 的墙上时钟退出、而报告 `elapsedMs=2032`（单调时钟）——WSL 墙上时钟回跳

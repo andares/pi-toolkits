@@ -7,7 +7,7 @@
  * File shape:
  *   {
  *     "enabled": true,
- *     "timeoutMs": 10000,
+ *     "timeoutMs": 8000,
  *     "report": true
  *   }
  *
