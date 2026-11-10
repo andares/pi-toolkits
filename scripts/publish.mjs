@@ -43,7 +43,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { syncGitHubRelease } from "./lib/github-release.mjs";
+import { githubApi, parseJson, releaseTailGap, syncGitHubRelease } from "./lib/github-release.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_PATH = join(ROOT, "package.json");
@@ -60,16 +60,22 @@ const C = {
 
 const arg = process.argv[2];
 const dryRun = process.argv.includes("--dry-run");
+const skipTailCheck = process.argv.includes("--skip-tail-check");
 
 if (!BUMPS.includes(arg)) {
 	console.error(
 		`${C.red}${C.bold}Usage: pnpm release <${BUMPS.join("|")}>${C.reset}` +
 			`\n  Bump the package version and publish to npm (requires exactly one argument).` +
-			`\n  Add --dry-run to preview without changing anything.`,
+			`\n  Add --dry-run to preview without changing anything.` +
+			`\n  Add --skip-tail-check to publish even when the PREVIOUS version's tag is missing remotely.`,
 	);
 	process.exit(1);
 }
-if (process.argv.slice(2).filter((a) => a !== "--dry-run").length > 1) {
+if (
+	process.argv
+		.slice(2)
+		.filter((a) => a !== "--dry-run" && a !== "--skip-tail-check").length > 1
+) {
 	console.error(
 		`${C.red}Exactly one of ${BUMPS.join("|")} is required.${C.reset}`,
 	);
@@ -104,6 +110,15 @@ const repoMatch = pkg.repository?.url?.match(
 	/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/,
 );
 const ghRepo = repoMatch ? `${repoMatch[1]}/${repoMatch[2]}` : "andares/pi-toolkits";
+
+/** 尾部校验结果的人话（dry-run 报告用）。 */
+const TAIL_LABEL = {
+	ok: "已就位",
+	absent: "远端缺失",
+	mismatch: "远端指向别的提交",
+	"missing-local-tag": "本地无此 tag",
+	skipped: "跳过（--skip-tail-check）",
+};
 
 console.log(
 	`${C.dim}release${C.reset} ${C.bold}${current}${C.reset} → ${C.bold}${C.green}${next}${C.reset} (${arg})`,
@@ -158,9 +173,20 @@ const dirty = run(git, ["status", "--porcelain"], { stdio: "pipe" })
 	.stdout.toString()
 	.trim();
 
+// 上一版的 tag 名（尾部校验与 dry-run 报告共用）。
+const tailTag = `v${current}`;
+
 if (dryRun) {
 	console.log(`\n${C.dim}--dry-run -- nothing changed. Would run:${C.reset}`);
 	console.log(`  0. 工作区必须干净（有未提交变更则直接中止）`);
+	if (skipTailCheck) {
+		console.log(`  0б. 上一版 ${tailTag} 的尾部校验 —— ${TAIL_LABEL.skipped}`);
+	} else {
+		const tail = await releaseTailGap({ cwd: ROOT, git, tag: tailTag });
+		console.log(
+			`  0b. 上一版 ${tailTag} 的远端 tag 校验（现在：${TAIL_LABEL[tail.state]}）—— 不是「已就位」就中止`,
+		);
+	}
 	console.log(`  1. pnpm typecheck && pnpm test`);
 	console.log(`  2. bump package.json version → ${next}`);
 	if (tagExists(`v${next}`)) {
@@ -205,6 +231,41 @@ if (dirty) {
 			` to npm but absent from tag v${next}.${C.reset}`,
 	);
 	process.exit(1);
+}
+
+// Hard gate 2 — 上一版必须真的发完了（tag 已在远端且同哈希）。
+// 中断过的发版（打断在推 tag / 建 Release 之前）会让「再按一次 pnpm release」
+// 产出一个与上一版逐字节相同的新版本：2026-11-10 v0.12.3 → v0.12.4 实测，
+// 两个 tarball 的差异只有 package.json 的 version 一行。补救入口是
+// `pnpm release:github <tag>`——它不 bump 版本、不碰 npm，正好是「补完尾部」
+// 而不是「再发一版」。只看 tag、不看 Release：Release 要 token，缺 token 的人
+// 不应该因此发不了版。
+if (!skipTailCheck) {
+	step(`上一版 ${tailTag} 的发布尾部`);
+	const tail = await releaseTailGap({ cwd: ROOT, git, tag: tailTag });
+	if (tail.state !== "ok") {
+		const hint = {
+			"missing-local-tag":
+				`  本地没有 tag ${tailTag}，无法确认 ${current} 是否已发布。` +
+				`\n  若 ${current} 确实在 npm 上、本地只是丢了 tag：git tag ${tailTag} <发布提交>，然后重跑。` +
+				`\n  若它从未发布过：先修好 package.json 的版本号。`,
+			absent:
+				`  远端没有 tag ${tailTag} —— 上一版很可能在推 tag 之前被打断。` +
+				`\n  先补完尾部：pnpm release:github ${tailTag}（推 tag + 校验 + 建 Release，不碰 npm，幂等）` +
+				`\n  否则这次会发出 v${next}，内容与 ${current} 逐字节相同（只有 version 一行不同）。` +
+				`\n  确认要跳过：pnpm release ${arg} --skip-tail-check`,
+			mismatch:
+				`  远端 tag ${tailTag} 指向 ${tail.remoteSha.slice(0, 7) || "?"}，本地指向 ${tail.localSha.slice(0, 7)}。` +
+				`\n  人工确认后（远端不对就 git push origin refs/tags/${tailTag} --force）再发版。`,
+		}[tail.state];
+		console.error(
+			`${C.red}${C.bold}Aborting: ${tailTag} 的发布尾部未完成（${TAIL_LABEL[tail.state]}）。${C.reset}\n${hint}`,
+		);
+		process.exit(1);
+	}
+	console.log(
+		`${C.green}${tailTag} 的远端 tag 已就位 → ${tail.localSha.slice(0, 7)}${C.reset}`,
+	);
 }
 
 // 1. Checks gate — abort before anything is changed if they fail.
@@ -298,15 +359,66 @@ const release = await syncGitHubRelease({
 	tag: `v${next}`,
 });
 const releaseOk = release.status === "created" || release.status === "exists";
-if (!releaseOk) {
+
+// 尾部自检（自动）—— 这一版必须三处都有：npm 上有该版本、远端 tag 指向发布
+// 提交、有一个公开的 Release。这就是原来「发完再手动跑 pnpm release:github
+// --audit」的日常份额：全量 audit 会扫所有历史版本，而且历史缺口不该拦住今天
+// 这版；单版本的三处核实才是每次发版都要有的证据。全量 audit 仍可用于怀疑
+// 历史漂移时（比如怀疑某次被打断的发版没人补）。
+step("尾部自检（这一版的三处证据）");
+const npmView = spawnSync("npm", ["view", `${pkg.name}@${next}`, "version"], {
+	cwd: ROOT,
+	encoding: "utf8",
+	stdio: "pipe",
+});
+const npmOk = npmView.status === 0 && npmView.stdout.trim() === next;
+const tailRef = await releaseTailGap({ cwd: ROOT, git, tag: `v${next}` });
+let releaseCheck = { label: "release", ok: false, detail: "未设 GITHUB_TOKEN（跳过）" };
+if (process.env.GITHUB_TOKEN) {
+	const res = githubApi({
+		repo: ghRepo,
+		token: process.env.GITHUB_TOKEN,
+		path: `/releases/tags/v${next}`,
+	});
+	const data = parseJson(res.body);
+	const ok = res.code === 200 && Boolean(data) && !data.draft;
+	releaseCheck = {
+		label: "release",
+		ok,
+		detail: ok ? data.html_url : `HTTP ${res.code || "?"}`,
+	};
+}
+const checks = [
+	{
+		label: "npm",
+		ok: npmOk,
+		detail: npmOk ? next : (npmView.stderr || "npm view 未返回该版本").trim().slice(0, 200),
+	},
+	{
+		label: "remote tag",
+		ok: tailRef.state === "ok",
+		detail:
+			tailRef.state === "ok"
+				? `v${next} → ${tailRef.localSha.slice(0, 7)}`
+				: TAIL_LABEL[tailRef.state],
+	},
+	releaseCheck,
+];
+for (const check of checks) {
 	console.log(
-		`${C.dim}补建：pnpm release:github v${next}（幂等，不碰 npm 与版本号）${C.reset}`,
+		`  ${check.ok ? `${C.green}✅` : `${C.red}❌`}${C.reset} ${check.label.padEnd(11)} ${check.detail}`,
 	);
 }
+const tailComplete = releaseOk && checks.every((check) => check.ok);
 
 console.log(
 	`\n${C.green}${C.bold}✅ Published v${current} → v${next}${C.reset}` +
 		`\n${C.dim}Tag: v${next} (${tagHash.slice(0, 7)}) · npm` +
-		(releaseOk ? " · GitHub Release" : " · GitHub Release 未创建（见上）") +
+		(tailComplete ? " · GitHub Release（三处已核实）" : " · 尾部未完成，见上") +
 		`${C.reset}`,
 );
+if (!tailComplete) {
+	console.log(
+		`${C.dim}补完尾部：pnpm release:github v${next}（幂等，不碰 npm 与版本号）${C.reset}`,
+	);
+}

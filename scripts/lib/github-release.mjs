@@ -126,6 +126,44 @@ export async function resolveRemoteTag({
 }
 
 /**
+ * Did the release for `tag` actually finish on the remote?
+ *
+ * Compares the local tag with the remote ref in a SINGLE attempt (no backoff):
+ * callers use this to report a fact before doing anything else, and "absent"
+ * here is not the visibility race that {@link resolveRemoteTag} retries for —
+ * it is the state the caller is about to report.
+ *
+ * Returns `{ state, tag, localSha, remoteSha }` with state one of
+ *   ok | missing-local-tag | absent | mismatch
+ */
+export async function releaseTailGap({
+	cwd,
+	git = process.platform === "win32" ? "git.exe" : "git",
+	tag,
+}) {
+	const g = gitToolkit({ cwd, git });
+	let localSha;
+	try {
+		localSha = g.out(["rev-parse", `refs/tags/${tag}`]);
+	} catch {
+		return { state: "missing-local-tag", tag, localSha: "", remoteSha: "" };
+	}
+	const remote = await resolveRemoteTag({
+		git: g,
+		tag,
+		expectSha: localSha,
+		attempts: 1,
+		delayMs: 0,
+	});
+	return {
+		state: remote.state === "match" ? "ok" : remote.state,
+		tag,
+		localSha,
+		remoteSha: remote.sha,
+	};
+}
+
+/**
  * Create the GitHub Release for `tag`, idempotently, and only after the tag's
  * remote ref has been verified against the commit we measured locally.
  *
@@ -155,16 +193,23 @@ export async function syncGitHubRelease({
 	}
 	log(`${C.dim}local tag ${tag} → ${localSha.slice(0, 7)}${C.reset}`);
 
+	const onWait = ({ attempt, attempts: total, absent }) =>
+		log(
+			`${C.dim}  ${absent ? "tag not visible remotely yet" : "remote tag differs so far"} — retry ${attempt + 1}/${total}${C.reset}`,
+		);
+	// Pre-push probe: ONE attempt, no backoff. In the `pnpm release` flow the
+	// branch is pushed and the tag is not, so "absent" here is the expected
+	// state, not a race — retrying it burned ~30 s (2+4+8+16 s) on every single
+	// release. Measured 2026-11-10: retry 2/5 … 5/5, then the push of that very
+	// tag was visible on its first attempt. The backoff below only makes sense
+	// for the window that starts *after* a push; a tag another run already
+	// pushed still shows up in this one probe.
 	let remote = await resolveRemoteTag({
 		git: g,
 		tag,
 		expectSha: localSha,
-		attempts,
-		delayMs,
-		onWait: ({ attempt, attempts: total, absent }) =>
-			log(
-				`${C.dim}  ${absent ? "tag not visible remotely yet" : "remote tag differs so far"} — retry ${attempt + 1}/${total}${C.reset}`,
-			),
+		attempts: 1,
+		delayMs: 0,
 	});
 	if (remote.state !== "match" && remote.state === "absent" && push) {
 		if (dryRun) {
@@ -185,10 +230,7 @@ export async function syncGitHubRelease({
 			expectSha: localSha,
 			attempts,
 			delayMs,
-			onWait: ({ attempt, attempts: total, absent }) =>
-				log(
-					`${C.dim}  ${absent ? "tag not visible remotely yet" : "remote tag differs so far"} — retry ${attempt + 1}/${total}${C.reset}`,
-				),
+			onWait,
 		});
 	}
 	if (remote.state !== "match") {

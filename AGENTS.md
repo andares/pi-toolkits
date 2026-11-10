@@ -153,7 +153,7 @@
 
 11. **提交与发布**：提交信息必须包含：新窗口线、窗口为何绿（或改了哪些代码）、探针停在哪 + 原因、
     public floor 与 peer、dist 漂移结论、键位结论、冒烟结果。随后 `pnpm release patch`
-    （纯兼容性维护走 patch）；发布后跑 `pnpm release:github --audit` 查 npm/GitHub 版本缺口。
+    （纯兼容性维护走 patch）。
 
 **脚本测不到、必须人工补的三件事：**
 
@@ -287,36 +287,53 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
   有未提交变更时脚本会在任何改动前直接中止。否则未提交内容会被打包进 npm
   包（pnpm 从工作区打包）却不进 tag，造成「tag 内容 ≠ 实际发布内容」
   （v0.4.0 事故）
-- `pnpm release <patch|minor|major> [--dry-run]` 一键发布：干净检查 →
-  typecheck+test → bump → commit + tag（`scripts/tag-current.mjs` 打
-  `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且工作区干净**（否则中止）
-  → `pnpm publish`（失败即中止，版本已锚定）
+- `pnpm release <patch|minor|major> [--dry-run] [--skip-tail-check]` 一键发布：
+  干净检查 → **上一版尾部校验**（见下）→ typecheck+test → bump → commit + tag
+  （`scripts/tag-current.mjs` 打 `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且
+  工作区干净**（否则中止）→ `pnpm publish`（失败即中止，版本已锚定）
   → **npm 成功后**：只推当前分支；tag 的推送 / 远端校验 / Release 创建交给
   `scripts/lib/github-release.mjs`（与 `pnpm release:github` 共用同一条路径）——
   远端没有 tag 就推，哈希与本地一致才建 Release，指向别的提交就拒绝创建
-  并给出人工修复命令（绝不 force、绝不给错版本建 Release）。
+  并给出人工修复命令（绝不 force、绝不给错版本建 Release）
+  → **尾部自检（自动）**：这一版是否真的三处都有（`npm view` 有该版本、远端 tag
+  同哈希、有公开的 Release），逐项打印 ✅/❌；不全只提示补建命令，不中止。
+- **上一版尾部校验（发版前的硬闸）**：`package.json` 的当前版本如果本地没有 tag、
+  或 tag 没到远端 / 指向别的提交，**直接中止**并指向 `pnpm release:github v<当前>`。
+  为什么必须有：一次中断的发版（打断在推 tag / 建 Release 之前）之后，再按一次
+  `pnpm release` 就会发出一个与上一版**逐字节相同**的新版本——2026-11-10 的
+  v0.12.3 → v0.12.4 实测，两个 tarball 的差异只有 `package.json` 的 version 一行
+  （证据：`.agents/implementations/2026-11-10_release-tail-gate.md`）。只看 tag、
+  不看 Release：Release 依赖 token，缺 token 的人不该因此发不了版。确实要跳过用
+  `--skip-tail-check`（会打印它跳过了什么）。
 - **`pnpm release:github [vX.Y.Z]`：补建 / 续跑入口**（默认取当前 package.json
   版本）——不动版本号、不碰 npm，只做「解析本地 tag → 推送/校验远端（带重试）
   → 幂等创建 Release」。**漏掉的 Release 只能用这条命令补**：`pnpm release`
   永远会再 bump 一版，所以以前的提示语「修好 tag 后重跑本脚本（幂等）」是错的
   （已删）。`--audit` 列出 npm 已发布版本 ↔ GitHub Release ↔ 远端 tag 的差集
-  （`--allow-gaps` 把历史缺口降为警告）；**每次发布后跑一次 `--audit`**——只在
-  npm 上、没有 Release 的版本，其提交会被下一版的 `generate_release_notes`
-  吞进下一版（对照的是上一个已发布 Release），GitHub 的版本线就与 npm 对不上。
+  （`--allow-gaps` 把历史缺口降为警告）。**日常不需要再手动跑 `--audit`**：
+  `pnpm release` 的尾部自检已经逐版核实 npm / 远端 tag / Release 三处；`--audit`
+  是「怀疑历史漂移」时的全量体检（比如某次被打断的发版没人补、或换了机器丢了
+  本地 tag）。只在 npm 上、没有 Release 的版本，其提交会被下一版的
+  `generate_release_notes` 吞进下一版（对照的是上一个已发布 Release），GitHub
+  的版本线就与 npm 对不上。
   唯一的先例是 0.1.0（早期发版时 tag 还不在流程里）：**2026-11-04 已补建完毕**——
   tag 指向 `8a0e2fb`，建 Release 时用 `make_latest: false` + 回填 `created_at`，
   所以 Latest 与 `git describe` 仍是 v0.11.3（证据：
   `.agents/implementations/2026-11-04_backfill-v0.1.0-release.md`）。
-- GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（fine-grained token，
-  Contents: write）；未设置时只提示——且 `pnpm release` 会在 `pnpm publish`
+- GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（classic token 的 `repo` scope 或
+  fine-grained 的 Contents: write 都够用；本机用的是 **classic token**）；未设置时
+  只提示——且 `pnpm release` 会在 `pnpm publish`
   **之前**先警告一次：npm 会照常发布，Release 事后用 `pnpm release:github` 补。
   创建失败（403/422/网络等）后脚本会自动 `GET /releases/tags/{tag}` 查询确认：
   200 = 已存在（并发/重试/手动补建过）→ 视为成功跳过；404 = 真失败 → 提示可
   稍后重跑补建，均不影响 npm 已发布的结果
 - `pnpm tag-current` 可独立使用：给当前版本打本地 tag（已存在跳过，不推送）
-- **远端 tag 校验带有限次退避重试**（默认 5 次、2s 起翻倍）：GitHub 的 ref
-  可见性在刚推完时可能滞后——v0.7.3 发布时就出现过「tag 实际已推成功、校验却
-  报不存在」，一次 `ls-remote` 报「不存在」不等于失败。脚本区分「远端不存在」
+- **远端 tag 校验：推之前只探一次，推之后才退避重试**（默认 5 次、2s 起翻倍）。
+  顺序是强制的，不是风格：`pnpm release` 只推分支、**不推 tag**，所以「push 之前
+  探测到 tag 不存在」是**必然事件、不是竞态**——曾经对这一步也套了 5 次退避，
+  结果每次发版白等 ~30 s（2+4+8+16）才去推，推完第一次就绿。重试只对「刚推完
+  ref 可见性滞后」有意义：v0.7.3 发布时就出现过「tag 实际已推成功、校验却报
+  不存在」，一次 `ls-remote` 报「不存在」不等于失败。脚本区分「远端不存在」
   与「哈希不同」：前者重试仍失败才提示推 tag，后者提示人工确认后才可 `--force`。
   看到不一致**先手动 `git ls-remote origin refs/tags/vX.Y.Z` 复核**：哈希一致
   就说明只是竞态，此时**不要** force-push（会把同一个 tag 重推一次），重跑
