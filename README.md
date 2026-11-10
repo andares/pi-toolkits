@@ -473,10 +473,13 @@ Measured with a 20-extension setup (2026-11-05): a healthy quit spends 0.1–3 s
 **What this does.** The guard watches the terminal instead of the event stream, so it still
 works when the handler that hangs was loaded *before* this package (in that case our own
 `session_shutdown` would never run). It arms on the TUI's teardown sequence
-(`\x1b[?2004l` / `\x1b[?1049l`); if the process is still alive `timeoutMs` later, it writes a
-hang report and forces the exit. A TUI that comes back disarms it — an interactive mode switch
-(`/settings` → TUI mode) and Ctrl+Z suspend/resume both re-enter the TUI, and a live session
-must never be killed.
+(`\x1b[?2004l` / `\x1b[?1049l`) — and, for the signal-triggered path (`kill -TERM`, a closed
+window), on `session_shutdown` with reason `quit`, because that path runs every extension
+handler *before* the TUI writes its teardown sequence: a stuck handler there would never produce
+a marker. If the process is still alive `timeoutMs` later, it writes a hang report, restores the
+terminal if the TUI never did (alternate screen, bracketed paste, cursor) and forces the exit.
+A TUI that comes back disarms it — an interactive mode switch (`/settings` → TUI mode) and
+Ctrl+Z suspend/resume both re-enter the TUI, and a live session must never be killed.
 
 ### Commands
 

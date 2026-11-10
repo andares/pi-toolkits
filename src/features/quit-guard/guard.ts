@@ -19,7 +19,11 @@
  *    first, and the token check drops a fire whose arm was superseded;
  *  - disabled means inert: it never arms and disarms immediately.
  */
-import { RESTART_MARKERS, TEARDOWN_MARKERS } from "./constants.js";
+import {
+	RESTART_MARKERS,
+	SHUTDOWN_EVENT_MARKER,
+	TEARDOWN_MARKERS,
+} from "./constants.js";
 
 /** A chunk as written to `process.stdout` (string, or Buffer/typed array). */
 export type GuardChunk = string | Uint8Array;
@@ -138,6 +142,18 @@ export class QuitGuard {
 		this.disarm();
 	}
 
+	/**
+	 * Arm from a `session_shutdown` (reason `"quit"`) event, for shutdowns that
+	 * hang before the TUI writes its teardown sequence — the signal-triggered
+	 * path runs extension handlers first, so a stuck handler there never
+	 * produces a marker. No-op when a teardown marker already armed the guard,
+	 * so the measured deadline still starts at the earliest evidence.
+	 */
+	armFromShutdown(): void {
+		if (!this.enabled || this.armed) return;
+		this.arm(SHUTDOWN_EVENT_MARKER);
+	}
+
 	setEnabled(enabled: boolean): void {
 		this.enabled = enabled;
 		if (!enabled) this.disarm();
@@ -193,11 +209,16 @@ export class QuitGuard {
 			// The liveness probe is best-effort: if it throws (stdin already
 			// destroyed/replaced during teardown), treat the TUI as gone and
 			// still fire. A probe that can throw must not disable the watchdog.
+			// An event-armed guard skips the probe on purpose: the TUI is still
+			// up in exactly the signal-triggered case we are covering, and the
+			// shutdown event (not rendered content) is what armed it.
 			let tuiActive = false;
-			try {
-				tuiActive = this.isTuiActive?.() === true;
-			} catch {
-				tuiActive = false;
+			if (this.armedBy !== SHUTDOWN_EVENT_MARKER) {
+				try {
+					tuiActive = this.isTuiActive?.() === true;
+				} catch {
+					tuiActive = false;
+				}
 			}
 			if (tuiActive) {
 				// A live TUI means the marker was content, not a teardown.

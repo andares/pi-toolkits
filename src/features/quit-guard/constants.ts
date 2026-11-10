@@ -58,5 +58,28 @@ export const MAX_TIMEOUT_MS = 60_000;
 /** Sequences after which the interactive TUI has begun tearing down. */
 export const TEARDOWN_MARKERS = ["\x1b[?2004l", "\x1b[?1049l"] as const;
 
+/**
+ * Pseudo-marker for the second, event-driven trigger.
+ *
+ * `shutdown({ fromSignal: true })` runs every extension's `session_shutdown`
+ * handler BEFORE `ui.stop()` writes the teardown sequence (pi 1.5.1,
+ * interactive-mode.js). With a handler that never settles, the marker is never
+ * written and a sequence-only watchdog stays asleep: the process keeps the
+ * terminal, raw mode and the frozen frame forever. `session_shutdown` with
+ * reason `"quit"` is the only in-process signal available at that point, so it
+ * arms the guard too. Session replacements use `"new"`/`"resume"`/`"fork"`
+ * and `/reload` uses `"reload"` — those must never arm it.
+ */
+export const SHUTDOWN_EVENT_MARKER = "session_shutdown";
+
+/**
+ * Terminal restore written before a forced exit that never reached
+ * `ui.stop()`: leave the alternate screen, disable bracketed paste, show the
+ * cursor, reset attributes. Harmless when the TUI already restored (the
+ * marker-armed path never writes it) and the only thing that makes the shell
+ * usable when it did not.
+ */
+export const TERMINAL_RESTORE = "\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m\r\n";
+
 /** Sequences that mean a TUI is starting (mode switch or suspend/resume). */
 export const RESTART_MARKERS = ["\x1b[?2004h", "\x1b[?1049h"] as const;

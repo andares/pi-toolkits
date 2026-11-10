@@ -6,7 +6,9 @@
  * directories (never the real agent dir).
  *
  * Coverage map:
- *  - arming on both teardown markers, idempotence, re-arm after disarm;
+ *  - arming on both teardown markers and on a quit `session_shutdown` event
+ *    (the signal-triggered path, where the marker is never written),
+ *    idempotence, re-arm after disarm;
  *  - disarming on both restart markers (TUI mode switch, Ctrl+Z resume) and
  *    on an explicit `resume()`, including the "expired timer loses to
  *    SIGCONT" race;
@@ -38,7 +40,9 @@ import {
 	MAX_TIMEOUT_MS,
 	MIN_TIMEOUT_MS,
 	RESTART_MARKERS,
+	SHUTDOWN_EVENT_MARKER,
 	TEARDOWN_MARKERS,
+	TERMINAL_RESTORE,
 } from "./constants.js";
 import { QuitGuard, findMarker, type GuardFireInfo } from "./guard.js";
 import { registerQuitGuard } from "./index.js";
@@ -132,6 +136,12 @@ describe("terminal markers", () => {
 	it("uses the exact sequences pi's TUI writes", () => {
 		expect(TEARDOWN_MARKERS).toEqual(["\x1b[?2004l", "\x1b[?1049l"]);
 		expect(RESTART_MARKERS).toEqual(["\x1b[?2004h", "\x1b[?1049h"]);
+	});
+
+	it("restores paste mode, the alternate screen and the cursor on a forced exit", () => {
+		expect(TERMINAL_RESTORE).toBe(
+			"\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m\r\n",
+		);
 	});
 });
 
@@ -303,6 +313,52 @@ describe("QuitGuard", () => {
 		timers.fire();
 		deferred.flush();
 		expect(fired).toHaveLength(1);
+	});
+
+	it("arms from a quit shutdown event when no teardown was written", () => {
+		const { guard, timers, deferred, fired, advance } = makeGuard({});
+		guard.armFromShutdown();
+		expect(guard.isArmed()).toBe(true);
+		advance(1_000);
+		timers.fire();
+		deferred.flush();
+		expect(fired).toEqual([
+			{ startedAt: 0, elapsedMs: 1_000, marker: SHUTDOWN_EVENT_MARKER },
+		]);
+		expect(guard.isArmed()).toBe(false);
+	});
+
+	it("keeps the teardown deadline when a shutdown event arrives later", () => {
+		const { guard, timers, deferred, fired, advance } = makeGuard({});
+		guard.observeOutput("\x1b[?2004l");
+		advance(500);
+		guard.armFromShutdown(); // no-op: one arm, one timer, one deadline
+		advance(500);
+		timers.fire();
+		deferred.flush();
+		expect(fired).toEqual([
+			{ startedAt: 0, elapsedMs: 1_000, marker: "\x1b[?2004l" },
+		]);
+	});
+
+	it("does not arm from a shutdown event while disabled", () => {
+		const { guard } = makeGuard({});
+		guard.setEnabled(false);
+		guard.armFromShutdown();
+		expect(guard.isArmed()).toBe(false);
+	});
+
+	it("ignores the raw-mode probe when a shutdown event armed it", () => {
+		// The signal-triggered path hangs while the TUI is still in raw mode, so
+		// the probe would disarm exactly the case this trigger exists for.
+		const { guard, timers, deferred, fired } = makeGuard({
+			isTuiActive: () => true,
+		});
+		guard.armFromShutdown();
+		timers.fire();
+		deferred.flush();
+		expect(fired).toHaveLength(1);
+		expect(fired[0]?.marker).toBe(SHUTDOWN_EVENT_MARKER);
 	});
 
 	it("reports arm/disarm/fire transitions to the debug tap", () => {
@@ -622,10 +678,15 @@ function clearSharedState(): void {
 	delete (globalThis as unknown as Record<symbol, unknown>)[SHARED_KEY];
 }
 
-function fakePi(): { pi: ExtensionAPI; command: () => CommandHandler } {
+function fakePi(): {
+	pi: ExtensionAPI;
+	command: () => CommandHandler;
+	emit: (event: string, payload: unknown) => void;
+} {
 	let registered: CommandHandler | undefined;
-	// SAFETY: only `registerCommand` is called by the feature; the rest of the
-	// host surface is irrelevant here.
+	const handlers = new Map<string, Array<(payload: unknown) => void>>();
+	// SAFETY: only `registerCommand` and `on` are called by the feature; the
+	// rest of the host surface is irrelevant here.
 	const pi = {
 		registerCommand: (
 			_name: string,
@@ -633,12 +694,18 @@ function fakePi(): { pi: ExtensionAPI; command: () => CommandHandler } {
 		): void => {
 			registered = options.handler;
 		},
+		on: (name: string, handler: (payload: unknown) => void): void => {
+			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
+		},
 	} as unknown as ExtensionAPI;
 	return {
 		pi,
 		command: () => {
 			if (!registered) throw new Error("command was not registered");
 			return registered;
+		},
+		emit: (event, payload) => {
+			for (const handler of handlers.get(event) ?? []) handler(payload);
 		},
 	};
 }
@@ -691,6 +758,33 @@ describe("/quit-guard command", () => {
 		expect(notes[0]).toContain("last hang: none");
 		// A status query must not create the settings file.
 		expect(existsSync(settings)).toBe(false);
+	});
+
+	it("arms on session_shutdown only for reason quit", () => {
+		const { dir } = setup();
+		const debugPath = join(dir, "guard-debug.jsonl");
+		process.env.PI_QUIT_GUARD_DEBUG = debugPath;
+		try {
+			const { pi, command, emit } = fakePi();
+			const { ctx } = fakeCtx();
+			registerQuitGuard(pi, { agentDir: dir });
+			// Session replacement and reload tear a session down without exiting.
+			emit("session_shutdown", { type: "session_shutdown", reason: "reload" });
+			emit("session_shutdown", {
+				type: "session_shutdown",
+				reason: "new",
+				targetSessionFile: "/tmp/next.jsonl",
+			});
+			expect(readFileSync(debugPath, "utf8")).not.toContain("arm ");
+			emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
+			expect(readFileSync(debugPath, "utf8")).toContain(
+				`arm ${SHUTDOWN_EVENT_MARKER}`,
+			);
+			// Disarm so the test leaves no pending deadline behind.
+			void command()("off", ctx);
+		} finally {
+			delete process.env.PI_QUIT_GUARD_DEBUG;
+		}
 	});
 
 	it("persists an off switch and turns the guard inert", async () => {

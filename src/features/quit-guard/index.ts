@@ -40,6 +40,8 @@ import {
 	MIN_TIMEOUT_MS,
 	QUIT_GUARD_FILE,
 	QUIT_GUARD_REPORT_DIR,
+	SHUTDOWN_EVENT_MARKER,
+	TERMINAL_RESTORE,
 } from "./constants.js";
 import { QuitGuard, type GuardFireInfo } from "./guard.js";
 import {
@@ -81,6 +83,18 @@ function storeSharedState(state: QuitGuardState): void {
 }
 
 function fire(state: QuitGuardState, info: GuardFireInfo): void {
+	// Armed by `session_shutdown` (signal-triggered quit, or a shutdown that
+	// hung before `ui.stop()`): nothing restored the terminal, so do it here
+	// before exiting or the prompt comes back on the alternate screen, with
+	// bracketed paste on and the cursor hidden. `writeSync(1, …)` bypasses our
+	// own stdout wrapper, so these sequences cannot re-arm the guard.
+	if (info.marker === SHUTDOWN_EVENT_MARKER) {
+		try {
+			writeSync(1, TERMINAL_RESTORE);
+		} catch {
+			// Dead terminal: the report and the exit still happen.
+		}
+	}
 	const timeoutMs = state.guard.getTimeoutMs();
 	const elapsedMs = Math.round(info.elapsedMs);
 	let reportPath: string | undefined;
@@ -253,6 +267,15 @@ export function registerQuitGuard(
 			// ignore
 		}
 	}
+
+	// Second trigger: the process is quitting even though the TUI has not
+	// written its teardown sequence yet. `reason === "quit"` is only emitted by
+	// the runtime's dispose() on process exit; session replacements use
+	// new/resume/fork and /reload uses reload, and none of those may arm.
+	pi.on("session_shutdown", (event) => {
+		if (event.reason !== "quit") return;
+		state.guard.armFromShutdown();
+	});
 
 	pi.registerCommand("quit-guard", {
 		description:

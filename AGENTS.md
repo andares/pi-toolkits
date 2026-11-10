@@ -885,10 +885,19 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   到期回调延迟一拍（setImmediate），保证 resume 赢过已过期的定时器。
 - **触发前再验一次 `process.stdin.isRaw`**：收尾序列也可能出现在被渲染的内容里（工具输出、文件正文
   恰好含该转义序列），而 raw mode 不会撒谎——TUI 收尾时把 raw mode 关掉，所以 `isRaw===true`
-  说明 TUI 还活着，直接解除而不杀。
+  说明 TUI 还活着，直接解除而不杀。**事件触发的武装不受这条约束**（见下）。
+- **第二触发源：`session_shutdown`（reason 仅 `"quit"`）**。信号触发的退出
+  （`shutdown({ fromSignal: true })`，如关窗 SIGHUP、`kill -TERM`）**先跑完所有扩展处理器再
+  `ui.stop()`**，所以处理器一旦挂住，收尾序列永远不会写出、只靠终端的看守永远不武装——进程
+  带着 raw mode 和冻结画面活到被 SIGKILL（2026-11-10 在真实 pty + 本机全套扩展上复现）。
+  `session_shutdown` 是那一刻唯一的进程内信号，因此它也武装看守；`"reload"`/`"new"`/
+  `"resume"`/`"fork"` 绝不武装。事件武装不查 raw mode（TUI 正活着就是它要抓的状态），
+  到期时先写 `TERMINAL_RESTORE`（关括号粘贴、退备用屏、显示光标）再退出，否则提示符会回到
+  备用屏上。**边界**：处理器按加载顺序串行执行，挂在**本包之前**加载的处理器仍能让我们的
+  处理器根本不运行（实测成立），那条路只能靠交互式 `/quit` 的收尾序列。
 - **默认开启、8 s、写报告**（2026-11-10 崔总定：默认值由 10 s 改为 8 s）。8 s 从「收尾序列
-  写出」起算，不把你按 Enter 到 TUI 停下的时间算进去；实测健康退出端到端最慢 5 s、收尾后
-  最多 2 s，余量约 3 s。可 `/quit-guard <ms>` 调（钳制
+  写出」（或 `session_shutdown` 事件）起算，不把你按 Enter 到 TUI 停下的时间算进去；实测健康
+  退出端到端最慢 5 s、收尾后最多 2 s，余量约 3 s。可 `/quit-guard <ms>` 调（钳制
   2000–60000），`/quit-guard off` 关闭，配置落 `<agent-dir>/pi-toolkits-quit-guard.json`。
 - **触发时写报告再退出**：`<agent-dir>/quit-guard/quit-hang-<ts>-<pid>.json`，含
   `activeHandles` / `activeRequests` / 宿主 `process.report` 的 libuv 表。空表 + 活进程
@@ -928,6 +937,12 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
     退出，报告 `timeoutMs=8000 / elapsedMs=8005 / marker=?2004l`；健康退出 **0.12 s**（5 轮，
     含先执行 `/quit-guard` 查看状态的两轮）；`/quit-guard` 状态行显示
     `on · timeout 8000ms · report on`；
+  - 真实 pty + 本机全套扩展（`/tmp` 下探针，2026-11-10）：`/quit` + 卡死 → 收尾序列武装、
+    **10.12 s** 退出（当时默认 10 s）并写报告；`SIGTERM` + 卡死 → **1.5.1 的 `fromSignal`
+    先 dispose 后 stop，序列永不写出，看守不武装、进程活到被 SIGKILL**（这是第二触发源要补的洞）；
+    补上之后：`-e 本包 -e 探针`（本包先加载）SIGTERM → 事件武装、**8.03 s** 退出、输出含
+    `TERMINAL_RESTORE`；`-e 探针 -e 本包`（探针先加载）SIGTERM → 仍然不武装（处理器串行，
+    边界如实保留）；交互式 `/quit` 两种加载顺序都由收尾序列武装并按时触发；
   - 1.5.1 新增的 `await session.abort()` / `settleCredentialWrites()` 都在同一条无界链上，
     没有改变结论；
   - 一轮测得 0.28 s 的墙上时钟退出、而报告 `elapsedMs=2032`（单调时钟）——WSL 墙上时钟回跳
@@ -940,8 +955,13 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已知边界（有意为之）
 
-- **只覆盖交互式 TUI**：print/JSON/RPC 不写收尾序列，看守完全不生效。
-- 只覆盖**收尾之后**的卡死；TUI 停下之前就卡住的情况（未观察到，`drainInput` 上限 1 s）不管。
+- **只覆盖交互式 TUI**：print/JSON/RPC 不写收尾序列、也不发 `session_shutdown` 的 quit 事件，
+  看守完全不生效。
+- 交互式 `/quit` 只覆盖**收尾序列之后**的卡死（`ui.stop()` 在 dispose 之前，正常情况序列
+  一定会写出）。信号触发路径靠 `session_shutdown` 补位，但**处理器按加载顺序串行**：挂在
+  本包之前加载的处理器会让我们的处理器不运行，那条路仍然无解。
+- TUI 停下之前就卡住、且不来自 `session_shutdown` 的情况（例如 `/quit` 被延后到 idle）不管：
+  没有可观测信号，看守不会被武装。
 - 触发即跳过剩余扩展清理（挂住的就是它）；不判断「哪个扩展」——报告只给进程状态。
 - `/reload` + `-e` TypeScript 扩展在 tmux 夹具里表现不稳定（换掉本包、甚至完全不加包装也
   一样），属宿主/夹具噪声，不是本功能的回归；真实会话里 `/reload` 后看守仍按单例接线工作。
