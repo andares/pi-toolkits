@@ -55,8 +55,12 @@ export const REVIEW_COMMAND = "ask-review";
  * runner. Why it exists: older session notes, muscle memory and autostart
  * configs (`/third-review` in `.pi/autostart.toml`) keep working across the
  * rename — a renamed command that silently disappears would turn those config
- * entries into plain chat messages sent to the model. Delete this block once
- * the old spelling has been unused for a release or two.
+ * entries into plain chat messages sent to the model.
+ *
+ * **Slated for removal**: this is a deprecation shuttle, not a permanent
+ * second name. It is deliberately absent from every external doc. Delete it
+ * (`/third-review` constant + its `registerCommand` block + the registration
+ * test case) once the old spelling has been unused for a release or two.
  */
 export const REVIEW_COMMAND_ALIAS = "third-review";
 
@@ -66,8 +70,8 @@ export const REVIEW_COMMAND_ALIAS = "third-review";
  *
  * The configured model is the picker's default (preselected + ✓-marked +
  * first), so one Enter accepts it. Picking any other model persists it
- * (disk + in-memory) as the new default. /review-model doubles as a
- * view-and-change entry point; cancelling leaves the config untouched.
+ * (disk + in-memory) as the new default. Cancelling leaves the config
+ * untouched (and aborts the review).
  */
 export async function pickReviewModel(
 	ctx: ExtensionContext,
@@ -197,16 +201,10 @@ export function registerReview(pi: ExtensionAPI): void {
 		},
 	});
 
-	// Manual config entry point: view and change the review model. Always
-	// opens the /model-style picker (configured model preselected); cancelling
-	// keeps the existing config, so it is also safe as a view-only command.
-	pi.registerCommand("review-model", {
-		description:
-			"Set or change the review model used by /ask-review (picker preselects the current one)",
-		handler: async (_args: string, ctx: ExtensionContext) => {
-			await pickReviewModel(ctx, getReviewStore());
-		},
-	});
+	// Configuration has no command of its own: every /ask-review opens the
+	// picker with the current default preselected, so "view" and "change" both
+	// happen where the value is actually used. (A separate config command used
+	// to exist and was removed 2026-11-10 as a second way to do the same thing.)
 
 	// Footer indicator: muted "review" while a review model is configured.
 	let theme: Theme | undefined;

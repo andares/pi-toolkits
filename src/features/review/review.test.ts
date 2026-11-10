@@ -487,11 +487,12 @@ describe("registerReview", () => {
 		// stays registered so pre-rename notes and autostart configs keep working.
 		expect(REVIEW_COMMAND).toBe("ask-review");
 		expect(REVIEW_COMMAND_ALIAS).toBe("third-review");
-		expect([...commands.keys()]).toEqual([
-			REVIEW_COMMAND,
-			REVIEW_COMMAND_ALIAS,
-			"review-model",
-		]);
+		expect([...commands.keys()]).toEqual([REVIEW_COMMAND, REVIEW_COMMAND_ALIAS]);
+
+		// `review-model` was removed 2026-11-10: every /ask-review already opens
+		// the picker with the configured model preselected, so a second command
+		// was a second way to do the same thing. Keep it gone.
+		expect(commands.has("review-model")).toBe(false);
 
 		// Both entry points reach the same runner: same picker, same guards, same
 		// review turn — the alias is a name, not a second implementation.

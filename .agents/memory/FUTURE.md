@@ -36,3 +36,14 @@
 - 触发条件：出现第二个「自己实现该框架」的仓库需要 adopt 后 E-* 全绿，或该规则排到改版
   （例如按文件角色跳过工具自身与测试夹具）。
 - 落点：`src/features/init/detect.ts` 的 `isBareRef` / `scanRefs` 与 `src/features/init/audit.ts` 的 `checkRefs`。
+
+## F5 — `/third-review` 兼容别名待删除（`/review-model` 已删）
+
+- 是什么：`/third-review` 是 `/ask-review` 的兼容别名（同一 handler、同一配置），2026-11-10 改名时
+  留下；`/review-model` 同一天**彻底移除**（每次 `/ask-review` 本来就要选模型，配置命令是第二套
+  重复入口）。两者都已从对外文档（README*）里清空，一句话都不提。
+- 为什么没删别名：`autostart` 只接受注册表里的命令名，名字消失后 `.pi/autostart.toml` 里写着的
+  `/third-review` 会被当成普通消息发给模型；留一个版本期避免这条。
+- 触发条件：旧拼写连续一两个版本无人使用（看登记表/使用记录没有 `/third-review`），或崔总直接说删。
+- 落点：`src/features/review/index.ts` 的 `REVIEW_COMMAND_ALIAS` + 它的 `registerCommand` 块
+  + `review.test.ts` 的注册用例（删完记得连断言一起删）。

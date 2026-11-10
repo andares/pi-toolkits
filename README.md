@@ -250,8 +250,6 @@ When the stash is empty, a single press means "stash + clear". The stash is **in
 After a development task is done, type the `/ask-review` command to summon **a different model** as a third party to "check + fix" the code just written: the review model has **full tool permissions**, and confirmed problems are edited in place — this is not a read-only audit. The review turn stays in the current session transcript, and after the review **the session keeps the review model** (it does not switch back automatically).
 
 > **Command-triggered only**: only `/ask-review` starts a review. Typing `ask-review` as chat text does not trigger it (that is sent to the model as an ordinary message), which avoids accidental launches.
->
-> **Renamed from `/third-review`** (2026-11-10, first step of the `/ask-*` family): the old name is still registered as a compatibility alias with identical behaviour, so existing notes and `autostart.toml` entries keep working — but the docs and every notice now say `/ask-review`.
 
 **The review prompt focuses on three checks** (each gets an explicit verdict):
 
@@ -272,7 +270,6 @@ After a development task is done, type the `/ask-review` command to summon **a d
 { "model": "anthropic/claude-sonnet-4" }
 ```
 
-- `/review-model` — a separate config entry point: opens the same list (without changing the session model, only updating the default config)
 - **Unconfigured / the configured model is no longer available** (e.g. it was deleted from pi's models.json) → a notice is shown and the list opens as usual (with no default entry in that case)
 - Triggered while a task is still in progress (the agent is not idle) → you are told to wait and nothing runs; only one review may be active at a time
 - A grey `review` status in the footer means a review model is configured
@@ -579,7 +576,7 @@ src/
     ├── quit-guard/       # quit watchdog: TUI teardown + quit-event triggers,
     │                     #           settings store, hang report, tests
     ├── review/           # third-party review: input/command triggers,
-    │                     #           review-model config store, prompt, tests
+    │                     #           review model config store, prompt, tests
     └── stash/            # prompt stash: hotkey state machine + tests
 ```
 
