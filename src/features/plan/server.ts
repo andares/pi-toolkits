@@ -17,7 +17,7 @@
  * Nothing else on the machine should be able to read a plan or approve it.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -290,28 +290,24 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 			return;
 		}
 
-		if (url.pathname.startsWith("/assets/")) {
-			const relative = normalize(url.pathname.slice("/assets/".length));
-			if (relative.startsWith("..")) {
-				text(res, "not found", 404);
-				return;
-			}
-			const path = join(assetsDir, relative);
-			if (!existsSync(path)) {
-				text(res, "not found", 404);
-				return;
-			}
-			text(res, readFileSync(path, "utf8"), 200, MIME[extname(path)] ?? "application/octet-stream");
-			return;
-		}
-
 		if (url.pathname === "/favicon.ico") {
 			res.writeHead(204).end();
 			return;
 		}
 
 		if (!url.pathname.startsWith("/api/")) {
-			text(res, "not found", 404);
+			// Everything else is a static file from the build output. Vite emits
+			// the bundle at the root of `outDir` (assetsDir: "."), so the page asks
+			// for `/index-<hash>.js`, not `/assets/index-<hash>.js` — resolving any
+			// path inside assetsDir covers both layouts without a second route.
+			const relative = normalize(decodeURIComponent(url.pathname)).replace(/^[/\\]+/, "");
+			const path = join(assetsDir, relative);
+			const insideAssets = path.startsWith(assetsDir);
+			if (relative === "" || !insideAssets || !existsSync(path) || !statSync(path).isFile()) {
+				text(res, "not found", 404);
+				return;
+			}
+			text(res, readFileSync(path, "utf8"), 200, MIME[extname(path)] ?? "application/octet-stream");
 			return;
 		}
 		if (!authenticate(url, req) && req.headers["x-plan-token"] !== token) {
