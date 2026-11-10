@@ -92,12 +92,16 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 	const blockSections: string[] = [];
 	for (const group of input.perBlock) {
 		const block = byId.get(group.blockId);
-		if (!block) continue;
+		const status = diffById.get(group.blockId)?.status ?? "unchanged";
+		// Removed blocks stay visible in the review and remain annotatable; their
+		// text comes from the previous revision. A genuinely unknown id is still
+		// ignored (it cannot be rendered or meaningfully addressed).
+		const source = block ?? (status === "removed" ? prevById.get(group.blockId) : undefined);
+		if (!source) continue;
 		const lines = annotationLines(group.annotations);
 		if (lines.length === 0) continue;
-		const status = diffById.get(block.id)?.status ?? "unchanged";
-		const heading = `### Block: ${blockLabel(block)} (${STATUS_LABEL[status] ?? status})`;
-		const previousId = diffById.get(block.id)?.prevId;
+		const heading = `### Block: ${blockLabel(source)} (${STATUS_LABEL[status] ?? status})`;
+		const previousId = diffById.get(group.blockId)?.prevId;
 		const previous = previousId ? prevById.get(previousId) : undefined;
 		const quote =
 			status === "modified" && previous

@@ -62,7 +62,7 @@
     "check:compat": "node ./scripts/check-compat.mjs",
     "approval-report": "node ./scripts/approval-report.mjs",
     "release:github": "node ./scripts/release-github.mjs",
-    "prepublishOnly": "pnpm typecheck && pnpm test",
+    "prepublishOnly": "pnpm typecheck && pnpm ui:typecheck && pnpm test && pnpm ui:check",
     "release": "node ./scripts/publish.mjs",
     "tag-current": "node ./scripts/tag-current.mjs",
     "ui:dev": "pnpm --filter @andares/pi-toolkits-ui dev",

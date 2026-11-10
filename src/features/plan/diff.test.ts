@@ -91,6 +91,38 @@ describe("diffBlocks", () => {
 		const entries = diffBlocks([], after);
 		expect(entries.map((entry) => entry.status)).toEqual(["added", "added"]);
 	});
+	it("accounts for every old and new block exactly once across reorder/edit churn", () => {
+		let seed = 17;
+		const random = () => {
+			seed = (seed * 1103515245 + 12345) % 2147483648;
+			return seed / 2147483648;
+		};
+		const vocabulary = ["alpha step", "beta step", "gamma step", "delta step", "epsilon step"];
+		for (let round = 0; round < 80; round += 1) {
+			const before = vocabulary
+				.map((text) => ({ text, score: random() }))
+				.sort((a, b) => a.score - b.score)
+				.slice(0, 3 + Math.floor(random() * 3))
+				.map((entry) => entry.text);
+			const after = before.map((text) => (random() < 0.35 ? `${text} with detail` : text));
+			if (random() < 0.5) after.push("zeta step");
+			// Deterministic rotation instead of a biased random comparator.
+			const shift = Math.floor(random() * Math.max(after.length, 1));
+			after.push(...after.splice(0, shift));
+			const previous = parse(before.join("\n\n"));
+			const next = parse(after.join("\n\n"));
+			const entries = diffBlocks(previous, next);
+			expect(
+				entries.filter((entry) => entry.status !== "removed").map((entry) => entry.id),
+			).toEqual(next.map((block) => block.id));
+			const coveredPrevious = entries.flatMap((entry) => {
+				if (entry.status === "added") return [];
+				if (entry.status === "unchanged") return [entry.id];
+				return entry.prevId ? [entry.prevId] : [];
+			});
+			expect(new Set(coveredPrevious).size).toBe(previous.length);
+		}
+	});
 });
 
 describe("blockSimilarity", () => {

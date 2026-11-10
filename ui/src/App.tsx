@@ -23,7 +23,9 @@ export function App() {
 			const next = await api.fetchState(version);
 			setState(next);
 			setError(undefined);
-			if (next.decided && next.decision) setOutcome(next.decision.action);
+			// Moving between history entries must not carry an old revision's
+			// decision onto the latest, still-reviewable one.
+			setOutcome(next.decided && next.decision ? next.decision.action : undefined);
 		} catch (cause) {
 			setError(cause instanceof Error ? cause.message : String(cause));
 		}
@@ -45,9 +47,18 @@ export function App() {
 
 	const items = createMemo(() => state()?.items ?? []);
 	const changedCount = createMemo(() => items().filter((item) => item.status !== "unchanged").length);
-	const hiddenCount = createMemo(() => (showAll() ? 0 : items().filter((item) => item.status === "unchanged").length));
-	const visibleItems = createMemo(() => items().filter((item) => showAll() || item.status !== "unchanged"));
-	const readOnly = createMemo(() => viewVersion() !== undefined && viewVersion() !== state()?.version);
+	const collapseUnchanged = createMemo(() => !showAll() && changedCount() > 0);
+	const hiddenCount = createMemo(() =>
+		collapseUnchanged() ? items().filter((item) => item.status === "unchanged").length : 0,
+	);
+	const visibleItems = createMemo(() =>
+		collapseUnchanged() ? items().filter((item) => item.status !== "unchanged") : items(),
+	);
+	const latestRevision = createMemo(() => state()?.history[0]?.n ?? state()?.version);
+	const readOnly = createMemo(() => {
+		const current = state();
+		return current !== undefined && current.version !== latestRevision();
+	});
 
 	const annotationFor = (blockId: string): api.Annotation[] =>
 		state()?.annotations.blocks.find((entry) => entry.blockId === blockId)?.annotations ?? [];
@@ -193,7 +204,7 @@ export function App() {
 							class="chip"
 							classList={{ active: entry.n === state()?.version }}
 							onClick={() => {
-								if (entry.n === state()?.version) {
+								if (entry.n === latestRevision()) {
 									setViewVersion(undefined);
 									void load();
 								} else {

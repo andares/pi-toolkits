@@ -227,6 +227,28 @@ describe("startPlanServer", () => {
 		}
 	});
 
+	it("refuses to annotate an older revision", async () => {
+		const session = makeSession("one");
+		appendPlanVersion(session, { text: "two" });
+		const server = await serve(session);
+		try {
+			const response = await call({
+				port: server.port,
+				path: "/api/annotate",
+				method: "POST",
+				token: server.token,
+				body: {
+					version: 1,
+					annotations: { global: [{ verdict: "change", comment: "too late" }], blocks: [] },
+				},
+			});
+			expect(response.status).toBe(409);
+			expect(session.versions[0].annotations.global).toEqual([]);
+		} finally {
+			await server.close();
+		}
+	});
+
 	it("records the decision, notifies the caller and closes the port", async () => {
 		const session = makeSession();
 		const onDecision = vi.fn();
@@ -245,6 +267,30 @@ describe("startPlanServer", () => {
 		await vi.waitFor(async () => {
 			await expect(call({ port: server.port, path: "/api/state" })).rejects.toThrow();
 		});
+	});
+
+	it("accepts only the first decision", async () => {
+		const session = makeSession();
+		const onDecision = vi.fn();
+		const server = await serve(session, { onDecision, closeDelayMs: 50 });
+		const first = await call({
+			port: server.port,
+			path: "/api/decide",
+			method: "POST",
+			token: server.token,
+			body: { action: "deny" },
+		});
+		const second = await call({
+			port: server.port,
+			path: "/api/decide",
+			method: "POST",
+			token: server.token,
+			body: { action: "approve" },
+		});
+		expect(first.status).toBe(200);
+		expect(second.status).toBe(409);
+		await vi.waitFor(() => expect(onDecision).toHaveBeenCalledTimes(1));
+		expect(session.versions[0].decision?.action).toBe("deny");
 	});
 
 	it("rejects a decision that is neither approve nor deny", async () => {
@@ -284,6 +330,27 @@ describe("startPlanServer", () => {
 				body: { annotations: { global: [], blocks: [] } },
 			});
 			expect(crossOrigin.status).toBe(403);
+
+			// No port in Origin means :80, not this server's port.
+			const defaultPortOrigin = await call({
+				port: server.port,
+				path: "/api/annotate",
+				method: "POST",
+				token: server.token,
+				headers: { origin: "http://127.0.0.1", "sec-fetch-site": "cross-site" },
+				body: { annotations: { global: [], blocks: [] } },
+			});
+			expect(defaultPortOrigin.status).toBe(403);
+
+			const crossSiteWithoutOrigin = await call({
+				port: server.port,
+				path: "/api/annotate",
+				method: "POST",
+				token: server.token,
+				headers: { "sec-fetch-site": "cross-site" },
+				body: { annotations: { global: [], blocks: [] } },
+			});
+			expect(crossSiteWithoutOrigin.status).toBe(403);
 		} finally {
 			await server.close();
 		}

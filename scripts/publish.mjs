@@ -187,7 +187,7 @@ if (dryRun) {
 			`  0b. 上一版 ${tailTag} 的远端 tag 校验（现在：${TAIL_LABEL[tail.state]}）—— 不是「已就位」就中止`,
 		);
 	}
-	console.log(`  1. pnpm typecheck && pnpm test`);
+	console.log(`  1. pnpm typecheck && pnpm test && pnpm ui:typecheck && pnpm ui:check`);
 	console.log(`  2. bump package.json version → ${next}`);
 	if (tagExists(`v${next}`)) {
 		console.log(
@@ -269,9 +269,14 @@ if (!skipTailCheck) {
 }
 
 // 1. Checks gate — abort before anything is changed if they fail.
-step("typecheck + test");
+step("typecheck + test + UI checks");
 run(pnpm, ["typecheck"]);
 run(pnpm, ["test"]);
+// The UI is a separate Vite workspace and its built assets are committed. Run
+// these before the version bump: a stale build would otherwise first surface
+// from prepublishOnly after the release commit/tag had already been anchored.
+run(pnpm, ["ui:typecheck"]);
+run(pnpm, ["ui:check"]);
 
 // 2. Bump package.json (preserve formatting: 2-space indent + trailing newline).
 step(`bump version → ${next}`);

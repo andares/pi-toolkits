@@ -32,6 +32,7 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import type { GateHub } from "../../lib/gates.js";
+import { setAskControl } from "../../lib/ask-control.js";
 // The jailed-tool registry lives here too: ask marks `scratchpad` while the mode
 // is active so the boundary gate (`permission`) knows it has no path to judge.
 import {
@@ -182,6 +183,11 @@ export function registerAsk(
 			enter(ctx);
 		}
 	}
+
+	// Planning is deliberately less restrictive than consult mode (markdown may
+	// be written and bash stays available), so `/ask-plan` exits through the
+	// owning feature rather than trying to restore its tool set itself.
+	setAskControl({ isActive: () => enabled, exit });
 
 	pi.registerCommand("ask", {
 		description: "Toggle ask mode (consult mode: no project writes, scratch notes allowed)",

@@ -74,7 +74,7 @@ export function planSlug(raw: string): string {
 }
 
 function versionFile(dir: string, n: number): string {
-	return join(dir, `${String(n).padStart(3, "0")}.md`);
+	return join(dir, `v${String(n).padStart(3, "0")}.md`);
 }
 
 function writeAtomic(path: string, content: string): void {
@@ -105,11 +105,11 @@ function saveState(session: PlanSession): void {
 function pruneVersions(session: PlanSession): void {
 	if (session.versions.length <= MAX_VERSIONS) return;
 	const keep: PlanVersionMeta[] = [];
+	const latest = session.versions.at(-1);
 	// Iterate oldest → newest, dropping undecided revisions while over budget.
 	for (const version of session.versions) {
 		const overBudget = session.versions.length - keep.length > MAX_VERSIONS;
-		const protectedVersion =
-			version.decision !== undefined || version.n === session.versions.length;
+		const protectedVersion = version.decision !== undefined || version === latest;
 		if (overBudget && !protectedVersion) {
 			const path = versionFile(session.dir, version.n);
 			if (existsSync(path)) unlinkSync(path);
@@ -161,8 +161,11 @@ export function appendPlanVersion(
 	const now = options.now ?? new Date();
 	const previous = session.versions.at(-1);
 	const blocks = parseBlocks(options.text);
+	// Revision numbers are identities, not positions. Pruning old revisions must
+	// never make the next submission reuse an existing number (and overwrite its
+	// snapshot or merge its annotations into the wrong review round).
 	const version: PlanVersionMeta = {
-		n: session.versions.length + 1,
+		n: (previous?.n ?? 0) + 1,
 		at: now.toISOString(),
 		source: options.source,
 		blocks,

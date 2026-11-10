@@ -1019,10 +1019,15 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **42 文件 / 760 测试**全绿（plan 新增 93 例）。
+- `pnpm typecheck` 绿；`pnpm test` **42 文件 / 773 测试**全绿（plan 106 例）；
+  `pnpm ui:typecheck` / `pnpm ui:check` 绿。
 - 真实宿主探针：`ask-plan[extension]` 已注册，`plan_submit` 默认不在工具集里（进入计划期才激活）。
+- `pnpm check:compat --skip-tests`：强制窗口 1.2.0–1.5.2 全绿（install/typecheck/键位/dist 哈希），
+  探针 1.1/1.0/0.99 全绿、0.87 按既有原因停探，public floor 仍为 0.99.0。
+- 真实浏览器（Playwright）复核：第一版所有块可见、旧版只读、块批注落盘、deny 后关服并显示关闭提示。
 - WSL 实测（2026-11-11）：`cmd.exe /c start "" "http://<wsl-ip>:port/"` 能从 Windows 打开到 WSL 内的服务器；
   绑 `127.0.0.1` 或访问 `localhost` 均连不上。
+- 评审后修正记录：`.agents/implementations/2026-11-11_ask-plan-review.md`。
 
 ### 已知边界
 

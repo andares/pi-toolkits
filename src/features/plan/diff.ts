@@ -127,24 +127,30 @@ export function diffBlocks(prev: readonly Block[], next: readonly Block[]): Diff
 	});
 
 	const anchors = longestIncreasing(matches.map((match) => match.prevIndex));
-	const anchorOf = new Map<number, number>(); // next index -> prev index, unchanged
 	const movedOf = new Map<number, number>(); // next index -> prev index, moved
 	matches.forEach((match, position) => {
-		if (anchors.has(position)) anchorOf.set(match.nextIndex, match.prevIndex);
-		else movedOf.set(match.nextIndex, match.prevIndex);
+		if (!anchors.has(position)) movedOf.set(match.nextIndex, match.prevIndex);
 	});
 	const consumedPrev = new Set(matches.map((match) => match.prevIndex));
 
 	const entries: DiffEntry[] = [];
 	let prevCursor = 0;
-	let gap: number[] = []; // next indices that belong to the current gap
+	let nextCursor = 0;
+	const anchorPairs = matches.filter((_match, position) => anchors.has(position));
 
-	const emitGap = (prevEnd: number): void => {
+	// Anchors alone delimit the gaps. Moved blocks are emitted at their position
+	// in the NEW document, never used as a second set of boundaries — doing that
+	// reorders the review and makes a moved paragraph appear under the wrong
+	// section.
+	for (const anchor of [...anchorPairs, undefined]) {
+		const prevEnd = anchor?.prevIndex ?? prev.length;
+		const nextEnd = anchor?.nextIndex ?? next.length;
 		const removable: number[] = [];
 		for (let index = prevCursor; index < prevEnd; index += 1) {
 			if (!consumedPrev.has(index)) removable.push(index);
 		}
-		const movable = gap.filter((nextIndex) => movedOf.has(nextIndex));
+		const gap: number[] = [];
+		for (let index = nextCursor; index < nextEnd; index += 1) gap.push(index);
 		const plain = gap.filter((nextIndex) => !movedOf.has(nextIndex));
 		const pairing = pairBySimilarity(removable, plain, prev, next);
 		const pairedPrev = new Set(pairing.values());
@@ -153,7 +159,6 @@ export function diffBlocks(prev: readonly Block[], next: readonly Block[]): Diff
 			if (pairedPrev.has(prevIndex)) continue;
 			entries.push({ status: "removed", id: prev[prevIndex].id, prevId: prev[prevIndex].id });
 		}
-		void movable;
 		for (const nextIndex of gap) {
 			const movedFrom = movedOf.get(nextIndex);
 			if (movedFrom !== undefined) {
@@ -175,32 +180,10 @@ export function diffBlocks(prev: readonly Block[], next: readonly Block[]): Diff
 			}
 			entries.push({ status: "added", id: next[nextIndex].id });
 		}
-		gap = [];
-		prevCursor = prevEnd;
-	};
-
-	for (let nextIndex = 0; nextIndex < next.length; nextIndex += 1) {
-		const anchor = anchorOf.get(nextIndex);
-		const moved = movedOf.get(nextIndex);
-		// Anchors are increasing by construction (LIS), so the cursor can move
-		// forward on them. A moved block only flushes the gap up to its old
-		// position: its own old index is taken out of the removable pool, but
-		// the cursor must NOT jump past anchors that come later in the new
-		// document (that would turn them into "added").
-		if (anchor !== undefined) {
-			if (anchor >= prevCursor) emitGap(anchor);
-			entries.push({ status: "unchanged", id: next[nextIndex].id });
-			prevCursor = Math.max(prevCursor, anchor + 1);
-			continue;
-		}
-		if (moved !== undefined) {
-			if (moved >= prevCursor) emitGap(moved);
-			entries.push({ status: "moved", id: next[nextIndex].id, prevId: prev[moved].id });
-			continue;
-		}
-		gap.push(nextIndex);
+		if (anchor) entries.push({ status: "unchanged", id: next[anchor.nextIndex].id });
+		prevCursor = prevEnd + (anchor ? 1 : 0);
+		nextCursor = nextEnd + (anchor ? 1 : 0);
 	}
-	emitGap(prev.length);
 	return entries;
 }
 

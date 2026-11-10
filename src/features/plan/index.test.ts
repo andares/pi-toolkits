@@ -5,7 +5,7 @@
  * actually resolves into a message), the browser opener and the permission
  * control are fakes.
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import type { GateHub, GateVerdict } from "../../lib/gates.js";
 import { setPermissionControl, type PermissionControl } from "../../lib/permission-control.js";
+import { setAskControl } from "../../lib/ask-control.js";
 import { registerPlan, PLAN_COMMAND, PLAN_SUBMIT_TOOL } from "./index.js";
 
 let agentDir: string;
@@ -25,6 +26,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	setPermissionControl(undefined);
+	setAskControl(undefined);
 	rmSync(agentDir, { recursive: true, force: true });
 	rmSync(workDir, { recursive: true, force: true });
 });
@@ -40,7 +42,7 @@ interface Harness {
 	pi: ExtensionAPI;
 	commands: Map<string, { description: string; handler: (args: string, ctx: ExtensionContext) => Promise<void> }>;
 	tools: Map<string, { name: string; execute: (id: string, params: { path?: string }) => Promise<{ content: Array<{ text: string }>; details: unknown }> }>;
-	handlers: Record<string, Array<(event: { systemPrompt: string }) => { systemPrompt?: string } | undefined>>;
+	handlers: Record<string, Array<(event: { systemPrompt: string }, ctx?: ExtensionContext) => { systemPrompt?: string } | undefined>>;
 	gates: Array<{ name: string; order?: number; evaluate: (event: ToolCallEvent) => GateVerdict | undefined }>;
 	sendUserMessage: ReturnType<typeof vi.fn>;
 	activeTools: () => string[];
@@ -62,7 +64,7 @@ function harness(): Harness {
 		registerTool: (def: { name: string } & { execute: unknown }) => {
 			tools.set(def.name, def as never);
 		},
-		on: (type: string, handler: (event: { systemPrompt: string }) => { systemPrompt?: string } | undefined) => {
+		on: (type: string, handler: (event: { systemPrompt: string }, ctx?: ExtensionContext) => { systemPrompt?: string } | undefined) => {
 			handlers[type] = [...(handlers[type] ?? []), handler];
 		},
 		getActiveTools: () => activeTools,
@@ -90,6 +92,7 @@ function harness(): Harness {
 		agentDir,
 		openBrowser,
 		portStart: 46_000 + Math.floor(Math.random() * 1000),
+		closeDelayMs: 25,
 	});
 	return { pi, commands, tools, gates, handlers, sendUserMessage, activeTools: () => activeTools, openBrowser, notify, ctx, control };
 }
@@ -144,6 +147,62 @@ describe("ask-plan command", () => {
 	});
 });
 
+describe("phase integration", () => {
+	it("exits ask mode before enabling the broader planning tool surface", async () => {
+		const h = harness();
+		const exit = vi.fn();
+		setAskControl({ isActive: () => true, exit });
+		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		expect(exit).toHaveBeenCalledWith(h.ctx);
+		expect(h.activeTools()).toContain(PLAN_SUBMIT_TOOL);
+	});
+
+	it("does not overwrite a permission policy the operator changed mid-plan", async () => {
+		const h = harness();
+		const off = { enabled: false, modes: { inRead: "allow", inWrite: "allow", outRead: "allow", outWrite: "ask" } };
+		const defaults = { enabled: true, modes: { inRead: "allow", inWrite: "allow", outRead: "allow", outWrite: "ask" } };
+		const manual = { enabled: true, modes: { inRead: "ask", inWrite: "ask", outRead: "deny", outWrite: "deny" } };
+		h.control.snapshot
+			.mockReturnValueOnce(off as never)
+			.mockReturnValueOnce(defaults as never)
+			.mockReturnValueOnce(manual as never);
+		const handler = h.commands.get(PLAN_COMMAND)!.handler;
+		await handler("topic", h.ctx);
+		await handler("off", h.ctx);
+		expect(h.control.restore).not.toHaveBeenCalled();
+		expect(h.control.disable).not.toHaveBeenCalled();
+	});
+
+	it("starts a fresh review session for the next plan after leaving", async () => {
+		const h = harness();
+		const handler = h.commands.get(PLAN_COMMAND)!.handler;
+		await handler("first", h.ctx);
+		writeSpec("specs/first.md", "# SPEC: first");
+		const first = await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/first.md" });
+		expect(first.content[0].text).toContain("Submitted v1 of 1");
+		await handler("off", h.ctx);
+		await handler("second", h.ctx);
+		writeSpec("specs/second.md", "# SPEC: second");
+		const second = await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/second.md" });
+		expect(second.content[0].text).toContain("Submitted v1 of 1");
+		expect(h.openBrowser).toHaveBeenCalledTimes(2);
+	});
+
+	it("drops plan state and closes the review when the pi session changes", async () => {
+		const h = harness();
+		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		writeSpec("specs/topic.md", "# SPEC: topic");
+		await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		const nextCtx = {
+			...h.ctx,
+			sessionManager: { getSessionId: () => "next-session" },
+		} as unknown as ExtensionContext;
+		h.handlers.session_start![0]!({ systemPrompt: "" }, nextCtx);
+		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
+		expect(h.control.restore).not.toHaveBeenCalled();
+	});
+});
+
 describe("plan gate", () => {
 	const gate = (h: Harness) => h.gates.find((entry) => entry.name === "plan");
 
@@ -156,6 +215,10 @@ describe("plan gate", () => {
 		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
 		expect(evaluate(write("src/features/x.ts"))).toMatchObject({ kind: "block" });
 		expect(evaluate(write("specs/topic.md"))).toBeUndefined();
+		expect(evaluate(write("/tmp/outside.md"))).toMatchObject({ kind: "block" });
+		expect(evaluate(write("../outside.md"))).toMatchObject({ kind: "block" });
+		symlinkSync(agentDir, join(workDir, "linked"), "dir");
+		expect(evaluate(write("linked/escape.md"))).toMatchObject({ kind: "block" });
 	});
 
 	it("stays out of the way when plan mode is off", () => {
@@ -189,6 +252,14 @@ describe("plan_submit", () => {
 		expect(result.content[0].text).toContain("Write the spec file first");
 	});
 
+	it("refuses to submit non-markdown or out-of-workspace files", async () => {
+		const h = harness();
+		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		const tool = h.tools.get(PLAN_SUBMIT_TOOL)!;
+		expect((await tool.execute("id", { path: "src/a.ts" })).content[0].text).toContain("inside the workspace");
+		expect((await tool.execute("id", { path: "/tmp/outside.md" })).content[0].text).toContain("inside the workspace");
+	});
+
 	it("refuses to submit outside plan mode", async () => {
 		const h = harness();
 		const result = await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/x.md" });
@@ -209,6 +280,20 @@ describe("plan_submit", () => {
 		expect(message).toContain("start implementing");
 		expect(h.control.restore).toHaveBeenCalled();
 		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
+	});
+
+	it("drops a browser decision that arrives after plan mode was closed", async () => {
+		const h = harness();
+		const handler = h.commands.get(PLAN_COMMAND)!.handler;
+		await handler("topic", h.ctx);
+		writeSpec("specs/topic.md", "# SPEC: topic");
+		await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		const url = h.openBrowser.mock.calls[0][0] as string;
+		expect(await decide(url, "deny")).toBe(200);
+		await handler("off", h.ctx);
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		// Only the kickoff was sent; the stale review cannot start another turn.
+		expect(h.sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
 	it("turns a denial into feedback but keeps planning", async () => {
@@ -243,5 +328,15 @@ describe("prompt injection", () => {
 		expect(injected?.systemPrompt).toContain("base");
 		expect(injected?.systemPrompt).toContain("[ASK-PLAN — PLANNING]");
 		expect(injected?.systemPrompt).toContain("plan_submit");
+	});
+});
+
+describe("model policy", () => {
+	it("contains no model-switching call in production code", () => {
+		const root = join(process.cwd(), "src", "features", "plan");
+		for (const file of readdirSync(root)) {
+			if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+			expect(readFileSync(join(root, file), "utf8"), file).not.toContain("setModel");
+		}
 	});
 });

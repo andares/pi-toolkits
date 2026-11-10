@@ -14,7 +14,7 @@
  *   - the decision always carries the annotations. Approve and deny only choose
  *     the next step (implement vs revise); notes written for an approval still
  *     reach the model.
- *   - this feature never touches the model. No `setModel`, no model config:
+ *   - this feature never touches the model or its configuration:
  *     plannotator's habit of switching models silently is the reason this one
  *     is written from scratch.
  */
@@ -25,6 +25,8 @@ import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import type { GateHub } from "../../lib/gates.js";
 import { getPermissionControl, type PermissionSnapshot } from "../../lib/permission-control.js";
+import { getAskControl } from "../../lib/ask-control.js";
+import { canonicalize, isWithin } from "../permission/paths.js";
 import { buildFeedbackMarkdown } from "./feedback.js";
 import { openInBrowser } from "./opener.js";
 import { buildPlanKickoff, buildPlanSystemPrompt } from "./prompt.js";
@@ -41,9 +43,35 @@ import {
 export const PLAN_COMMAND = "ask-plan";
 export const PLAN_SUBMIT_TOOL = "plan_submit";
 
-/** Files the planning phase may write: markdown, nothing else. */
+/** Files the planning phase may write: project markdown, nothing else. */
 function isMarkdownPath(path: string): boolean {
 	return /\.mdx?$/i.test(path);
+}
+
+/** Resolve a markdown path inside the workspace; anything else is rejected. */
+function planMarkdownPath(path: string, cwd: string): string | undefined {
+	if (path === "" || !isMarkdownPath(path)) return undefined;
+	const absolute = canonicalize(isAbsolute(path) ? path : resolve(cwd, path));
+	if (absolute === cwd || !isWithin(cwd, absolute)) return undefined;
+	return absolute;
+}
+
+function samePermissionSnapshot(a: PermissionSnapshot, b: PermissionSnapshot): boolean {
+	return (
+		a.enabled === b.enabled &&
+		a.modes.inRead === b.modes.inRead &&
+		a.modes.inWrite === b.modes.inWrite &&
+		a.modes.outRead === b.modes.outRead &&
+		a.modes.outWrite === b.modes.outWrite
+	);
+}
+
+function sessionIdOf(ctx: ExtensionContext): string {
+	try {
+		return ctx.sessionManager.getSessionId();
+	} catch {
+		return `pid-${process.pid}`;
+	}
 }
 
 const PLAN_SUBMIT_PARAMS = Type.Object({
@@ -60,6 +88,8 @@ export interface PlanOptions {
 	agentDir?: string;
 	/** Opening the browser is injectable so tests never spawn one. */
 	openBrowser?: (url: string) => unknown;
+	/** Milliseconds between a decision and closing the review server (tests inject 0). */
+	closeDelayMs?: number;
 	/** Port search starts here; the review server walks upward. */
 	portStart?: number;
 }
@@ -72,9 +102,11 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 	let session: PlanSession | undefined;
 	let server: PlanServerHandle | undefined;
 	let permissionBefore: PermissionSnapshot | undefined;
+	let permissionDuring: PermissionSnapshot | undefined;
 	let specPath: string | undefined;
 	let cwd = process.cwd();
 	let ctxRef: ExtensionContext | undefined;
+	let planSessionId: string | undefined;
 
 	function closeServer(): void {
 		if (!server) return;
@@ -97,9 +129,21 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		closeServer();
 		pi.setActiveTools(toolSetWithoutSubmit());
 		const control = getPermissionControl();
-		if (permissionBefore) control?.restore(ctx, permissionBefore);
-		else control?.disable(ctx);
+		const current = control?.snapshot();
+		// Restore only if the operator has not changed the policy mid-plan. A
+		// manual `/ask-perm` during planning is newer intent and must win.
+		if (
+			control &&
+			permissionBefore &&
+			permissionDuring &&
+			current &&
+			samePermissionSnapshot(current, permissionDuring)
+		) {
+			control.restore(ctx, permissionBefore);
+		}
 		permissionBefore = undefined;
+		permissionDuring = undefined;
+		planSessionId = undefined;
 		ctx.ui.notify(`ask-plan: ${reason}`, "info");
 	}
 
@@ -112,7 +156,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		return buildFeedbackMarkdown({
 			decision: current.decision?.action === "approve" ? "approve" : "deny",
 			version,
-			totalVersions: session.versions.length,
+			totalVersions: latestVersion(session).n,
 			blocks: current.blocks,
 			diff: current.diff,
 			previousBlocks: previous?.blocks ?? [],
@@ -125,6 +169,10 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		decision: { action: "approve" | "deny"; version: number },
 		ctx: ExtensionContext,
 	): Promise<void> {
+		// The operator may leave plan mode, or switch sessions, during the short
+		// close delay. A stale decision must not resurrect implementation or send
+		// an empty message into the new phase.
+		if (!active) return;
 		const message = decisionMessage(decision.version);
 		if (decision.action === "approve") {
 			// Leave the phase before the message goes out: the implementation
@@ -144,7 +192,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		handler: async (args: string, ctx: ExtensionContext) => {
 			const arg = args.trim();
 			ctxRef = ctx;
-			cwd = ctx.cwd || process.cwd();
+			cwd = canonicalize(ctx.cwd || process.cwd());
 
 			if (arg === "off") {
 				if (!active) {
@@ -172,8 +220,15 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 
 			const slug = planSlug(arg || "plan");
 			specPath = `specs/${slug}.md`;
-			permissionBefore = getPermissionControl()?.snapshot();
-			getPermissionControl()?.enableDefaults(ctx);
+			session = undefined;
+			planSessionId = sessionIdOf(ctx);
+			const permission = getPermissionControl();
+			permissionBefore = permission?.snapshot();
+			permission?.enableDefaults(ctx);
+			permissionDuring = permission?.snapshot();
+			// Plan mode is intentionally less restrictive than ask mode. Let ask
+			// restore its own tool snapshot before we add plan_submit.
+			if (getAskControl()?.isActive()) getAskControl()?.exit(ctx);
 			active = true;
 			pi.setActiveTools(toolSetWithSubmit());
 			ctx.ui.notify(
@@ -207,7 +262,18 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 				};
 			}
 			const target = params.path ?? specPath ?? "specs/plan.md";
-			const absolute = isAbsolute(target) ? target : resolve(cwd, target);
+			const absolute = planMarkdownPath(target, cwd);
+			if (!absolute) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Submit only a markdown file inside the workspace (got ${target}).`,
+						},
+					],
+					details: {},
+				};
+			}
 			let text: string;
 			try {
 				text = readFileSync(absolute, "utf8");
@@ -239,6 +305,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 					session,
 					render: renderBlockHtml,
 					portStart: options.portStart,
+					closeDelayMs: options.closeDelayMs,
 					onDecision: ({ action, version: decidedVersion }) => {
 						const ctx = ctxRef;
 						if (ctx) void handleDecision({ action, version: decidedVersion }, ctx);
@@ -275,7 +342,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 			if (!active) return undefined;
 			if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
 			const path = typeof event.input.path === "string" ? event.input.path : "";
-			if (path !== "" && isMarkdownPath(path)) return undefined;
+			if (planMarkdownPath(path, cwd) !== undefined) return undefined;
 			return {
 				kind: "block" as const,
 				reason:
@@ -295,5 +362,22 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 
 	pi.on("session_shutdown", () => {
 		closeServer();
+	});
+
+	pi.on("session_start", (_event, ctx) => {
+		const nextSessionId = sessionIdOf(ctx);
+		if (nextSessionId === planSessionId) return;
+		// A different session must not inherit this session's gates, review server
+		// or permission snapshot. Permission's own session_start has already reset
+		// its state, so do not restore the old snapshot here.
+		active = false;
+		session = undefined;
+		permissionBefore = undefined;
+		permissionDuring = undefined;
+		planSessionId = undefined;
+		specPath = undefined;
+		ctxRef = ctx;
+		closeServer();
+		pi.setActiveTools(toolSetWithoutSubmit());
 	});
 }

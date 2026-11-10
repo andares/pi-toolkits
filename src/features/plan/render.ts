@@ -71,9 +71,20 @@ function renderList(lines: readonly string[]): string {
 
 function renderCode(lines: readonly string[]): string {
 	const first = lines[0] ?? "";
-	const opener = /^ {0,3}(?:`{3,}|~{3,})\s*([\w+#.-]*)/.exec(first);
-	const language = opener?.[1] ? ` class="language-${escapeHtml(opener[1])}"` : "";
-	const body = lines.slice(1, lines.length > 1 ? -1 : 1).join("\n");
+	const opener = /^ {0,3}(`{3,}|~{3,})\s*([\w+#.-]*)/.exec(first);
+	const language = opener?.[2] ? ` class="language-${escapeHtml(opener[2])}"` : "";
+	const marker = opener?.[1];
+	const last = lines.at(-1) ?? "";
+	const closing = /^ {0,3}(`{3,}|~{3,})\s*$/.exec(last)?.[1];
+	const closed =
+		lines.length > 1 &&
+		marker !== undefined &&
+		closing !== undefined &&
+		closing[0] === marker[0] &&
+		closing.length >= marker.length;
+	// An unfinished fence is legal markdown while the agent is drafting. Its
+	// final line is content, not a closing delimiter, so do not silently drop it.
+	const body = lines.slice(1, closed ? -1 : undefined).join("\n");
 	return `<pre><code${language}>${escapeHtml(body)}</code></pre>`;
 }
 

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -84,16 +84,21 @@ describe("appendPlanVersion", () => {
 
 	it("keeps at most 50 revisions and never drops a decided one", () => {
 		const session = makeSession("v1");
-		for (let i = 2; i <= 52; i += 1) {
+		recordPlanDecision(session, 1, "approve", at(1));
+		for (let i = 2; i <= 53; i += 1) {
 			appendPlanVersion(session, { text: `v${i}`, now: at(i) });
 		}
-		// Decide the oldest revision as if the operator had acted on it.
-		recordPlanDecision(session, session.versions[0].n, "approve", at(60));
-		appendPlanVersion(session, { text: "v53", now: at(53) });
 		expect(session.versions.length).toBeLessThanOrEqual(50);
-		expect(session.versions.some((version) => version.decision?.action === "approve")).toBe(true);
-		const last = session.versions[session.versions.length - 1];
-		expect(latestVersion(session).n).toBe(last.n);
+		expect(session.versions.some((version) => version.n === 1 && version.decision?.action === "approve")).toBe(true);
+		expect(latestVersion(session).n).toBe(53);
+		expect(existsSync(join(session.dir, "v001.md"))).toBe(true);
+
+		// The next identity follows the highest revision number, not the number
+		// of retained entries — otherwise pruning reuses 51 and overwrites it.
+		const next = appendPlanVersion(session, { text: "v54", now: at(54) });
+		expect(next.n).toBe(54);
+		expect(new Set(session.versions.map((version) => version.n)).size).toBe(session.versions.length);
+		expect(readVersionText(session, 54)).toBe("v54");
 	});
 });
 

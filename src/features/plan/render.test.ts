@@ -50,6 +50,19 @@ describe("renderBlockHtml", () => {
 		);
 	});
 
+	it("keeps the last line of an unclosed code fence", () => {
+		const html = render("```ts\nconst a = 1;\nconst b = 2;");
+		expect(html).toBe(
+			'<pre><code class="language-ts">const a = 1;\nconst b = 2;</code></pre>',
+		);
+	});
+
+	it("does not close a fence on a line that has an info string", () => {
+		expect(render("```\nfirst\n```ts\nlast")).toBe(
+			"<pre><code>first\n```ts\nlast</code></pre>",
+		);
+	});
+
 	it("does not run inline markup inside code", () => {
 		expect(render("```\n**not bold** <tag>\n```")).toBe(
 			"<pre><code>**not bold** &lt;tag&gt;</code></pre>",

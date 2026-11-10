@@ -130,6 +130,28 @@ describe("buildFeedbackMarkdown", () => {
 		);
 	});
 
+	it("keeps annotations on removed blocks", () => {
+		const before = parse("## Plan\n\nremove this step");
+		const after = parse("## Plan");
+		const text = buildFeedbackMarkdown({
+			decision: "deny",
+			version: 2,
+			totalVersions: 2,
+			blocks: after,
+			diff: diffBlocks(before, after),
+			previousBlocks: before,
+			global: [],
+			perBlock: [
+				{
+					blockId: before[1].id,
+					annotations: [{ verdict: "question", comment: "Why was this dropped?" }],
+				},
+			],
+		});
+		expect(text).toContain("### Block: remove this step (removed)");
+		expect(text).toContain("- [question] Why was this dropped?");
+	});
+
 	it("collapses multi-line comments onto one line", () => {
 		const blocks = parse("## Plan");
 		const text = buildFeedbackMarkdown({

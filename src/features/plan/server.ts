@@ -19,7 +19,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { extname, join, normalize } from "node:path";
+import { extname, isAbsolute, join, relative as pathRelative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { blockLabel, type Block } from "./blocks.js";
 import type { BlockStatus, DiffEntry } from "./diff.js";
@@ -31,7 +31,8 @@ import {
 	type PlanAnnotations,
 	type PlanSession,
 } from "./store.js";
-import { bindHost, urlHost } from "./opener.js";
+import { bindHost, isWsl, urlHost } from "./opener.js";
+import { renderBlockHtml } from "./render.js";
 
 export interface PlanStateItem {
 	status: BlockStatus;
@@ -109,7 +110,7 @@ export function buildPlanState(session: PlanSession, versionNumber?: number): Pl
 	return {
 		slug: session.slug,
 		version: version.n,
-		totalVersions: session.versions.length,
+		totalVersions: latestVersion(session).n,
 		at: version.at,
 		source: version.source,
 		items,
@@ -237,12 +238,13 @@ function parseHost(value: string | undefined): string {
 export async function startPlanServer(options: StartPlanServerOptions): Promise<PlanServerHandle> {
 	const token = randomBytes(12).toString("hex");
 	const assetsDir = options.assetsDir ?? fileURLToPath(new URL("./assets/", import.meta.url));
-	const render = options.render ?? ((block: Pick<Block, "kind" | "text">) => block.text);
+	const render = options.render ?? renderBlockHtml;
 	const portStart = options.portStart ?? 3401;
 	const attempts = options.portAttempts ?? 20;
 	const closeDelayMs = options.closeDelayMs ?? 1500;
-	const host = options.bindHost ?? bindHost(true);
-	const displayHost = options.urlHost ?? urlHost(true);
+	const host = options.bindHost ?? bindHost(isWsl());
+	const displayHost = options.urlHost ?? urlHost(isWsl());
+	const assetsRoot = resolve(assetsDir);
 
 	const listeners = new Set<ServerResponse>();
 	let heartbeat: NodeJS.Timeout | undefined;
@@ -258,10 +260,18 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 		const site = req.headers["sec-fetch-site"];
 		if (site === "same-origin" || site === "none") return true;
 		const origin = req.headers.origin;
-		if (typeof origin !== "string") return true; // curl / same-process callers
+		// curl and same-process callers carry neither header. If the browser did
+		// tell us this is a cross-/same-site request but omitted Origin, fail
+		// closed rather than treating the missing header as proof of safety.
+		if (typeof origin !== "string") return site === undefined;
 		try {
 			const parsed = new URL(origin);
-			return allowedHosts(port, displayHost).includes(parseHost(`${parsed.hostname}:${parsed.port || port}`));
+			if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+			// An Origin without an explicit port means the protocol's default,
+			// never the port of the server receiving this request. Substituting the
+			// latter would let a page on localhost:80 impersonate this review.
+			const originPort = parsed.port || (parsed.protocol === "https:" ? "443" : "80");
+			return allowedHosts(port, displayHost).includes(parseHost(`${parsed.hostname}:${originPort}`));
 		} catch {
 			return false;
 		}
@@ -300,10 +310,10 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 			// the bundle at the root of `outDir` (assetsDir: "."), so the page asks
 			// for `/index-<hash>.js`, not `/assets/index-<hash>.js` — resolving any
 			// path inside assetsDir covers both layouts without a second route.
-			const relative = normalize(decodeURIComponent(url.pathname)).replace(/^[/\\]+/, "");
-			const path = join(assetsDir, relative);
-			const insideAssets = path.startsWith(assetsDir);
-			if (relative === "" || !insideAssets || !existsSync(path) || !statSync(path).isFile()) {
+			const requested = pathRelative(assetsRoot, resolve(assetsRoot, `.${decodeURIComponent(url.pathname)}`));
+			const path = resolve(assetsRoot, requested);
+			const insideAssets = requested !== "" && !requested.startsWith("..") && !isAbsolute(requested);
+			if (!insideAssets || !existsSync(path) || !statSync(path).isFile()) {
 				text(res, "not found", 404);
 				return;
 			}
@@ -351,6 +361,10 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 			const body = (await readBody(req)) as { version?: number; annotations?: unknown };
 			const annotations = normalizeAnnotations(body.annotations);
 			const version = body.version ?? latestVersion(options.session).n;
+			if (version !== latestVersion(options.session).n || closing) {
+				json(res, { error: "only the latest undecided revision can be annotated" }, 409);
+				return;
+			}
 			setPlanAnnotations(options.session, version, annotations);
 			options.onAnnotations?.(annotations, version);
 			broadcast("annotations", { version, annotations });
@@ -366,6 +380,17 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 				return;
 			}
 			const version = body.version ?? latestVersion(options.session).n;
+			const current = options.session.versions.find((candidate) => candidate.n === version);
+			if (
+				version !== latestVersion(options.session).n ||
+				closing ||
+				current?.decision !== undefined
+			) {
+				// A second producer must not claim an outcome that will not be
+				// delivered (the first decision already owns the message).
+				json(res, { error: "this revision has already been decided or is not latest" }, 409);
+				return;
+			}
 			recordPlanDecision(options.session, version, action);
 			json(res, { ok: true, action, version });
 			broadcast("decided", { action, version });

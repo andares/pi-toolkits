@@ -108,6 +108,11 @@ export function openInBrowser(url: string): OpenerPlan | undefined {
 			detached: true,
 			stdio: "ignore",
 		});
+		// commandExists() is only a probe: the executable can still disappear or
+		// fail before spawn. Without a listener that asynchronous `error` event is
+		// unhandled and can take down the pi process; the printed URL is the
+		// recovery path either way.
+		child.once("error", () => {});
 		child.unref();
 		return plan;
 	} catch {
