@@ -116,7 +116,7 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 
 	const instruction =
 		input.decision === "approve"
-			? "The plan is approved. Start implementing it now."
+			? "The plan is approved: start implementing it now. Approval only means \"go\" — every annotation above still applies while you build."
 			: "Update the plan file to address every annotation above, then submit it again with plan_submit.";
 
 	return [header, "", body, "", instruction].join("\n");

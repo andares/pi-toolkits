@@ -73,7 +73,7 @@ describe("buildFeedbackMarkdown", () => {
 				"",
 				"No notes were attached.",
 				"",
-				"The plan is approved. Start implementing it now.",
+				'The plan is approved: start implementing it now. Approval only means "go" — every annotation above still applies while you build.',
 			].join("\n"),
 		);
 	});
@@ -91,7 +91,7 @@ describe("buildFeedbackMarkdown", () => {
 		});
 		expect(text).toContain("## Plan approved — v1 of 1 (1 block changed)");
 		expect(text).toContain("- [suggest] Commit per milestone.");
-		expect(text).toContain("The plan is approved. Start implementing it now.");
+		expect(text).toContain("Approval only means");
 	});
 
 	it("asks what should change when a denial carries no annotations", () => {
