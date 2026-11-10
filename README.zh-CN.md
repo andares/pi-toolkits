@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含九个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `third-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**退出看门狗** `quit-guard`,后续持续追加。
+一句话介绍:目前包含九个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**退出看门狗** `quit-guard`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.1 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -40,7 +40,7 @@ pi -e ./src/index.ts
 - `/ask` → footer 出现灰色 `ask` 状态,`write`/`edit` 被硬禁用,同时出现 `scratchpad` 工具用于草稿笔记
 - `/model`(或 `ctrl+l`)→ 选择器顶部出现收藏提示行;对选中模型按 `ctrl+A` → 文字变**加粗亮黄**、收藏计数 +1(这一步同时就是真机按键检查,见「键位」约定)
 - 输入框内按 `ctrl+alt+y` → 当前提示词被暂存并清空输入框
-- 完成一个开发任务后输入 `/third-review` → 切换到评审模型执行查+修
+- 完成一个开发任务后输入 `/ask-review` → 切换到评审模型执行查+修
 - `/compact-model` 选一个便宜快模型 → 之后 `/compact` 与自动压缩的总结都由它执行(footer 出现灰色 `compact` 状态)
 
 ---
@@ -74,7 +74,7 @@ pi -e ./src/index.ts
 | 🔐 **permission** 会话级边界权限 | `/ask-perm` | 项目内/外 × 读/写四格模式,默认关闭且从不落盘;项目外写询问、凭据路径硬拒、破坏性命令必问;与 `/ask` 并行组合;另有滚动 JSONL 审批日志供事后挖规则 |
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+A` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
-| 🔎 **review** 第三方代码评审 | `/third-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
+| 🔎 **review** 第三方代码评审 | `/ask-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 | 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计漂移、预算与重复事实 |
@@ -247,9 +247,11 @@ run = ["/ask-perm allow allow allow ask"]
 
 <a name="review"></a>
 
-开发任务完成后,输入 `/third-review` 指令召唤**另一个模型**以第三方身份,对刚完成的代码做「查 + 修」:评审模型拥有**完整工具权限**,确认的问题直接改,不是只读审计。评审回合留在当前会话记录里,评审完成后**会话保持评审模型**(不自动切回)。
+开发任务完成后,输入 `/ask-review` 指令召唤**另一个模型**以第三方身份,对刚完成的代码做「查 + 修」:评审模型拥有**完整工具权限**,确认的问题直接改,不是只读审计。评审回合留在当前会话记录里,评审完成后**会话保持评审模型**(不自动切回)。
 
-> **仅指令触发**:只有 `/third-review` 能发起评审。聊天中直接输入 `third-review` 不会触发(作为普通消息发给模型),避免误发。
+> **仅指令触发**:只有 `/ask-review` 能发起评审。聊天中直接输入 `ask-review` 不会触发(作为普通消息发给模型),避免误发。
+>
+> **由 `/third-review` 改名**（2026-11-10，`/ask-*` 家族的第一步）:旧名仍作为兼容别名注册、行为完全一致,现有笔记与 `autostart.toml` 配置照常可用;但文档与所有提示一律用 `/ask-review`。
 
 **评审提示词重点检查三点**(逐项给出结论):
 
@@ -259,9 +261,9 @@ run = ["/ask-perm allow allow allow ask"]
 
 **范围强约束** —— 评审仅限**当前本轮修改内容**,避免扩大范围;本轮改动范围内确认的问题才直接修复,范围外的历史遗留/无关问题只记录提示、不动手改。
 
-**评审模型选择**(每次 `/third-review` 都会弹出选择界面):
+**评审模型选择**(每次 `/ask-review` 都会弹出选择界面):
 
-- `/third-review` → 弹出 **`/model` 同款选择器**(限高滚动 + 模糊搜索):**默认选中当前配置的模型**(✓ 标记),直接**回车**即用它开始评审
+- `/ask-review` → 弹出 **`/model` 同款选择器**(限高滚动 + 模糊搜索):**默认选中当前配置的模型**(✓ 标记),直接**回车**即用它开始评审
 - **换选其他模型** → 立即写回配置(**落盘 + 内存**),**下次默认使用该模型**
 - **取消**(Esc)→ 不执行评审,配置不变
 - 配置持久化于 `<agent-dir>/pi-toolkits-review.json`(默认 `~/.pi/agent/`):

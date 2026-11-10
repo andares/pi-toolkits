@@ -14,7 +14,7 @@ describe("startup handoff", () => {
 
 	it("ignores other commands", () => {
 		markStartupCommand("ask-perm");
-		expect(consumeStartupCommand("third-review")).toBe(false);
+		expect(consumeStartupCommand("ask-review")).toBe(false);
 		expect(consumeStartupCommand("ask-perm")).toBe(true);
 	});
 

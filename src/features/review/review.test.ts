@@ -1,7 +1,8 @@
 /**
  * review feature — unit tests.
  *
- * Covers the logic behind the third-review command:
+ * Covers the logic behind the /ask-review command (`third-review` is its
+ * compatibility alias):
  *  - store: set/get persistence round-trip + corrupted-file fallback
  *  - modelKey / resolveConfiguredModel: provider/id resolution, incl. ids
  *    that themselves contain "/" (e.g. openrouter/openai/gpt-5)
@@ -34,6 +35,9 @@ import {
 import {
 	createReviewRunner,
 	pickReviewModel,
+	registerReview,
+	REVIEW_COMMAND,
+	REVIEW_COMMAND_ALIAS,
 } from "./index.js";
 import {
 	modelKey,
@@ -456,5 +460,45 @@ describe("createReviewRunner", () => {
 		await first;
 		expect(pi.setModel).toHaveBeenCalledTimes(1);
 		expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+	});
+});
+
+// ─── command registration ──────────────────────────────────────
+
+describe("registerReview", () => {
+	it("registers /ask-review and keeps /third-review as a working alias", async () => {
+		type RegisteredCommand = {
+			description: string;
+			handler: (args: string, ctx: ExtensionContext) => Promise<unknown>;
+		};
+		const commands = new Map<string, RegisteredCommand>();
+		const pi = {
+			registerCommand: (name: string, def: RegisteredCommand) => {
+				commands.set(name, def);
+			},
+			on: vi.fn(),
+			setModel: vi.fn(async () => true),
+			sendUserMessage: vi.fn(),
+		} as unknown as ExtensionAPI;
+
+		registerReview(pi);
+
+		// The canonical name carries the family prefix (/ask-*); the old spelling
+		// stays registered so pre-rename notes and autostart configs keep working.
+		expect(REVIEW_COMMAND).toBe("ask-review");
+		expect(REVIEW_COMMAND_ALIAS).toBe("third-review");
+		expect([...commands.keys()]).toEqual([
+			REVIEW_COMMAND,
+			REVIEW_COMMAND_ALIAS,
+			"review-model",
+		]);
+
+		// Both entry points reach the same runner: same picker, same guards, same
+		// review turn — the alias is a name, not a second implementation.
+		const { ctx } = fakeCtx({ customResult: MODELS[0] });
+		await commands.get(REVIEW_COMMAND)?.handler("", ctx);
+		expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
+		await commands.get(REVIEW_COMMAND_ALIAS)?.handler("", ctx);
+		expect(pi.sendUserMessage).toHaveBeenCalledTimes(2);
 	});
 });

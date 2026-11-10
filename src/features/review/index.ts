@@ -1,18 +1,20 @@
 /**
- * review feature — third-review command.
+ * review feature — the /ask-review command.
  *
  * After a development task finishes, "summon another model" to review the
  * just-completed work: the configured review model takes over the session
  * (full tool access — this is check AND fix, not a read-only audit), runs a
  * review turn, and the session then stays on that model (no auto-restore).
  *
- * Trigger: the /third-review slash command. (Bare-message keyword matching
- * was deliberately removed — a plain "third-review" message goes to the
- * model as ordinary text, so an accidental send can never start a review.)
+ * Trigger: the /ask-review slash command. `/third-review` stays registered as
+ * a compatibility alias (same handler, same state, no separate behaviour).
+ * Bare-message keyword matching was deliberately removed — a plain
+ * "ask-review" message goes to the model as ordinary text, so an accidental
+ * send can never start a review.
  *
  * Review-model config lives in `<agent-dir>/pi-toolkits-review.json`
  * ("provider/id", see store.ts) and doubles as the picker default. Every
- * /third-review run opens the /model-style picker (the REAL built-in
+ * /ask-review run opens the /model-style picker (the REAL built-in
  * ModelSelectorComponent — height-limited scrolling list + fuzzy search)
  * with the configured model preselected and ✓-marked: one Enter accepts it
  * and starts the review. Picking a different model persists it immediately
@@ -41,6 +43,24 @@ import { REVIEW_PROMPT } from "./prompt.js";
 import { getReviewStore, type ReviewStore } from "./store.js";
 
 /**
+ * Canonical command name. Renamed from `third-review` when the `/ask-*` family
+ * started taking shape (ask, ask-perm, ask-init, ask-review): new entry points
+ * group under one prefix instead of scattering. Every user-visible notice,
+ * dialog and doc says this name, so using the alias still teaches the new one.
+ */
+export const REVIEW_COMMAND = "ask-review";
+
+/**
+ * Compatibility alias, registered on purpose and delegating to the same
+ * runner. Why it exists: older session notes, muscle memory and autostart
+ * configs (`/third-review` in `.pi/autostart.toml`) keep working across the
+ * rename — a renamed command that silently disappears would turn those config
+ * entries into plain chat messages sent to the model. Delete this block once
+ * the old spelling has been unused for a release or two.
+ */
+export const REVIEW_COMMAND_ALIAS = "third-review";
+
+/**
  * Let the user pick a review model with the /model-style picker and persist
  * the choice. Returns the picked model, or undefined when cancelled.
  *
@@ -57,7 +77,7 @@ export async function pickReviewModel(
 	// headless contexts have no dialogs, so fall back to a manual-config hint.
 	if (!ctx.hasUI) {
 		ctx.ui.notify(
-			"third-review: this environment has no model picker dialog — edit <agent-dir>/pi-toolkits-review.json to configure it manually.",
+			`${REVIEW_COMMAND}: this environment has no model picker dialog — edit <agent-dir>/pi-toolkits-review.json to configure it manually.`,
 			"error",
 		);
 		return undefined;
@@ -66,7 +86,7 @@ export async function pickReviewModel(
 	const configuredModel = resolveConfiguredModel(ctx, configured);
 	if (!configuredModel && configured) {
 		ctx.ui.notify(
-			`third-review: the configured review model ${configured} does not exist or is unavailable — pick another one.`,
+			`${REVIEW_COMMAND}: the configured review model ${configured} does not exist or is unavailable — pick another one.`,
 			"warning",
 		);
 	}
@@ -75,7 +95,7 @@ export async function pickReviewModel(
 			"Select the review model (first entry is the current default; press Enter to use it)",
 	});
 	if (!model) {
-		ctx.ui.notify("third-review: cancelled — the review model is unchanged.", "info");
+		ctx.ui.notify(`${REVIEW_COMMAND}: cancelled — the review model is unchanged.`, "info");
 		return undefined;
 	}
 	const key = modelKey(model);
@@ -83,7 +103,7 @@ export async function pickReviewModel(
 		// Persist immediately (disk + in-memory + footer) — next run defaults here.
 		store.setModel(key);
 		ctx.ui.notify(
-			`third-review: review model saved as "${model.name}" — it will be the default next time.`,
+			`${REVIEW_COMMAND}: review model saved as "${model.name}" — it will be the default next time.`,
 			"info",
 		);
 	}
@@ -91,7 +111,7 @@ export async function pickReviewModel(
 }
 
 /**
- * Create the third-review runner bound to a pi instance.
+ * Create the /ask-review runner bound to a pi instance.
  *
  * Exported separately from registerReview so tests can drive the flow with
  * fake pi/ctx objects. The returned runner serializes concurrent triggers
@@ -104,12 +124,12 @@ export function createReviewRunner(
 
 	return async (ctx) => {
 		if (running) {
-			ctx.ui.notify("third-review: a review is already running — please wait.", "warning");
+			ctx.ui.notify(`${REVIEW_COMMAND}: a review is already running — please wait.`, "warning");
 			return;
 		}
 		if (!ctx.isIdle()) {
 			ctx.ui.notify(
-				"third-review: the current task is still running — wait for it to finish before starting a review.",
+				`${REVIEW_COMMAND}: the current task is still running — wait for it to finish before starting a review.`,
 				"warning",
 			);
 			return;
@@ -130,7 +150,7 @@ export function createReviewRunner(
 				model = resolveConfiguredModel(ctx, store.getModel());
 				if (!model) {
 					ctx.ui.notify(
-						"third-review: this environment has no model picker dialog — edit <agent-dir>/pi-toolkits-review.json to configure it manually.",
+						`${REVIEW_COMMAND}: this environment has no model picker dialog — edit <agent-dir>/pi-toolkits-review.json to configure it manually.`,
 						"error",
 					);
 					return;
@@ -139,13 +159,13 @@ export function createReviewRunner(
 			const switched = await pi.setModel(model);
 			if (!switched) {
 				ctx.ui.notify(
-					`third-review: cannot switch to the review model "${model.name}" (missing API key or auth not configured).`,
+					`${REVIEW_COMMAND}: cannot switch to the review model "${model.name}" (missing API key or auth not configured).`,
 					"error",
 				);
 				return;
 			}
 			ctx.ui.notify(
-				`third-review: switched to the review model "${model.name}" for this review (check + fix); the session stays on it afterwards.`,
+				`${REVIEW_COMMAND}: switched to the review model "${model.name}" for this review (check + fix); the session stays on it afterwards.`,
 				"info",
 			);
 			pi.sendUserMessage(REVIEW_PROMPT);
@@ -158,12 +178,20 @@ export function createReviewRunner(
 export function registerReview(pi: ExtensionAPI): void {
 	const runReview = createReviewRunner(pi);
 
-	// Slash-command trigger — the only entry point (bare-message keyword
-	// matching was removed to avoid accidental triggers). The handler awaits
-	// the runner, which may block on the model picker and the review turn.
-	pi.registerCommand("third-review", {
+	// Slash-command triggers. The handler awaits the runner, which may block on
+	// the model picker and the review turn. `ask-review` is canonical;
+	// `third-review` is registered only as a compatibility alias (see the
+	// constant's comment) — both reach the same runner and the same guards.
+	pi.registerCommand(REVIEW_COMMAND, {
 		description:
 			"Pick the review model (defaults to the configured one) and review the just-completed work (check + fix)",
+		handler: async (_args: string, ctx: ExtensionContext) => {
+			await runReview(ctx);
+		},
+	});
+
+	pi.registerCommand(REVIEW_COMMAND_ALIAS, {
+		description: "Same as /ask-review (compatibility alias)",
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			await runReview(ctx);
 		},
@@ -174,7 +202,7 @@ export function registerReview(pi: ExtensionAPI): void {
 	// keeps the existing config, so it is also safe as a view-only command.
 	pi.registerCommand("review-model", {
 		description:
-			"Set or change the review model used by third-review (picker preselects the current one)",
+			"Set or change the review model used by /ask-review (picker preselects the current one)",
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			await pickReviewModel(ctx, getReviewStore());
 		},

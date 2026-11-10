@@ -1,4 +1,7 @@
-# PLAN: @andares/pi-toolkits — third-review 第三方评审指令
+# PLAN: @andares/pi-toolkits — ask-review 第三方评审指令
+
+> **2026-11-10 改名**:指令的现行名字是 `/ask-review`(`/third-review` 仍注册为兼容别名,
+> 同一 handler、同一配置,行为不变)。这份计划是当时的决策与实现记录,正文保留写它时的原名;现行用法以 README / AGENTS.md 为准。
 
 ## Context
 

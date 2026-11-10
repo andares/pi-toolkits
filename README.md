@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: nine ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `third-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, and a **quit watchdog** `quit-guard` — with more to come.
+In a nutshell: nine ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, and a **quit watchdog** `quit-guard` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.1 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -40,7 +40,7 @@ After installing, verify in any pi session:
 - `/ask` → a grey `ask` status appears in the footer, `write`/`edit` are hard-disabled, and a `scratchpad` tool appears for throwaway notes
 - `/model` (or `ctrl+l`) → a favorites hint line appears at the top of the selector; `ctrl+A` on the selected model → it turns bold bright yellow and the favorites counter goes up (this step is also the real-machine keypress check — see Keybindings)
 - press `ctrl+alt+y` in the input box → the current prompt is stashed and the input box is cleared
-- after finishing a development task, type `/third-review` → switches to the review model and runs check + fix
+- after finishing a development task, type `/ask-review` → switches to the review model and runs check + fix
 - `/compact-model`, pick a cheap fast model → from then on both `/compact` and auto-compaction summarize with it (a grey `compact` status appears in the footer)
 
 ---
@@ -74,7 +74,7 @@ After installing, verify in any pi session:
 | 🔐 **permission** session-scoped boundary checks | `/ask-perm` | four in/out × read/write modes, off by default and never persisted; outside writes ask, credentials are denied, destructive commands always ask; composes with `/ask`; a capped JSONL approval log feeds later rule mining |
 | ⭐ **favorites** model favorites | `ctrl+A` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
-| 🔎 **review** third-party code review | `/third-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
+| 🔎 **review** third-party code review | `/ask-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
@@ -247,9 +247,11 @@ When the stash is empty, a single press means "stash + clear". The stash is **in
 
 <a name="review"></a>
 
-After a development task is done, type the `/third-review` command to summon **a different model** as a third party to "check + fix" the code just written: the review model has **full tool permissions**, and confirmed problems are edited in place — this is not a read-only audit. The review turn stays in the current session transcript, and after the review **the session keeps the review model** (it does not switch back automatically).
+After a development task is done, type the `/ask-review` command to summon **a different model** as a third party to "check + fix" the code just written: the review model has **full tool permissions**, and confirmed problems are edited in place — this is not a read-only audit. The review turn stays in the current session transcript, and after the review **the session keeps the review model** (it does not switch back automatically).
 
-> **Command-triggered only**: only `/third-review` starts a review. Typing `third-review` as chat text does not trigger it (that is sent to the model as an ordinary message), which avoids accidental launches.
+> **Command-triggered only**: only `/ask-review` starts a review. Typing `ask-review` as chat text does not trigger it (that is sent to the model as an ordinary message), which avoids accidental launches.
+>
+> **Renamed from `/third-review`** (2026-11-10, first step of the `/ask-*` family): the old name is still registered as a compatibility alias with identical behaviour, so existing notes and `autostart.toml` entries keep working — but the docs and every notice now say `/ask-review`.
 
 **The review prompt focuses on three checks** (each gets an explicit verdict):
 
@@ -259,9 +261,9 @@ After a development task is done, type the `/third-review` command to summon **a
 
 **Strict scope constraint** — the review is limited to **the changes made in the current round**, to avoid scope creep; only problems confirmed inside this round's changes are fixed directly, while pre-existing or unrelated issues outside that range are only recorded as notes and left untouched.
 
-**Choosing the review model** (every `/third-review` opens a picker):
+**Choosing the review model** (every `/ask-review` opens a picker):
 
-- `/third-review` → opens the **same selector as `/model`** (height-limited scrolling + fuzzy search): **the currently configured model is selected by default** (✓ marker), so pressing **Enter** starts the review with it
+- `/ask-review` → opens the **same selector as `/model`** (height-limited scrolling + fuzzy search): **the currently configured model is selected by default** (✓ marker), so pressing **Enter** starts the review with it
 - **Pick another model** → written back to the config immediately (**both on disk and in memory**), and **that model becomes the default next time**
 - **Cancel** (Esc) → no review is run, the config is unchanged
 - The config is persisted in `<agent-dir>/pi-toolkits-review.json` (defaults to `~/.pi/agent/`):
