@@ -64,9 +64,13 @@ Release：Release 依赖 token，缺 token 的人不该因此发不了版。逃�
 - 补建 v0.12.3：`git push origin refs/tags/v0.12.3` → `pnpm release:github v0.12.3` 创建
   https://github.com/andares/pi-toolkits/releases/tag/v0.12.3 。
 
-## 顺带发现的历史缺口（未擅自处理）
+## 顺带发现的历史缺口（已补建）
 
 `pnpm release:github --audit` 报 **v0.12.0** 同样缺远端 tag 与 Release（本地 tag 在
 `44462ed`，发布于 2026-11-05T17:27Z，比这次早），是上一轮 quit-guard 发版被打断的残留。
-修法与 v0.12.3 相同：`git push origin refs/tags/v0.12.0` + `pnpm release:github v0.12.0`。
-待崔总确认后执行。
+崔总确认后同一套动作补完：`git push origin refs/tags/v0.12.0` →
+`pnpm release:github v0.12.0` → https://github.com/andares/pi-toolkits/releases/tag/v0.12.0 。
+
+补建后的全量体检：`pnpm release:github --audit` →
+**每个 npm 已发布版本都有公开的 GitHub Release**（exit 0）；GitHub Latest 与 npm
+`dist-tags.latest` 都是 v0.12.4（Release 建得晚不影响 semver 选 Latest）。
