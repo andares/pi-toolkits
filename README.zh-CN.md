@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含九个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**退出看门狗** `quit-guard`,后续持续追加。
+一句话介绍:目前包含十个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内计划评审** `ask-plan`、**退出看门狗** `quit-guard`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.1 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -75,6 +75,7 @@ pi -e ./src/index.ts
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+A` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/ask-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
+| 🧭 **plan** 浏览器内计划评审 | `/ask-plan` | 先调研、写 plan、在浏览器里逐段评审并逐块批注,批准之后才动代码 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 | 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计漂移、预算与重复事实 |
@@ -273,6 +274,31 @@ run = ["/ask-perm allow allow allow ask"]
 - **未配置 / 配置的模型已不可用**(如在 pi 的 models.json 里删掉了该模型)→ 提示后照常弹出列表(此时无默认项)
 - 任务仍在进行中(agent 未空闲)时触发 → 提示等待,不执行;同一时间只允许一个评审
 - footer 出现灰色 `review` 状态 = 已配置评审模型
+
+---
+
+## 🧭 plan — 先出计划，浏览器里评审，批准后再动手
+
+<a name="plan"></a>
+
+`/ask-plan [主题]` 进入计划期:模型先调研、把代码里看不出来的问题问清楚,然后写一份 spec——评审期间不改代码。写完调用 `plan_submit`,评审页在**你的浏览器**里打开,你**逐段**批注:每个空行分隔的块都可以挂批注,批注会作为下一条消息回到模型。
+
+- **块是评审单位。** 一段一块,带徽标标出与上一版相比的变化:`新增` / `已修改` / `位置移动` / `已删除`。未变的块默认折叠,改三行不会被读成整篇重写;围栏代码块整块保留。
+- **只有两级批注**:块级 + 全局。不做文本选区锚,改版后不需要重新锚定。
+- **批准和提意见都会带上批注**,它们只决定下一步:批准 = 开始实施(批注照做);提意见 = 改完再提交。
+- **历史留档。** 每次提交都存在 `<agent-dir>/ask-plan/<slug>/`,页头可以只读回看任意一版。
+- **计划期走边界闸门**:进入时自动开启 `/ask-perm` 默认参数,退出时恢复;计划期唯一能写的文件是 markdown。
+- **绝不切模型。** 计划评审与实施都用会话当前的模型。(`/ask-review` 是唯一会切模型的命令,那是你要求的。)
+
+**WSL 下的浏览器**:评审服务器绑 `0.0.0.0`,打印的 URL 用 WSL 的地址——因为在 WSL 里只绑回环,Windows 根本连不上。打开器优先用 Windows 侧的启动器(`wslview`、`cmd.exe /c start`、`powershell Start-Process`),非 WSL 才用 `xdg-open`——这决定你是"打开了浏览器"还是"在 WSL 里开了个看不见的浏览器"。
+
+```text
+/ask-plan 做导出功能     # 进入计划期
+/ask-plan open           # 重新打开评审页
+/ask-plan off            # 退出计划期(草稿留在原处)
+```
+
+spec 落在 `specs/<slug>.md`,与 `/ask-init` 的计划同一个位置。
 
 ---
 

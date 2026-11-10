@@ -26,6 +26,7 @@ import type { ApprovalLog, ApprovalRecord } from "../../lib/approval-log.js";
 import { auditBase, auditTool } from "../../lib/approval-log.js";
 import type { AskRequest, GateHub } from "../../lib/gates.js";
 import { isJailedTool } from "../../lib/tools.js";
+import { setPermissionControl } from "../../lib/permission-control.js";
 import { consumeStartupCommand } from "../../lib/startup.js";
 import {
 	DEFAULT_MODES,
@@ -401,6 +402,37 @@ export function registerPermission(
 			syncStatus(ctx);
 			recordMode(ctx, { enabled: true, source: "panel", via });
 			notice(`Permission ON — ${formatModes(modes)}. /ask-perm to turn off.`);
+		},
+	});
+
+	// ── Control surface for other features ─────────────────────────────────
+	// `/ask-plan` needs to switch the checks on for the planning phase and put
+	// them back afterwards. It gets a handle, not a copy of the state: the
+	// session's own `/ask-perm` command stays authoritative, so an operator who
+	// changes the mode mid-plan wins over whatever we restore later.
+	setPermissionControl({
+		snapshot: () => ({ enabled, modes: { ...modes } }),
+		enableDefaults(ctx) {
+			if (enabled) return;
+			modes = { ...DEFAULT_MODES };
+			rules.clear();
+			enabled = true;
+			syncStatus(ctx);
+			recordMode(ctx, { enabled: true, source: "plan", via: "manual" });
+		},
+		restore(ctx, snapshot) {
+			enabled = snapshot.enabled;
+			modes = { ...snapshot.modes };
+			rules.clear();
+			syncStatus(ctx);
+			recordMode(ctx, { enabled: snapshot.enabled, source: "plan-restore", via: "manual" });
+		},
+		disable(ctx) {
+			if (!enabled) return;
+			enabled = false;
+			rules.clear();
+			syncStatus(ctx);
+			recordMode(ctx, { enabled: false, source: "plan-restore", via: "manual" });
 		},
 	});
 

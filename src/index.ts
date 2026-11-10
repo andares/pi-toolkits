@@ -28,6 +28,7 @@ import { registerCompact } from "./features/compact/index.js";
 import { registerFavorites } from "./features/favorites/index.js";
 import { registerInit } from "./features/init/index.js";
 import { registerPermission } from "./features/permission/index.js";
+import { registerPlan } from "./features/plan/index.js";
 import { registerQuitGuard } from "./features/quit-guard/index.js";
 import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
@@ -42,6 +43,9 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	// Permission registers its session_start reset before autostart, so a
 	// project-declared `/ask-perm ...` runs against a freshly reset mode.
 	registerPermission(pi, gates, { audit });
+	// Plan mode drives the permission control that `registerPermission` just
+	// published (it turns checks on while planning and restores them after).
+	registerPlan(pi, gates);
 	registerAutostart(pi);
 	registerCompact(pi);
 	registerFavorites(pi);

@@ -983,3 +983,49 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 - `/reload` + `-e` TypeScript 扩展在 tmux 夹具里表现不稳定（换掉本包、甚至完全不加包装也
   一样），属宿主/夹具噪声，不是本功能的回归；真实会话里 `/reload` 后看守仍按单例接线工作。
 - 这是对宿主缺口的权宜之计：pi 若给 `session_shutdown` 加上限，本功能可整体删除。
+
+## Feature: plan（`/ask-plan` 浏览器批注式计划评审，2026-11-11 实现）
+
+`/ask` 讨论 → `/ask-plan` 调研 → 写 `specs/<slug>.md` → 浏览器逐段批注 → 多轮 → 批准 → 实施。
+
+### 不变量
+
+- **绝不切模型**：`src/features/plan/` 下不出现 `pi.setModel`；计划期用什么模型就是会话当前模型。
+  （plannotator 会在计划流里自动换模型，2026-09 因此烧掉崔总 100+ 元现金额度。）
+- **`plan_submit` 立即返回**，回合当场结束；决定稍后以 `pi.sendUserMessage` 作为新消息回来。
+- **批注与决策解耦**：approve/deny 都携带批注，只决定"实施 / 改计划"。
+- **块 = 空行分隔的段落**（围栏代码块不切分），diff 用 同 id → LIS 锚点 → moved，其余按字符二元组
+  Jaccard ≥ 0.5 配对为 modified，最后才是 added/removed。改三行不该看起来像整篇重写。
+- **WSL 打开器**：绑 `0.0.0.0`、URL 用 eth0 IP、优先 `wslview`/`cmd.exe start`/`powershell`，
+  WSL 下不先试 `xdg-open`（本机 `/usr/bin/google-chrome` 存在，xdg-open 会开出看不见的浏览器）。
+- **计划期只写 markdown**：gate 拦 write/edit 的非 `.md` 目标；bash 交给 permission 的危险命令表。
+- **闸门复用 permission**：进入计划期用 `src/lib/permission-control.ts`（registry，与 startup.ts 同款）
+  调用 `enableDefaults`，退出/批准 `restore`；用户中途手动改过以他的手改为准。
+
+### 落位
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/features/plan/blocks.ts` | 段落切分（围栏感知）、归一化哈希、重复段落出现序号 |
+| `src/features/plan/diff.ts` | 块级 diff 三态 + moved |
+| `src/features/plan/render.ts` | markdown 子集 → HTML（先转义，无原始 HTML 透传） |
+| `src/features/plan/feedback.ts` | 批注 → 固定模板的模型消息（英文） |
+| `src/features/plan/prompt.ts` | 计划期横幅 + spec 骨架（12 段）+ 段落书写纪律 |
+| `src/features/plan/store.ts` | `<agent-dir>/ask-plan/<slug>/vNNN.md` + `state.json`（原子写、50 版上限） |
+| `src/features/plan/server.ts` | node:http、3401 起端口、SSE、token/Host/Origin 守卫、决策后关端口 |
+| `src/features/plan/opener.ts` | WSL 探测、绑定地址、打开器选择 |
+| `src/features/plan/index.ts` | 命令、`plan_submit`、gate、系统提示注入、决策回投 |
+| `ui/` | Solid 1.9 + Vite 8 单页，产物 44 KB 落 `src/features/plan/assets/`（`pnpm ui:check` 防过期） |
+
+### 已验证
+
+- `pnpm typecheck` 绿；`pnpm test` **42 文件 / 760 测试**全绿（plan 新增 93 例）。
+- 真实宿主探针：`ask-plan[extension]` 已注册，`plan_submit` 默认不在工具集里（进入计划期才激活）。
+- WSL 实测（2026-11-11）：`cmd.exe /c start "" "http://<wsl-ip>:port/"` 能从 Windows 打开到 WSL 内的服务器；
+  绑 `127.0.0.1` 或访问 `localhost` 均连不上。
+
+### 已知边界
+
+- 服务器与 pi 同进程：`/reload` 或会话结束即关端口；不支持"关掉 pi 后网页还活着"。
+- 批注按版本存放：新版本会清空上一版批注（不做跨版本重新锚定，这是块模型换来的简化）。
+- 端口固定从 3401 顺延 20 个，不做配置项（崔总 2026-11-11 定）。

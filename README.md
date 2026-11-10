@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: nine ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, and a **quit watchdog** `quit-guard` — with more to come.
+In a nutshell: ten ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **plan review in the browser** `ask-plan`, and a **quit watchdog** `quit-guard` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.1 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -75,6 +75,7 @@ After installing, verify in any pi session:
 | ⭐ **favorites** model favorites | `ctrl+A` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/ask-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
+| 🧭 **plan** browser-reviewed planning | `/ask-plan` | research first, write a spec, review it in your browser paragraph by paragraph, annotate block by block, then implement only after approval |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
@@ -273,6 +274,31 @@ After a development task is done, type the `/ask-review` command to summon **a d
 - **Unconfigured / the configured model is no longer available** (e.g. it was deleted from pi's models.json) → a notice is shown and the list opens as usual (with no default entry in that case)
 - Triggered while a task is still in progress (the agent is not idle) → you are told to wait and nothing runs; only one review may be active at a time
 - A grey `review` status in the footer means a review model is configured
+
+---
+
+## 🧭 plan — plan first, review in the browser, then implement
+
+<a name="plan"></a>
+
+`/ask-plan [topic]` opens a planning phase: the agent explores the code, asks what it cannot infer, and writes a spec — no code changes while the plan is under review. Then it calls `plan_submit`, the review opens in **your browser**, and you annotate it **paragraph by paragraph**: every blank-line-separated block can carry notes, and every note comes back to the agent as its next message.
+
+- **Blocks are the unit of review.** Each paragraph is one block, with a badge telling you what changed since the previous round: `new`, `modified`, `moved`, `removed`. Unchanged blocks collapse, so a three-line edit does not look like a rewrite. Fenced code blocks stay whole.
+- **Two levels of notes.** On a block, or global. Nothing finer — no text ranges to re-anchor after an edit.
+- **Approve and deny both carry your notes.** They only choose the next step: approve means "start implementing" (with every note applied on the way), deny means "revise the plan and submit again".
+- **History is kept.** Every submitted revision is stored under `<agent-dir>/ask-plan/<slug>/` and the header lets you reopen any of them read-only.
+- **The planning phase uses the boundary checks.** `/ask-perm` is switched on with its defaults when planning starts and restored when it ends; the only file the plan phase may write is markdown.
+- **No model switching, ever.** The plan is reviewed and implemented with whatever model the session is on. (`/ask-review` is the one command that does switch, because you asked it to.)
+
+**Browser on WSL**: the review server binds `0.0.0.0` and the URL is printed with the WSL address, because Windows cannot reach a loopback-only server inside WSL. The opener prefers a Windows-side launcher (`wslview`, `cmd.exe /c start`, `powershell Start-Process`) and only falls back to `xdg-open` elsewhere — that is the difference between "opens your browser" and "opens a browser inside WSL that you cannot see".
+
+```text
+/ask-plan build the export feature     # start planning
+/ask-plan open                         # re-open the review page
+/ask-plan off                          # leave the phase (the draft stays where it is)
+```
+
+The spec lands in `specs/<slug>.md` — the same place `/ask-init` puts plans.
 
 ---
 
