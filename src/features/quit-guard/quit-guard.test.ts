@@ -34,6 +34,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
+	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_TIMEOUT_MS,
@@ -681,10 +682,17 @@ function clearSharedState(): void {
 function fakePi(): {
 	pi: ExtensionAPI;
 	command: () => CommandHandler;
-	emit: (event: string, payload: unknown) => void;
+	emit: (
+		event: string,
+		payload: unknown,
+		mode?: ExtensionContext["mode"],
+	) => void;
 } {
 	let registered: CommandHandler | undefined;
-	const handlers = new Map<string, Array<(payload: unknown) => void>>();
+	const handlers = new Map<
+		string,
+		Array<(payload: unknown, ctx: ExtensionContext) => void>
+	>();
 	// SAFETY: only `registerCommand` and `on` are called by the feature; the
 	// rest of the host surface is irrelevant here.
 	const pi = {
@@ -694,7 +702,10 @@ function fakePi(): {
 		): void => {
 			registered = options.handler;
 		},
-		on: (name: string, handler: (payload: unknown) => void): void => {
+		on: (
+			name: string,
+			handler: (payload: unknown, ctx: ExtensionContext) => void,
+		): void => {
 			handlers.set(name, [...(handlers.get(name) ?? []), handler]);
 		},
 	} as unknown as ExtensionAPI;
@@ -704,8 +715,10 @@ function fakePi(): {
 			if (!registered) throw new Error("command was not registered");
 			return registered;
 		},
-		emit: (event, payload) => {
-			for (const handler of handlers.get(event) ?? []) handler(payload);
+		emit: (event, payload, mode = "tui") => {
+			// SAFETY: event handlers under test only read `mode` from the context.
+			const ctx = { mode } as ExtensionContext;
+			for (const handler of handlers.get(event) ?? []) handler(payload, ctx);
 		},
 	};
 }
@@ -760,7 +773,7 @@ describe("/quit-guard command", () => {
 		expect(existsSync(settings)).toBe(false);
 	});
 
-	it("arms on session_shutdown only for reason quit", () => {
+	it("arms on session_shutdown only for an interactive quit", () => {
 		const { dir } = setup();
 		const debugPath = join(dir, "guard-debug.jsonl");
 		process.env.PI_QUIT_GUARD_DEBUG = debugPath;
@@ -775,6 +788,16 @@ describe("/quit-guard command", () => {
 				reason: "new",
 				targetSessionFile: "/tmp/next.jsonl",
 			});
+			expect(readFileSync(debugPath, "utf8")).not.toContain("arm ");
+			// RPC/JSON/print also dispose with reason quit, but stdout there is a
+			// data protocol, not a terminal: the event trigger must stay inert.
+			for (const mode of ["rpc", "json", "print"] as const) {
+				emit(
+					"session_shutdown",
+					{ type: "session_shutdown", reason: "quit" },
+					mode,
+				);
+			}
 			expect(readFileSync(debugPath, "utf8")).not.toContain("arm ");
 			emit("session_shutdown", { type: "session_shutdown", reason: "quit" });
 			expect(readFileSync(debugPath, "utf8")).toContain(

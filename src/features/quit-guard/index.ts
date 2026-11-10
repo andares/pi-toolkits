@@ -272,8 +272,11 @@ export function registerQuitGuard(
 	// written its teardown sequence yet. `reason === "quit"` is only emitted by
 	// the runtime's dispose() on process exit; session replacements use
 	// new/resume/fork and /reload uses reload, and none of those may arm.
-	pi.on("session_shutdown", (event) => {
-		if (event.reason !== "quit") return;
+	// The same event also fires for RPC/JSON/print shutdowns. Restrict this
+	// trigger to the interactive TUI: terminal restoration must never inject
+	// escape sequences into a machine-readable stdout protocol.
+	pi.on("session_shutdown", (event, ctx) => {
+		if (event.reason !== "quit" || ctx.mode !== "tui") return;
 		state.guard.armFromShutdown();
 	});
 

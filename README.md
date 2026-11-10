@@ -78,7 +78,7 @@ After installing, verify in any pi session:
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
-| 🧯 **quit-guard** quit watchdog | `/quit-guard` | force-exit when pi's shutdown hangs after the TUI is gone (an extension `session_shutdown` that never settles), write a hang report, and give the shell prompt back; TUI restarts and Ctrl+Z resume disarm it |
+| 🧯 **quit-guard** quit watchdog | `/quit-guard` | force-exit when an interactive shutdown hangs, whether after the TUI teardown or before it on a signal-triggered quit; write a hang report and give the shell prompt back; TUI restarts and Ctrl+Z resume disarm it |
 
 ---
 
@@ -479,7 +479,9 @@ handler *before* the TUI writes its teardown sequence: a stuck handler there wou
 a marker. If the process is still alive `timeoutMs` later, it writes a hang report, restores the
 terminal if the TUI never did (alternate screen, bracketed paste, cursor) and forces the exit.
 A TUI that comes back disarms it — an interactive mode switch (`/settings` → TUI mode) and
-Ctrl+Z suspend/resume both re-enter the TUI, and a live session must never be killed.
+Ctrl+Z suspend/resume both re-enter the TUI, and a live session must never be killed. The event
+trigger is deliberately limited to TUI mode: RPC/JSON/print stdout is machine-readable and is
+never given terminal escape sequences.
 
 ### Commands
 
@@ -572,8 +574,8 @@ src/
     ├── permission/       # session-scoped boundary permission: modes, panel,
     │                     #           bash units, policy, session grants, prompt,
     │                     #           audit payload, tests
-    ├── quit-guard/       # quit watchdog: terminal-teardown trigger, settings
-    │                     #           store, hang report, tests
+    ├── quit-guard/       # quit watchdog: TUI teardown + quit-event triggers,
+    │                     #           settings store, hang report, tests
     ├── review/           # third-party review: input/command triggers,
     │                     #           review-model config store, prompt, tests
     └── stash/            # prompt stash: hotkey state machine + tests

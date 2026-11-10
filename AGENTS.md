@@ -917,8 +917,8 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 | `src/features/quit-guard/guard.ts` | 纯状态机（注入 clock/scheduler/defer），arm/disarm/fire |
 | `src/features/quit-guard/store.ts` | 配置读写（原子写、损坏回落默认、时长时间钳制） |
 | `src/features/quit-guard/report.ts` | 报告采集与同步落盘（失败只警告，绝不阻塞退出） |
-| `src/features/quit-guard/index.ts` | 进程接线：stdout 单例包装、SIGCONT、`/quit-guard` 命令 |
-| `src/features/quit-guard/quit-guard.test.ts` | 45 个用例（状态机、钳制、存储、报告与脱敏/权限位、命令面板、stdout 单例、raw-mode 兜底、探针异常） |
+| `src/features/quit-guard/index.ts` | 进程接线：stdout 单例包装、SIGCONT、TUI 限定的 `session_shutdown` 触发、`/quit-guard` 命令 |
+| `src/features/quit-guard/quit-guard.test.ts` | 51 个用例（状态机、钳制、存储、报告与脱敏/权限位、命令面板、stdout 单例、raw-mode 兜底、事件原因与模式过滤、探针异常） |
 
 不变量：stdout 包装**每进程只装一次**（`Symbol.for` 存在 `globalThis`，`/reload` 只刷新
 配置与状态，不重复包装）；计时用 `performance.now()`（单调时钟——测试里撞到过 WSL 墙上时钟
@@ -926,7 +926,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck`、`pnpm test`：**32 文件 / 660 测试**全绿。
+- `pnpm typecheck`、`pnpm test`：**32 文件 / 666 测试**全绿（quit-guard 51 例）。
 - 真实 pi 1.5.1 冒烟（tmux，`-ne -e ./src/index.ts`，卡死探针为「`session_shutdown` 返回
   永不 resolve 的 Promise」，且探针**先于**本包加载以证明不依赖处理器顺序；每轮独立
   `PI_CODING_AGENT_DIR` + `timeoutMs: 2000`）：
@@ -955,8 +955,8 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已知边界（有意为之）
 
-- **只覆盖交互式 TUI**：print/JSON/RPC 不写收尾序列、也不发 `session_shutdown` 的 quit 事件，
-  看守完全不生效。
+- **只覆盖交互式 TUI**：print/JSON/RPC 不写收尾序列；它们的 `session_shutdown(reason=quit)`
+  也被显式过滤，避免把终端恢复转义序列写进机器可读的 stdout 协议。
 - 交互式 `/quit` 只覆盖**收尾序列之后**的卡死（`ui.stop()` 在 dispose 之前，正常情况序列
   一定会写出）。信号触发路径靠 `session_shutdown` 补位，但**处理器按加载顺序串行**：挂在
   本包之前加载的处理器会让我们的处理器不运行，那条路仍然无解。
