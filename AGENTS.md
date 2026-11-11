@@ -993,7 +993,8 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 - **绝不切模型**：`src/features/plan/` 下不出现 `pi.setModel`；计划期用什么模型就是会话当前模型。
   （plannotator 会在计划流里自动换模型，2026-09 因此烧掉崔总 100+ 元现金额度。）
 - **`plan_submit` 立即返回**，回合当场结束；决定稍后以 `pi.sendUserMessage` 作为新消息回来。
-- **批注与决策解耦**：approve/deny 都携带批注，只决定"实施 / 改计划"。
+- **批注与决策解耦**：approve/deny 都携带批注，只决定"实施 / 改计划"；批准额外把
+  **被批准版本的原文**贴回去（文件可能在提交后被改过），并要求模型把实施任务记进 `todo`。
 - **块 = 空行分隔的段落**（围栏代码块不切分），diff 用 同 id → LIS 锚点 → moved，其余按字符二元组
   Jaccard ≥ 0.5 配对为 modified，最后才是 added/removed。改三行不该看起来像整篇重写。
 - **WSL 打开器**：绑 `0.0.0.0`、URL 用 eth0 IP、优先 `wslview`/`cmd.exe start`/`powershell`，
@@ -1019,7 +1020,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **42 文件 / 773 测试**全绿（plan 106 例）；
+- `pnpm typecheck` 绿；`pnpm test` **42 文件 / 776 测试**全绿（plan 109 例）；
   `pnpm ui:typecheck` / `pnpm ui:check` 绿。
 - 真实宿主探针：`ask-plan[extension]` 已注册，`plan_submit` 默认不在工具集里（进入计划期才激活）。
 - `pnpm check:compat --skip-tests`：强制窗口 1.2.0–1.5.2 全绿（install/typecheck/键位/dist 哈希），

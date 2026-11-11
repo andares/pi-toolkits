@@ -37,6 +37,7 @@ import {
 	createPlanSession,
 	latestVersion,
 	planSlug,
+	readVersionText,
 	type PlanSession,
 } from "./store.js";
 
@@ -153,8 +154,9 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		const current = session.versions.find((candidate) => candidate.n === version);
 		if (!current) return "";
 		const previous = session.versions.find((candidate) => candidate.n === version - 1);
+		const approved = current.decision?.action === "approve";
 		return buildFeedbackMarkdown({
-			decision: current.decision?.action === "approve" ? "approve" : "deny",
+			decision: approved ? "approve" : "deny",
 			version,
 			totalVersions: latestVersion(session).n,
 			blocks: current.blocks,
@@ -162,7 +164,21 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 			previousBlocks: previous?.blocks ?? [],
 			global: current.annotations.global,
 			perBlock: current.annotations.blocks,
+			// Approval quotes the reviewed snapshot, not the file's current bytes:
+			// the model may have kept editing after submitting this revision.
+			planPath: current.source ?? specPath,
+			planText: readApprovedText(version) ?? current.blocks.map((block) => block.text).join("\n\n"),
 		});
+	}
+
+	/** Text of one revision, or undefined when the snapshot file is unreadable. */
+	function readApprovedText(version: number): string | undefined {
+		if (!session) return undefined;
+		try {
+			return readVersionText(session, version);
+		} catch {
+			return undefined;
+		}
 	}
 
 	async function handleDecision(

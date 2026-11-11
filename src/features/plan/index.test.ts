@@ -278,6 +278,11 @@ describe("plan_submit", () => {
 		const message = h.sendUserMessage.mock.calls[1][0] as string;
 		expect(message).toContain("## Plan approved");
 		expect(message).toContain("start implementing");
+		// The approved revision is quoted back (the file may have changed since
+		// the submit), and the model is told to track the work in the todo list.
+		expect(message).toContain("### Approved plan (specs/topic.md)");
+		expect(message).toContain("# SPEC: topic\n\nfirst step");
+		expect(message).toContain("Record the implementation work in the todo list");
 		expect(h.control.restore).toHaveBeenCalled();
 		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
 	});

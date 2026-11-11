@@ -58,6 +58,7 @@ const en = {
 	error: "Something went wrong: {message}",
 	emptyPlan: "This plan is empty.",
 	notesHint: "Notes are sent with either decision — approve just means “start implementing”.",
+	noteCount: "{count} notes",
 };
 
 const zh: typeof en = {
@@ -97,6 +98,7 @@ const zh: typeof en = {
 	error: "出错了：{message}",
 	emptyPlan: "计划是空的。",
 	notesHint: "批注无论批准还是提意见都会送达；批准只是让模型开始实施。",
+	noteCount: "{count} 条批注",
 };
 
 export type MessageKey = keyof typeof en;

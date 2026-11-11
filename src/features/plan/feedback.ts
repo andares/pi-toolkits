@@ -37,6 +37,10 @@ export interface FeedbackInput {
 	previousBlocks?: readonly Block[];
 	global: readonly Annotation[];
 	perBlock: readonly BlockAnnotations[];
+	/** The spec file the operator approved (path shown to the model). */
+	planPath?: string;
+	/** Approved revision text, quoted back so the model implements exactly this. */
+	planText?: string;
 }
 
 const VERDICT_LABEL: Record<AnnotationVerdict, string> = {
@@ -120,8 +124,29 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 
 	const instruction =
 		input.decision === "approve"
-			? "The plan is approved: start implementing it now. Approval only means \"go\" — every annotation above still applies while you build."
+			? [
+				"The plan is approved: start implementing it now.",
+				"Approval only means \"go\" — every annotation above still applies while you build.",
+				"Record the implementation work in the todo list (`todo` tool) as you go, and update each entry",
+				"as it starts, finishes or gets blocked, so progress stays traceable.",
+			]
+				.join("\n")
 			: "Update the plan file to address every annotation above, then submit it again with plan_submit.";
 
-	return [header, "", body, "", instruction].join("\n");
+	// On approval the model must implement the plan it was shown, not a stale
+	// recollection of it: the file may have been edited after the last submit, so
+	// quote the approved bytes back and name the path explicitly.
+	const approvedPlan =
+		input.decision === "approve" && input.planText !== undefined
+			? [
+					`### Approved plan (${input.planPath ?? "the plan file"})`,
+					"",
+					input.planText.trimEnd(),
+				]
+				.join("\n")
+			: undefined;
+
+	const parts = [header, "", body, "", instruction];
+	if (approvedPlan) parts.push("", approvedPlan);
+	return parts.join("\n");
 }

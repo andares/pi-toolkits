@@ -61,7 +61,7 @@ export const SPEC_FRAMEWORK_GUIDE = [
 	"- a heading sits alone on its line, never glued to the paragraph under it;",
 	"- keep a list tight — no blank lines between items, so it stays one reviewable block;",
 	"- fenced code blocks stay whole (they are one block, blank lines and all);",
-	"- write in statements, not hedges: \"use X\" beats \"we could consider X\".",
+	"- prefer direct statements over hedges: \"use X\" beats \"we could consider X\".",
 	"",
 	"### Revising after feedback",
 	"Annotations arrive whatever the decision — approving means \"go\", not \"notes ignored\".",

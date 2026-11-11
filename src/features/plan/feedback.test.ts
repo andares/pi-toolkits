@@ -73,9 +73,48 @@ describe("buildFeedbackMarkdown", () => {
 				"",
 				"No notes were attached.",
 				"",
-				'The plan is approved: start implementing it now. Approval only means "go" — every annotation above still applies while you build.',
+				"The plan is approved: start implementing it now.",
+				'Approval only means "go" — every annotation above still applies while you build.',
+				"Record the implementation work in the todo list (`todo` tool) as you go, and update each entry",
+				"as it starts, finishes or gets blocked, so progress stays traceable.",
 			].join("\n"),
 		);
+	});
+
+	it("quotes the approved revision and asks for todo tracking on approval", () => {
+		const blocks = parse("## Plan\n\nstep one");
+		const text = buildFeedbackMarkdown({
+			decision: "approve",
+			version: 2,
+			totalVersions: 2,
+			blocks,
+			diff: diffBlocks(blocks, blocks),
+			global: [{ verdict: "suggest", comment: "Keep commits small." }],
+			perBlock: [],
+			planPath: "specs/demo.md",
+			planText: "## Plan\n\nstep one\n",
+		});
+		expect(text).toContain("### Approved plan (specs/demo.md)");
+		expect(text).toContain("## Plan\n\nstep one");
+		expect(text).toContain("Record the implementation work in the todo list");
+		expect(text).toContain("- [suggest] Keep commits small.");
+	});
+
+	it("does not quote a plan back on denial", () => {
+		const blocks = parse("## Plan");
+		const text = buildFeedbackMarkdown({
+			decision: "deny",
+			version: 1,
+			totalVersions: 1,
+			blocks,
+			diff: diffBlocks([], blocks),
+			global: [],
+			perBlock: [],
+			planPath: "specs/demo.md",
+			planText: "## Plan",
+		});
+		expect(text).not.toContain("### Approved plan");
+		expect(text).not.toContain("todo list");
 	});
 
 	it("keeps notes attached to an approval", () => {

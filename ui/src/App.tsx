@@ -312,7 +312,7 @@ export function App() {
 			</Show>
 
 			<footer class="footer">
-				<div class="hint">{t("notesHint")} · {noteCount()} {lang() === "zh" ? "条批注" : "notes"}</div>
+				<div class="hint">{t("notesHint")} · {t("noteCount", { count: noteCount() })}</div>
 				<div class="actions">
 					<button class="deny" disabled={readOnly() || outcome() !== undefined} onClick={() => void decide("deny")}>
 						{t("deny")}

@@ -52,6 +52,16 @@ describe("plan mode prompt", () => {
 		expect(prompt).toContain(PLAN_MODE_BANNER);
 		expect(prompt).toContain(SPEC_FRAMEWORK_GUIDE);
 	});
+
+	it("never tells the model which language to write in", () => {
+		// Framework prompts are authored in English, which is our choice of
+		// language for the prompt — not an instruction about the spec. The spec
+		// follows the operator's own language, so any directive would be a bug.
+		const prompt = buildPlanSystemPrompt().toLowerCase();
+		for (const banned of ["in english", "in chinese", "language", "write in"]) {
+			expect(prompt, `prompt must not mention "${banned}"`).not.toContain(banned);
+		}
+	});
 });
 
 describe("buildPlanKickoff", () => {
