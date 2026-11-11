@@ -14,7 +14,14 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { setAskControl } from "../../lib/ask-control.js";
 import { registerUat, uatSummary } from "./index.js";
 import { RECORD_CHANGE_TOOL, UAT_COMMAND, UAT_ITEM_TOOL } from "./constants.js";
-import { createRecord } from "./records.js";
+import { createRecord, isoMinute } from "./records.js";
+
+/**
+ * Every timestamp in this file is derived from this one date. Headers carry the
+ * machine's UTC offset, so writing the offset out by hand makes the assertion
+ * pass only in the author's timezone (CI is UTC and caught exactly that).
+ */
+const fixedNow = new Date(2026, 10, 13, 21, 7);
 
 let root: string;
 let sessionId = "s-1";
@@ -77,7 +84,7 @@ function harness(): Harness {
 	registerUat(pi, {
 		openBrowser,
 		root: (cwd) => cwd,
-		now: () => new Date(2026, 10, 13, 21, 7),
+		now: () => fixedNow,
 		portStart: 47_000 + Math.floor(Math.random() * 800),
 		idleCloseMs: 0,
 	});
@@ -277,7 +284,7 @@ describe("record_change", () => {
 		const file = join(root, ".agents/implementations/2026-11-13_2107_ask-uat-lands.md");
 		expect(existsSync(file)).toBe(true);
 		const content = readFileSync(file, "utf8");
-		expect(content.split("\n")[0]).toBe("# 2026-11-13T21:07+08:00 — Ask UAT lands");
+		expect(content.split("\n")[0]).toBe(`# ${isoMinute(fixedNow)} — Ask UAT lands`);
 		expect(readFileSync(join(root, ".agents/uat/ledger.jsonl"), "utf8")).toContain("candidate");
 		h.shutdown();
 	});
