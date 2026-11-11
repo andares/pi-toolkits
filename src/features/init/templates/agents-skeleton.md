@@ -42,3 +42,5 @@
 - audit: `/ask-init check`
 - before writing memory: read `{{contractPath}}`
 - records: one file per change in `{{implementationsDir}}/`, first line carries the exact time
+
+{{workflowBlock}}

@@ -3,10 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Review UI for the ask-plan feature (built into src/features/plan/assets)",
+  "description": "Browser UIs: ask-plan review page and ask-uat acceptance page (built into their feature asset dirs)",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "dev:uat": "vite -c vite.config.uat.ts",
+    "build": "vite build && vite build -c vite.config.uat.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {

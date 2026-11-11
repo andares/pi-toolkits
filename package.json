@@ -1,7 +1,7 @@
 {
   "name": "@andares/pi-toolkits",
   "version": "0.12.4",
-  "description": "Integrated toolkit extension for pi \u2014 ask mode (read-only Q&A), session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, a dedicated compaction model, and an agent memory framework (/ask-init)",
+  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), browser-reviewed planning, an acceptance ledger with a browser page, session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, a dedicated compaction model, and an agent memory framework (/ask-init)",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -34,7 +34,11 @@
     "agent-memory",
     "memory-framework",
     "scaffold",
-    "init"
+    "init",
+    "uat",
+    "acceptance",
+    "acceptance-testing",
+    "change-record"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.99.0",
@@ -68,7 +72,7 @@
     "ui:dev": "pnpm --filter @andares/pi-toolkits-ui dev",
     "ui:build": "pnpm --filter @andares/pi-toolkits-ui build",
     "ui:typecheck": "pnpm --filter @andares/pi-toolkits-ui typecheck",
-    "ui:check": "pnpm ui:build && test -z \"$(git status --porcelain -- src/features/plan/assets)\""
+    "ui:check": "pnpm ui:build && test -z \"$(git status --porcelain -- src/features/plan/assets src/features/uat/assets)\""
   },
   "pi": {
     "extensions": [

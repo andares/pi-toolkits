@@ -21,6 +21,8 @@ const FILE_TEMPLATES = new Set([
 	"memory-readme",
 	"signpost",
 	"state-gitignore",
+	"uat-readme",
+	"workflow-block",
 ]);
 
 /** Templates whose content is not Markdown (written verbatim). */

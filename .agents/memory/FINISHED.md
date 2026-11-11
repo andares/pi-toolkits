@@ -47,3 +47,14 @@
   `cycleModel`（仍 1.2.0→1.5.1 字节级一致）或 autostart 的扩展命令早退；`types.d.ts` 全增量；
   quit-guard 面对的收尾链又多了两个 await，结论不变。
 - 证据：change record `.agents/implementations/2026-11-10_pi-1.5.1-compat.md`。
+
+### M4 — `/ask-uat` 验收台账（2026-11-12）
+
+- 验收单位从「提交」换成「用户可见行为」：`record_change` 写规范实施记录 + 一条行为句，
+  `/ask-uat` 把待验收记录聚成少数验收项，页面里展开测试方案、勾选即落盘（无提交）。
+- 状态是 `.agents/uat/ledger.jsonl` 的只追加事件流（进 git、只住主仓、按 id 去重）；
+  新证据自动重开已勾项，`merge`/`drop` 让验收债可收敛。
+- 同轮补齐：plan/uat 共用 HTTP 壳（`src/lib/web-review.ts`）、计划期 bash 写入窄闸门与访谈协议、
+  `/ask-init refresh`（受管文件按模板哈希锚刷新，`AGENTS.md` 只动 workflow 标记块）。
+- 证据：change record `.agents/implementations/2026-11-12_0313_ask-uat.md`；规格 `specs/ask-uat.md`；
+  `pnpm test` 48 文件 / 841 测试全绿（含第三方评审回归修复）。

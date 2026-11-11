@@ -46,6 +46,7 @@ import {
 } from "./spec.js";
 import { FRAMEWORK_AUDIT_TOOL } from "./tool.js";
 import { confirmPlan, showReport } from "./ui.js";
+import { describeRefresh, refreshFramework } from "./refresh.js";
 import type { ApplyResult, Plan } from "./types.js";
 import { registerAuditTool } from "./tool.js";
 
@@ -60,7 +61,7 @@ export interface InitOptions {
 }
 
 export interface ParsedInitArgs {
-	readonly sub: "run" | "plan" | "check" | "roots" | "scrub" | "help";
+	readonly sub: "run" | "plan" | "check" | "roots" | "refresh" | "scrub" | "help";
 	readonly dryRun: boolean;
 	readonly deep: boolean;
 	readonly yes: boolean;
@@ -74,6 +75,7 @@ const USAGE = [
 	"/ask-init plan [--deep]   show the plan only (writes nothing)",
 	"/ask-init check           audit the installed framework (read-only)",
 	"/ask-init roots           sync pi-add-dir roots into the framework state",
+	"/ask-init refresh         refresh framework-owned files and the AGENTS.md workflow block",
 	"/ask-init --dry-run       report only, write nothing (same as plan)",
 	"/ask-init --yes           skip the confirmation panel",
 	"/ask-init --lang zh|en    rendering language for framework-generated files",
@@ -89,7 +91,14 @@ export function parseInitArgs(input: string): ParsedInitArgs {
 	const unknown: string[] = [];
 	for (let index = 0; index < tokens.length; index += 1) {
 		const token = tokens[index];
-		if (token === "plan" || token === "check" || token === "roots" || token === "scrub" || token === "help") {
+		if (
+			token === "plan" ||
+			token === "check" ||
+			token === "roots" ||
+			token === "refresh" ||
+			token === "scrub" ||
+			token === "help"
+		) {
 			sub = token;
 			continue;
 		}
@@ -466,6 +475,41 @@ function createRunHandler(
 
 		const toolVersion = options.toolVersion ?? packageVersion();
 		const now = options.now ?? new Date();
+
+		// Framework-owned text is refreshable without an upgrade recipe: managed
+		// files are rewritten only while the disk still equals the bytes we wrote,
+		// and AGENTS.md is touched only between the workflow markers.
+		if (parsed.sub === "refresh") {
+			try {
+				const result = refreshFramework(root, {
+					dryRun: parsed.dryRun,
+					now,
+					toolVersion,
+				});
+				ctx.ui.notify(
+					`ask-init refresh: ${describeRefresh(result)}${parsed.dryRun ? " — nothing was written." : ""}`,
+					result.skipped.length > 0 ? "warning" : "info",
+				);
+				if (result.skipped.length > 0) {
+					await showReport(
+						ctx,
+						"ask-init refresh — left untouched",
+						[
+							"These framework files were edited by hand, so refresh did not overwrite them.",
+							"Move your additions out of the managed file, or re-apply them after refreshing.",
+							"",
+							...result.skipped.map((entry) => `- ${entry.path}: ${entry.reason}`),
+						].join("\n"),
+					);
+				}
+			} catch (error) {
+				ctx.ui.notify(
+					`ask-init refresh: ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
+			return;
+		}
 		const addedRoots = options.addedRoots ?? addedRootsFromBranch(ctx);
 		const facts = detect(root, { addedRoots, lang: parsed.lang });
 
@@ -579,6 +623,7 @@ export function registerInit(pi0: ExtensionAPI, options: InitOptions = {}): void
 				{ value: "plan", label: "plan", description: "show the plan only (writes nothing)" },
 				{ value: "check", label: "check", description: "audit the installed framework" },
 				{ value: "roots", label: "roots", description: "sync pi-add-dir roots into state" },
+				{ value: "refresh", label: "refresh", description: "refresh framework-owned files (safe, idempotent)" },
 				{ value: "--dry-run", label: "--dry-run", description: "report only, write nothing" },
 				{ value: "--deep", label: "--deep", description: "allow structural rewrites" },
 				{ value: "--yes", label: "--yes", description: "skip the confirmation panel" },

@@ -66,7 +66,18 @@ export interface FrameworkState {
 		memoryFileChars?: number;
 	};
 	roots: RootInfo[];
-	managed: Array<{ path: string; sha256: string; template: string }>;
+	managed: Array<{
+		path: string;
+		/** Hash of the file as it was on disk when this run finished. */
+		sha256: string;
+		template: string;
+		/**
+		 * Hash of the bytes *we* rendered for this file. `refresh` rewrites a file
+		 * only when the disk still equals this anchor — otherwise the operator
+		 * edited it and the refresh must not clobber that edit.
+		 */
+		templateSha256?: string;
+	}>;
 	migrations: Array<{ at: string; to: string; notes?: string }>;
 }
 

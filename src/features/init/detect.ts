@@ -412,6 +412,10 @@ export function parseState(raw: string): FrameworkState {
 				path: String(entry.path ?? ""),
 				sha256: String(entry.sha256 ?? ""),
 				template: String(entry.template ?? ""),
+				templateSha256:
+					entry.template_sha256 === undefined
+						? undefined
+						: String(entry.template_sha256),
 			}))
 		: [];
 	const migrations = Array.isArray(data.migrations)

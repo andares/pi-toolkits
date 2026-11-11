@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: ten ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **plan review in the browser** `ask-plan`, and a **quit watchdog** `quit-guard` — with more to come.
+In a nutshell: eleven ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **plan review in the browser** `ask-plan`, an **acceptance ledger with a browser page** `ask-uat`, and a **quit watchdog** `quit-guard` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.1 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -76,6 +76,7 @@ After installing, verify in any pi session:
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/ask-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
 | 🧭 **plan** browser-reviewed planning | `/ask-plan` | research first, write a spec, review it in your browser paragraph by paragraph, annotate block by block, then implement only after approval |
+| ✅ **uat** acceptance ledger | `/ask-uat` | cluster pending change records into user-facing acceptance items, tick them off on a page (append-only ledger, no submit), and see what shipped without being verified |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
@@ -302,6 +303,61 @@ The spec lands in `specs/<slug>.md` — the same place `/ask-init` puts plans.
 
 ---
 
+## ✅ uat — acceptance ledger and browser page
+
+<a name="uat"></a>
+
+`/ask-uat` answers exactly one question: **what did I ship that I have not verified yet?**
+It exists because agent-driven development produces more behaviour changes per week than
+anyone can remember, and "I will test it later" is how acceptance debt turns into rework.
+
+The unit of acceptance is a **behaviour**, not a commit. An implementation session writes one
+change record per finished round plus a one-sentence, user-facing description of that behaviour
+(`record_change`); the UAT side clusters many records into a few acceptance items — one
+behaviour may need ten records, and one record may touch several behaviours.
+
+```text
+record_change (implementation)  →  /ask-uat (cluster)  →  browser (tick)  →  ledger
+```
+
+| Command | What it does |
+| --- | --- |
+| `/ask-uat` | cluster pending change records into acceptance items, then open the page |
+| `/ask-uat open` | reopen the page without a model turn |
+| `/ask-uat off` | stop the page server |
+
+**The page** lists open items newest-first. Each item carries a 2-3 sentence summary and an
+expandable test plan (steps, edge cases, what not to test). Ticking an item appends a `check`
+event immediately — there is no submit, and closing the page cannot lose a decision. Accepted
+items fold into a section you can expand to undo a tick; the evidence records are one click
+away in a drawer.
+
+**The rules that keep it honest**:
+
+- **Append-only ledger, no submit.** `.agents/uat/ledger.jsonl` is an event stream (`candidate`,
+  `batch`, `item`, `link`, `check`, `uncheck`, `amend`, `merge`, `drop`), committed to git,
+  deduplicated by event id, and safe for two processes appending at once (no lock, no merge).
+- **New evidence reopens an item.** If a change record lands after the tick, the item shows
+  `reopened`: "accepted" means "accepted against the current evidence set".
+- **The ledger belongs to the main checkout.** A session running in a linked git worktree writes
+  its records and events to the main checkout, so acceptance history never splits.
+- **The directory is the fallback index.** A change record written by hand still shows up as
+  pending; `record_change` adds the behaviour sentence and the test hint, but it is not a gate.
+- **Nothing else.** No editing, no ordering, no comments, no assignment. If clustering is wrong,
+  ask the agent in chat — it has `uat_item` (link / amend / merge / drop) while the page is open.
+
+**Change-record format** (what `record_change` writes):
+
+```text
+.agents/implementations/YYYY-MM-DD_HHMM_<slug>.md
+# YYYY-MM-DDTHH:MM±HH:MM — title
+```
+
+Older records (`YYYY-MM-DD_<slug>.md`, second-precision headers) keep working: the reader is
+lenient, only the writer is strict. The audit reports new non-canonical records as `W-REC-01`.
+
+---
+
 ## 🗜️ compact — dedicated compaction model
 
 <a name="compact"></a>
@@ -425,6 +481,7 @@ repository root stays readable: `AGENTS.md`, `specs/`, `design/`, `docs/`,
 | `/ask-init plan [--deep]` | print the plan and write nothing (`--dry-run` is the same) |
 | `/ask-init check` | audit the installed framework (read-only; writes only a runtime report under `.agents/framework/reports/`) |
 | `/ask-init roots` | sync the directories added with `pi-add-dir` into the framework state |
+| `/ask-init refresh` | refresh framework-owned files (contract, signpost, acceptance contract) and the workflow block in `AGENTS.md`; files you edited by hand are left untouched |
 | `/ask-init --yes` | skip the confirmation panel |
 | `/ask-init --lang zh\|en` | rendering language for framework-generated files (per run; default: detected from the project's own docs) |
 

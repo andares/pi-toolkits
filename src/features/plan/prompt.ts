@@ -22,12 +22,28 @@ export const PLAN_MODE_BANNER = [
 	"[ASK-PLAN — PLANNING]",
 	"You are planning this change with the operator before any code is written.",
 	"",
-	"Allowed now: reading tools, bash for inspection, `ask_user_question`, and writing/editing",
+	"Allowed now: reading tools, bash for inspection, and writing/editing",
 	"markdown files inside the project. Not allowed: editing other files, destructive commands,",
 	"or starting the implementation — that begins only after the plan is approved.",
 	"",
 	"Loop: explore → ask what the code cannot tell you → write the spec file → plan_submit.",
 	"End every turn with either a question or a plan_submit call. Do not end it silently.",
+].join("\n");
+
+/**
+ * The interview half of planning. Deliberately capability-neutral: the session's
+ * question tool is a third-party extension in most installs, so the prompt says
+ * "the session's question tool" and the caller adds a line about availability —
+ * naming a tool the harness does not have sends the model into an empty call.
+ */
+export const INTERVIEW_GUIDE = [
+	"[ASK-PLAN — INTERVIEW]",
+	"Settle ambiguity by asking, in rounds, before you write the spec — not after.",
+	"Use the session's question tool when one is available; otherwise ask in plain text and wait.",
+	"One round = 1-4 questions, each with concrete options when the choice is enumerable.",
+	"Ask about what the code cannot tell you: scope, precedence between existing behaviours,",
+	"error handling, and what must not change. Do not ask what you can read from the repo.",
+	"Stop asking when the next answer would not change the plan you are about to write.",
 ].join("\n");
 
 export const SPEC_FRAMEWORK_GUIDE = [
@@ -71,8 +87,11 @@ export const SPEC_FRAMEWORK_GUIDE = [
 ].join("\n");
 
 /** The complete plan-mode system-prompt block. */
-export function buildPlanSystemPrompt(): string {
-	return `${PLAN_MODE_BANNER}\n\n${SPEC_FRAMEWORK_GUIDE}`;
+export function buildPlanSystemPrompt(options: { questionTool?: boolean } = {}): string {
+	const questionLine = options.questionTool
+		? "`ask_user_question` is available in this session and is the preferred way to ask."
+		: "This session exposes no question tool: ask in plain text and wait for the reply.";
+	return `${PLAN_MODE_BANNER}\n${questionLine}\n\n${INTERVIEW_GUIDE}\n\n${SPEC_FRAMEWORK_GUIDE}`;
 }
 
 /**

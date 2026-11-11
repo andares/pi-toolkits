@@ -18,8 +18,8 @@
  *     plannotator's habit of switching models silently is the reason this one
  *     is written from scratch.
  */
-import { readFileSync } from "node:fs";
-import { isAbsolute, relative, resolve } from "node:path";
+import { readFileSync, existsSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-works/pi-coding-agent";
@@ -27,8 +27,9 @@ import type { GateHub } from "../../lib/gates.js";
 import { getPermissionControl, type PermissionSnapshot } from "../../lib/permission-control.js";
 import { getAskControl } from "../../lib/ask-control.js";
 import { canonicalize, isWithin } from "../permission/paths.js";
+import { parseCommandUnits } from "../permission/units.js";
 import { buildFeedbackMarkdown } from "./feedback.js";
-import { openInBrowser } from "./opener.js";
+import { openInBrowser } from "../../lib/opener.js";
 import { buildPlanKickoff, buildPlanSystemPrompt } from "./prompt.js";
 import { renderBlockHtml } from "./render.js";
 import { buildPlanState, startPlanServer, type PlanServerHandle } from "./server.js";
@@ -168,6 +169,11 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 			// the model may have kept editing after submitting this revision.
 			planPath: current.source ?? specPath,
 			planText: readApprovedText(version) ?? current.blocks.map((block) => block.text).join("\n\n"),
+			// During planning the tool is intentionally inactive. Recommend it on
+			// approval only when the project has the framework and the tool exists.
+			recordTool:
+				pi.getAllTools().some((tool) => tool.name === "record_change") &&
+				existsSync(join(cwd, ".agents/framework/state.toml")),
 		});
 	}
 
@@ -354,9 +360,33 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 	gates.register({
 		name: "plan",
 		order: 5,
-		evaluate(event: ToolCallEvent) {
-			if (!active) return undefined;
-			if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
+			evaluate(event: ToolCallEvent) {
+				if (!active) return undefined;
+				if (event.toolName === "bash") {
+					// The promise is "plan mode does not implement", and a redirect is
+					// implementation just as much as `write` is. Temp paths outside the
+					// workspace stay allowed; opaque units are left to the permission gate,
+					// which already fails closed on them (no double prompt here).
+					const command = typeof event.input.command === "string" ? event.input.command : "";
+					if (command === "") return undefined;
+					for (const unit of parseCommandUnits(command, cwd)) {
+						if (unit.opaque) continue;
+						for (const target of unit.targets) {
+							if (target.effect !== "write") continue;
+							const absolute = canonicalize(target.path);
+							if (absolute === cwd || !isWithin(cwd, absolute)) continue;
+							if (/\.mdx?$/i.test(absolute)) continue;
+							return {
+								kind: "block" as const,
+								reason:
+									`Plan mode only writes markdown while the plan is under review (blocked bash write to ${target.path}). ` +
+									"Implement the change after the plan is approved; write the spec file instead.",
+							};
+						}
+					}
+					return undefined;
+				}
+				if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
 			const path = typeof event.input.path === "string" ? event.input.path : "";
 			if (planMarkdownPath(path, cwd) !== undefined) return undefined;
 			return {
@@ -373,7 +403,11 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 	pi.on("before_agent_start", (event) => {
 		if (!active) return undefined;
 		pi.setActiveTools(toolSetWithSubmit());
-		return { systemPrompt: `${event.systemPrompt}\n\n${buildPlanSystemPrompt()}` };
+		return {
+			systemPrompt: `${event.systemPrompt}\n\n${buildPlanSystemPrompt({
+				questionTool: pi.getActiveTools().includes("ask_user_question"),
+			})}`,
+		};
 	});
 
 	pi.on("session_shutdown", () => {

@@ -17,6 +17,8 @@ const TOKENS: Record<string, string> = {
 	statePath: ".agents/framework/state.toml",
 	contractPath: ".agents/memory/README.md",
 	implementationsDir: ".agents/implementations",
+	workflowBlock:
+		"<!-- ask-init:begin workflow v1 -->\n## Ask workflow\n<!-- ask-init:end workflow -->",
 	h_what: "What this is",
 	h_rules: "Hard rules",
 	h_commands: "Commands",
@@ -44,7 +46,7 @@ describe("templates", () => {
 	});
 
 	it("keeps the shipped contract free of legacy path references", () => {
-		for (const name of ["memory-readme", "signpost", "agents-skeleton"]) {
+		for (const name of ["memory-readme", "signpost", "agents-skeleton", "uat-readme", "workflow-block"]) {
 			const text = renderTemplate(name, TOKENS, "en");
 			expect(countBareRefs(text, "memory/"), name).toBe(0);
 			expect(countBareRefs(text, "implementations/"), name).toBe(0);

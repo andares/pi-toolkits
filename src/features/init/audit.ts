@@ -9,6 +9,7 @@
  * It is read-only and never "fixes" anything itself.
  */
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, posix } from "node:path";
 import {
@@ -22,6 +23,9 @@ import {
 	PLAN_FILE,
 	REPORTS_DIR,
 	SPECS_DIR,
+	UAT_CONTRACT_FILE,
+	UAT_DIR,
+	UAT_LEDGER_FILE,
 } from "./spec.js";
 import {
 	duplicateHeadings,
@@ -30,6 +34,8 @@ import {
 	sectionsAfterAppendix,
 } from "./analyze.js";
 import { parseCoverage } from "./coverage.js";
+import { deriveState, ledgerPath, readEvents } from "../uat/ledger.js";
+import { listRecords } from "../uat/records.js";
 import { staleRoots } from "./plan.js";
 import type { DocInfo, Facts, Finding, Severity } from "./types.js";
 
@@ -523,6 +529,146 @@ function checkScaffold(facts: Facts): Finding[] {
 /* Entry points                                                                */
 /* -------------------------------------------------------------------------- */
 
+const DAY_MS = 86_400_000;
+
+/**
+ * Framework-owned files: a refresh may rewrite one only while the disk still
+ * equals the bytes this tool rendered. Anything else is a hand edit, and
+ * silently overwriting it would destroy operator work — so the audit reports it
+ * instead.
+ */
+function checkFrameworkFiles(facts: Facts): Finding[] {
+	const state = facts.state;
+	if (!state) return [];
+	const out: Finding[] = [];
+	for (const entry of state.managed) {
+		if (entry.path === "" || entry.templateSha256 === undefined) continue;
+		const absolute = join(facts.root, entry.path);
+		if (!existsSync(absolute)) continue;
+		const hash = createHash("sha256").update(readFileSync(absolute)).digest("hex");
+		if (hash === entry.templateSha256) continue;
+		out.push(
+			finding(
+				AUDIT_CODES.managedEdited,
+				"warning",
+				"framework file was edited by hand: /ask-init refresh will not overwrite it — keep your additions outside the framework-owned text, or re-apply them after a refresh",
+				entry.path,
+			),
+		);
+	}
+	return out;
+}
+
+/**
+ * Acceptance ledger hygiene. All of these are warnings except a corrupt stream:
+ * a ledger line that cannot be parsed means a lost event, which is an error.
+ */
+function checkUat(facts: Facts): Finding[] {
+	if (!facts.state) return [];
+	const out: Finding[] = [];
+	const now = Date.now();
+	const records = listRecords(facts.root);
+
+	// Record hygiene is independent of the ledger: the canonical frame is what
+	// the tool writes, and the ledger is the only consumer either way.
+	const recentNonCanonical = records.filter(
+		(record) => !record.canonical && record.epochMs >= now - 14 * DAY_MS,
+	);
+	if (recentNonCanonical.length > 0) {
+		const first = recentNonCanonical[0];
+		out.push(
+			finding(
+				AUDIT_CODES.recordHeader,
+				"warning",
+				`${recentNonCanonical.length} recent change record(s) do not use the canonical minute header/name (first: ${first?.id}); write new ones with record_change`,
+				first?.path,
+			),
+		);
+	}
+
+	if (!existsSync(join(facts.root, UAT_DIR))) {
+		out.push(
+			finding(
+				AUDIT_CODES.uatNotInstalled,
+				"info",
+				"acceptance ledger not installed (.agents/uat/): run /ask-init refresh",
+				UAT_DIR,
+			),
+		);
+		return out;
+	}
+	if (!existsSync(join(facts.root, UAT_CONTRACT_FILE))) {
+		out.push(
+			finding(
+				AUDIT_CODES.uatNotInstalled,
+				"info",
+				"acceptance ledger contract is missing: run /ask-init refresh",
+				UAT_CONTRACT_FILE,
+			),
+		);
+	}
+
+	const { events, skipped } = readEvents(ledgerPath(facts.root));
+	if (skipped > 0) {
+		out.push(
+			finding(
+				AUDIT_CODES.uatLedgerBroken,
+				"error",
+				`${skipped} line(s) in the acceptance ledger could not be parsed: fix or remove them (${UAT_LEDGER_FILE})`,
+				UAT_LEDGER_FILE,
+			),
+		);
+	}
+
+	const state = deriveState(records, events);
+	const missing = state.items.flatMap((item) =>
+		item.missingReports.map((report) => `${item.id} → ${report}`),
+	);
+	if (missing.length > 0) {
+		out.push(
+			finding(
+				AUDIT_CODES.uatMissingReport,
+				"warning",
+				`acceptance item(s) point at change records that no longer exist: ${missing.slice(0, 5).join(", ")}${
+					missing.length > 5 ? " …" : ""
+				}`,
+				UAT_LEDGER_FILE,
+			),
+		);
+	}
+
+	const stalePending = state.pending.filter(
+		(record) => record.epochMs > 0 && now - record.epochMs > 14 * DAY_MS,
+	);
+	if (stalePending.length > 0) {
+		out.push(
+			finding(
+				AUDIT_CODES.uatStaleCandidate,
+				"warning",
+				`${stalePending.length} change record(s) have been waiting for acceptance for over 14 days: run /ask-uat`,
+				UAT_LEDGER_FILE,
+			),
+		);
+	}
+
+	const staleOpen = state.open.filter((item) => {
+		const created = Date.parse(item.createdAt);
+		return Number.isFinite(created) && now - created > 30 * DAY_MS;
+	});
+	if (staleOpen.length > 0) {
+		out.push(
+			finding(
+				AUDIT_CODES.uatStaleItem,
+				"warning",
+				`${staleOpen.length} acceptance item(s) have been open for over 30 days: verify or drop them`,
+				UAT_LEDGER_FILE,
+			),
+		);
+	}
+
+	return out;
+}
+
 export function audit(facts: Facts, options: AuditOptions = {}): Finding[] {
 	const findings = [
 		...checkStructure(facts),
@@ -538,6 +684,8 @@ export function audit(facts: Facts, options: AuditOptions = {}): Finding[] {
 		...checkPlanDrift(facts),
 		...checkCoverage(facts, options.coveragePath),
 		...checkScaffold(facts),
+		...checkFrameworkFiles(facts),
+		...checkUat(facts),
 	];
 	const rank: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
 	return findings.sort((a, b) => rank[a.severity] - rank[b.severity] || a.code.localeCompare(b.code));

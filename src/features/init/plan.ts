@@ -36,11 +36,13 @@ import {
 	SPECS_DIR,
 	STATE_FILE,
 	STATE_GITIGNORE,
+	UAT_CONTRACT_FILE,
 	type ProjectLanguage,
 } from "./spec.js";
 import { duplicateHeadings, largestSections, sectionsAfterAppendix, tombstones } from "./analyze.js";
 import { countBareRefs } from "./detect.js";
 import { indexBlock, rootsBlock } from "./render.js";
+import { renderTemplate } from "./templates.js";
 import type {
 	Action,
 	CreateFileAction,
@@ -152,6 +154,7 @@ function buildTokens(facts: Facts, now: Date, created: ReadonlySet<string>): Tok
 		),
 		index: indexBlock(facts, language, created),
 		roots: rootsBlock(facts.roots, language),
+		workflowBlock: renderTemplate("workflow-block", {}, language),
 	};
 }
 
@@ -692,6 +695,14 @@ export function buildPlan(facts: Facts, options: PlanOptions): Plan {
 		"signpost for the hidden agent directory",
 	);
 	add(CONTRACT_FILE, "memory-readme", { frameworkVersion: String(FRAMEWORK_VERSION) }, "framework contract");
+	// The acceptance ledger is additive: a project without it is still a valid
+	// v1 framework (the audit reports I-UAT-01, not an error).
+	add(
+		UAT_CONTRACT_FILE,
+		"uat-readme",
+		{ implementationsDir: IMPLEMENTATIONS_DIR },
+		"acceptance ledger contract",
+	);
 	add(STATE_GITIGNORE, "state-gitignore", {}, "ignore runtime state");
 	for (const spec of MEMORY_FILES) {
 		if (!spec.core) continue;

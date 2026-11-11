@@ -42,6 +42,7 @@ import {
 	STATE_FILE,
 	SCAN,
 	STATE_GITIGNORE,
+	UAT_CONTRACT_FILE,
 } from "./spec.js";
 import { isBareRef, readDoc, walk } from "./detect.js";
 import { renderTemplate } from "./templates.js";
@@ -79,6 +80,10 @@ function inside(root: string, rel: string): string {
 
 function sha256File(absolute: string): string {
 	return createHash("sha256").update(readFileSync(absolute)).digest("hex");
+}
+
+function sha256Text(text: string): string {
+	return createHash("sha256").update(text).digest("hex");
 }
 
 function mkdirFor(absolute: string): void {
@@ -397,6 +402,7 @@ export function stateToToml(state: FrameworkState): string {
 			path: entry.path,
 			sha256: entry.sha256,
 			template: entry.template,
+			template_sha256: entry.templateSha256,
 		})),
 		migrations: state.migrations.map((entry) =>
 			compact({ at: entry.at, to: entry.to, notes: entry.notes }),
@@ -481,6 +487,8 @@ interface ApplyContext {
 	readonly moved: ApplyResult["moved"];
 	readonly created: string[];
 	readonly skipped: ApplyResult["skipped"];
+	/** Hash of the bytes we rendered for each file created by this run. */
+	readonly managedHashes: Map<string, string>;
 	rewrites?: ApplyResult["rewrites"];
 	snapshot?: ApplyResult["snapshot"];
 	statePath?: string;
@@ -559,8 +567,12 @@ function applyCreateFile(ctx: ApplyContext, action: Action & { kind: "create-fil
 		return;
 	}
 	const body = createFile(ctx.root, action, ctx.language);
-	if (body === undefined) ctx.skipped.push({ path: action.path, reason: "already exists" });
-	else ctx.created.push(action.path);
+	if (body === undefined) {
+		ctx.skipped.push({ path: action.path, reason: "already exists" });
+		return;
+	}
+	ctx.created.push(action.path);
+	ctx.managedHashes.set(action.path, sha256Text(body));
 }
 
 function applyWriteState(ctx: ApplyContext, action: Action & { kind: "write-state" }): void {
@@ -568,7 +580,7 @@ function applyWriteState(ctx: ApplyContext, action: Action & { kind: "write-stat
 		ctx.statePath = STATE_FILE;
 		return;
 	}
-	ctx.statePath = writeState(ctx.root, action.state);
+	ctx.statePath = writeState(ctx.root, action.state, ctx.managedHashes);
 }
 
 function runAction(ctx: ApplyContext, action: Action): void {
@@ -609,6 +621,7 @@ export function applyPlan(plan: Plan, options: ApplyOptions = {}): ApplyResult {
 		moved: [],
 		created: [],
 		skipped: [],
+		managedHashes: new Map(),
 	};
 
 	for (const action of plan.actions) runAction(ctx, action);
@@ -765,23 +778,30 @@ export function scrubRetiredFields(root: string, options: ScrubOptions = {}): Sc
 }
 
 /** Write state, refreshing the hashes of files this framework manages. */
-function writeState(root: string, state: FrameworkState): string {
-	const managedPaths = [CONTRACT_FILE, SIGNPOST_FILE, STATE_GITIGNORE];
+function writeState(
+	root: string,
+	state: FrameworkState,
+	managedHashes: Map<string, string> = new Map(),
+): string {
+	const managedPaths = [CONTRACT_FILE, SIGNPOST_FILE, UAT_CONTRACT_FILE, STATE_GITIGNORE];
+	const templates: Record<string, string> = {
+		[CONTRACT_FILE]: "memory-readme",
+		[SIGNPOST_FILE]: "signpost",
+		[UAT_CONTRACT_FILE]: "uat-readme",
+		[STATE_GITIGNORE]: "state-gitignore",
+	};
 	const previous = new Map(state.managed.map((entry) => [entry.path, entry]));
 	const managed: FrameworkState["managed"] = [];
 	for (const rel of managedPaths) {
 		const absolute = inside(root, rel);
 		if (!existsSync(absolute)) continue;
-		const template =
-			rel === CONTRACT_FILE
-				? "memory-readme"
-				: rel === SIGNPOST_FILE
-					? "signpost"
-					: "state-gitignore";
 		managed.push({
 			path: rel,
 			sha256: sha256File(absolute),
-			template: previous.get(rel)?.template ?? template,
+			template: previous.get(rel)?.template ?? templates[rel] ?? "",
+			// Anchor = the bytes this tool rendered. A file we did not write this
+			// run keeps the previous anchor; without one, refresh stays hands-off.
+			templateSha256: managedHashes.get(rel) ?? previous.get(rel)?.templateSha256,
 		});
 	}
 	const absolute = inside(root, STATE_FILE);

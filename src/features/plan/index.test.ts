@@ -68,6 +68,16 @@ function harness(): Harness {
 			handlers[type] = [...(handlers[type] ?? []), handler];
 		},
 		getActiveTools: () => activeTools,
+		getAllTools: () => [
+			{ name: "read" },
+			{ name: "bash" },
+			{ name: "write" },
+			{ name: "edit" },
+			{ name: "ask_user_question" },
+			// Registered does not mean callable: this tool is deliberately absent
+			// from the active set, and approval must not recommend it.
+			{ name: "record_change" },
+		],
 		setActiveTools: (names: string[]) => {
 			activeTools = names;
 		},
@@ -283,6 +293,7 @@ describe("plan_submit", () => {
 		expect(message).toContain("### Approved plan (specs/topic.md)");
 		expect(message).toContain("# SPEC: topic\n\nfirst step");
 		expect(message).toContain("Record the implementation work in the todo list");
+		expect(message).not.toContain("call `record_change`");
 		expect(h.control.restore).toHaveBeenCalled();
 		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
 	});
@@ -333,6 +344,33 @@ describe("prompt injection", () => {
 		expect(injected?.systemPrompt).toContain("base");
 		expect(injected?.systemPrompt).toContain("[ASK-PLAN — PLANNING]");
 		expect(injected?.systemPrompt).toContain("plan_submit");
+		expect(injected?.systemPrompt).toContain("[ASK-PLAN — INTERVIEW]");
+		expect(injected?.systemPrompt).toContain("ask in plain text");
+	});
+
+	it("names the question tool only when it is active", async () => {
+		const h = harness();
+		h.pi.setActiveTools([...h.activeTools(), "ask_user_question"]);
+		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		const injected = start(h, "base");
+		expect(injected?.systemPrompt).toContain("`ask_user_question` is available");
+	});
+});
+
+describe("plan write boundary", () => {
+	it("blocks a bash write to a non-markdown project path", async () => {
+		const h = harness();
+		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		const gate = h.gates.find((entry) => entry.name === "plan");
+		expect(gate).toBeDefined();
+		const evaluate = (command: string) =>
+			gate!.evaluate({ toolName: "bash", input: { command } } as ToolCallEvent);
+
+		expect(evaluate("echo x > src/a.ts")?.kind).toBe("block");
+		expect(evaluate("cp a.ts b.ts")?.kind).toBe("block");
+		expect(evaluate("echo x > specs/notes.md")).toBeUndefined();
+		expect(evaluate("echo x > /tmp/scratch.txt")).toBeUndefined();
+		expect(evaluate("ls src")).toBeUndefined();
 	});
 });
 

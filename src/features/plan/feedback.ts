@@ -41,6 +41,8 @@ export interface FeedbackInput {
 	planPath?: string;
 	/** Approved revision text, quoted back so the model implements exactly this. */
 	planText?: string;
+	/** Whether `record_change` is available in this project (framework installed). */
+	recordTool?: boolean;
 }
 
 const VERDICT_LABEL: Record<AnnotationVerdict, string> = {
@@ -151,6 +153,12 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 				"Approval only means \"go\" — every annotation above still applies while you build.",
 				"Record the implementation work in the todo list (`todo` tool) as you go, and update each entry",
 				"as it starts, finishes or gets blocked, so progress stays traceable.",
+				...(input.recordTool
+					? [
+						"When the work is finished and tested, call `record_change` once for this round so the",
+						"change enters acceptance (`/ask-uat`) instead of waiting to be remembered later.",
+					]
+					: []),
 			]
 				.join("\n")
 			: "Update the plan file to address every annotation above, then submit it again with plan_submit.";

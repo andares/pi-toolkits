@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含十个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内计划评审** `ask-plan`、**退出看门狗** `quit-guard`,后续持续追加。
+一句话介绍:目前包含十一个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内计划评审** `ask-plan`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.1 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -76,6 +76,7 @@ pi -e ./src/index.ts
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/ask-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 | 🧭 **plan** 浏览器内计划评审 | `/ask-plan` | 先调研、写 plan、在浏览器里逐段评审并逐块批注,批准之后才动代码 |
+| ✅ **uat** 验收台账 | `/ask-uat` | 把待归类的实施记录聚成用户视角的验收项，在页面里勾选（只追加、无提交），看清哪些已交付但还没验过 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 | 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计漂移、预算与重复事实 |
@@ -302,6 +303,56 @@ spec 落在 `specs/<slug>.md`,与 `/ask-init` 的计划同一个位置。
 
 ---
 
+## ✅ uat — 验收台账与浏览器页面
+
+<a name="uat"></a>
+
+`/ask-uat` 只回答一个问题：**这一批交付的东西，哪些还没验过？**
+它存在的原因是：agent 驱动的开发一周产出的行为变更，人根本记不住；
+「回头再测」就是验收债变成返工的方式。
+
+验收的单位是**行为**，不是提交。实施会话每轮用 `record_change` 写一条实施记录，
+附一句「用户视角能做什么」；UAT 侧把多条记录聚成少数验收项——一条行为可能要十条记录，
+一条记录也可能碰到多个行为。
+
+```text
+record_change（实施）→ /ask-uat（聚类）→ 浏览器（勾选）→ 台账
+```
+
+| 命令 | 做什么 |
+| --- | --- |
+| `/ask-uat` | 把待归类的实施记录聚成验收项，然后打开页面 |
+| `/ask-uat open` | 只重开页面，不走模型回合 |
+| `/ask-uat off` | 关掉页面服务 |
+
+**页面**按时间倒序列出未验收项：每条 2–3 句摘要，可展开测试方案（步骤、边界、
+「这次不用测什么」）。勾选即写一条 `check` 事件——**没有提交**，关页不会丢决定。
+已验收项折叠在底部，展开可反选；证据记录点一下就能看原文。
+
+**它靠这几条站得住**：
+
+- **只追加的台账，没有提交。** `.agents/uat/ledger.jsonl` 是事件流（`candidate`、`batch`、`item`、
+  `link`、`check`、`uncheck`、`amend`、`merge`、`drop`），进 git，按事件 id 去重，两个进程同时追加也不丢事件。
+- **新证据会重开验收项。** 勾选之后又有新记录落到同一项，页面标 `reopened`：
+  「已验收」的含义是「按当前证据集验过」。
+- **台账只属于主仓。** 在 git worktree 里跑的会话，实施记录与事件都写主仓，验收历史不会被分裂。
+- **目录本身就是兜底索引。** 手写的实施记录同样会出现在待验收列表；`record_change` 只是补上
+  行为句与测试提示，不是闸门。
+- **其他都不做。** 不编辑、不排序、不评论、不指派。聚类不合适就在对话里要求 agent
+  调整（页面开着时 `uat_item` 可用：link / amend / merge / drop）。
+
+**实施记录格式**（`record_change` 写的就是这个）：
+
+```text
+.agents/implementations/YYYY-MM-DD_HHMM_<slug>.md
+# YYYY-MM-DDTHH:MM±HH:MM — 标题
+```
+
+旧记录（`YYYY-MM-DD_<slug>.md`、秒级首行）照样能读：读取端宽容，只有写入端严格。
+新写的不合规记录由审计报 `W-REC-01`。
+
+---
+
 ## 🗜️ compact — 独立压缩模型
 
 <a name="compact"></a>
@@ -423,6 +474,7 @@ run = [
 | `/ask-init plan [--deep]` | 只打印计划,不写任何盘(`--dry-run` 同义) |
 | `/ask-init check` | 审计已装的框架(只读;只在 `.agents/framework/reports/` 留下运行期报告) |
 | `/ask-init roots` | 把 `pi-add-dir` 添加的目录同步进框架状态 |
+| `/ask-init refresh` | 刷新框架拥有的文件（合同、门牌、验收合同）与 `AGENTS.md` 里的工作流块；手工改过的文件一概不动 |
 | `/ask-init --yes` | 跳过确认面板 |
 | `/ask-init --lang zh\|en` | 框架生成文件的渲染语言(单次生效;默认按项目自身文档判定) |
 

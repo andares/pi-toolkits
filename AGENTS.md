@@ -653,6 +653,29 @@ added root 的 `AGENTS.md`（含 `.pi/AGENTS.md`）**全文**注入每次请求�
 绝不能是规则的第二份副本。`/ask-init roots` 合并本次会话 `add-dir:state` 与 state 里已登记的
 roots；自带完整框架的 root 标记 `independent`，不接管。
 
+### 刷新机制（`/ask-init refresh`，2026-11-12）
+
+`/ask-init` 的既有规则是「已存在就不覆盖」，所以它永远刷不新框架自己的文字；而每加一个功能
+都要往项目里补合同、补 `AGENTS.md` 的工作流段。`refresh` 就是唯一被允许重写**框架拥有字节**
+的入口：
+
+- **受管文件**（`.agents/memory/README.md`、`.agents/README.md`、`.agents/uat/README.md`、
+  `.agents/framework/.gitignore`）只有当磁盘仍等于「我们上次写出的字节」时才重写。
+  锚是 `state.toml` 的 `managed[].template_sha256`（渲染结果的哈希），不是磁盘哈希——
+  后者会在每次 run 末尾被回填，证明不了「没被人改过」。旧 state 没有锚时，只有磁盘与当前模板
+  逐字节相同才补锚；其余一律跳过（旧磁盘哈希不构成覆盖许可）。
+- **`AGENTS.md` 只动 workflow 标记块**：`<!-- ask-init:begin workflow … -->` …
+  `<!-- ask-init:end workflow -->`，块外一个字节不动；标记缺失时确定性插入（有 `## 附录`
+  就插在它前面，否则追加到末尾）。
+- **缺失的可选件会补建**（`.agents/uat/README.md`），所以早期采纳的项目能原地补齐验收台账。
+- 幂等：第二次运行报 `current`；`--dry-run` 只报告不写盘。
+- **不升 `FRAMEWORK_VERSION`**：UAT 目录是可选增量，`I-UAT-01` 表示「尚未安装」；
+  升版本号会要求迁移配方，反而挡住用户。
+
+新审计码：`E-UAT-01` 账本行不可解析、`W-UAT-01` 项指向不存在的记录、`W-UAT-02` 候选超 14 天
+未聚类、`W-UAT-03` 项超 30 天未勾、`W-REC-01` 近期记录首行/文件名不合规、`W-FW-01` 框架文件
+被人手改（refresh 不会覆盖）、`I-UAT-01` 验收台账未安装。
+
 ### 已验证
 
 - `pnpm typecheck` 绿；`pnpm test` **32 文件 / 660 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
@@ -1046,7 +1069,12 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   Jaccard ≥ 0.5 配对为 modified，最后才是 added/removed。改三行不该看起来像整篇重写。
 - **WSL 打开器**：绑 `0.0.0.0`、URL 用 eth0 IP、优先 `wslview`/`cmd.exe start`/`powershell`，
   WSL 下不先试 `xdg-open`（本机 `/usr/bin/google-chrome` 存在，xdg-open 会开出看不见的浏览器）。
-- **计划期只写 markdown**：gate 拦 write/edit 的非 `.md` 目标；bash 交给 permission 的危险命令表。
+- **计划期只写 markdown**：gate 拦 write/edit 的非 `.md` 目标；bash 用 permission 的
+  `parseCommandUnits` 再拦一道「工作区内、非 `.md` 的确认写入目标」（`echo x > src/a.ts`、`cp a.ts b.ts`）。
+  opaque 单位不重复拦（permission 已 fail-closed），项目外临时文件照放。
+- **访谈协议**：`INTERVIEW_GUIDE` 要求「一轮 1–4 问、先问再写、能读的不问」；
+  提问工具按 `pi.getAllTools()` 探测，装了就点名 `ask_user_question`，没装就说「用纯文本问」——
+  那个工具是第三方扩展（`@juicesharp/rpiv-ask-user-question`），不是宿主内建。
 - **闸门复用 permission**：进入计划期用 `src/lib/permission-control.ts`（registry，与 startup.ts 同款）
   调用 `enableDefaults`，退出/批准 `restore`；用户中途手动改过以他的手改为准。
 
@@ -1060,8 +1088,8 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 | `src/features/plan/feedback.ts` | 批注 → 固定模板的模型消息（英文） |
 | `src/features/plan/prompt.ts` | 计划期横幅 + spec 骨架（12 段）+ 段落书写纪律 |
 | `src/features/plan/store.ts` | `<agent-dir>/ask-plan/<slug>/vNNN.md` + `state.json`（原子写、50 版上限） |
-| `src/features/plan/server.ts` | node:http、3401 起端口、SSE、token/Host/Origin 守卫、决策后关端口 |
-| `src/features/plan/opener.ts` | WSL 探测、绑定地址、打开器选择 |
+| `src/features/plan/server.ts` | 计划路由（`/api/state`、`/api/annotate`、`/api/decide`）；HTTP 壳在 `src/lib/web-review.ts` |
+| `src/lib/opener.ts` | WSL 探测、绑定地址、打开器选择（plan 与 uat 共用） |
 | `src/features/plan/index.ts` | 命令、`plan_submit`、gate、系统提示注入、决策回投 |
 | `ui/` | Solid 1.9 + Vite 8 单页，产物 44 KB 落 `src/features/plan/assets/`（`pnpm ui:check` 防过期） |
 
@@ -1069,6 +1097,10 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 - `pnpm typecheck` 绿；`pnpm test` **42 文件 / 776 测试**全绿（plan 109 例）；
   `pnpm ui:typecheck` / `pnpm ui:check` 绿。
+- 计划期写入边界：`echo x > src/a.ts` / `cp a.ts b.ts` 被 gate 拒；写入 `specs/` 下的
+  `.md`、项目外临时文件与纯读命令放行（`plan/index.test.ts` 的 write-boundary 用例）。
+- 访谈协议：未装提问扩展时用“ask in plain text”，装了才点名 `ask_user_question`；
+  `INTERVIEW_GUIDE` 断言“一轮 1–4 问 / 能读的不问”。
 - 真实宿主探针：`ask-plan[extension]` 已注册，`plan_submit` 默认不在工具集里（进入计划期才激活）。
 - `pnpm check:compat --skip-tests`：强制窗口 1.2.0–1.5.2 全绿（install/typecheck/键位/dist 哈希），
   探针 1.1/1.0/0.99 全绿、0.87 按既有原因停探，public floor 仍为 0.99.0。
@@ -1082,3 +1114,77 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 - 服务器与 pi 同进程：`/reload` 或会话结束即关端口；不支持"关掉 pi 后网页还活着"。
 - 批注按版本存放：新版本会清空上一版批注（不做跨版本重新锚定，这是块模型换来的简化）。
 - 端口固定从 3401 顺延 20 个，不做配置项（崔总 2026-11-11 定）。
+
+## Feature: uat（`/ask-uat` 验收台账，2026-11-12 实现）
+
+### 定位
+
+`/ask-uat` 只回答一个问题：**这一批交付里，哪些还没验过？** 验收单位是「用户可见行为」，
+不是提交。实施侧写记录 + 一句话行为；UAT 侧把 N 条记录聚成 M 个验收项（N ≫ M），
+页面只做三件事：看摘要、展开测试方案、勾掉。
+
+### 数据模型
+
+```text
+.agents/uat/ledger.jsonl   # 只追加事件流（进 git；只住主仓）
+.agents/uat/README.md      # 合同（框架拥有，refresh 可重写）
+```
+
+事件（每行一条，带 `v/id/ts/type`，读侧按 id 去重）：
+
+| type | 写入方 | 语义 |
+| --- | --- | --- |
+| `candidate` | `record_change` | 一条实施记录的行为句 + 测试提示 |
+| `batch` | `/ask-uat` | 一次聚类回合 |
+| `item` | `uat_item` | 验收项（2–3 句摘要 + 步骤 + 证据记录） |
+| `link` | `uat_item` | 新证据挂到已有项（N:M 的桥） |
+| `check` / `uncheck` | 页面 | 验收决定，即时落盘 |
+| `amend` / `merge` / `drop` | `uat_item` | 修订 / 合并 / 作废 |
+
+派生（`deriveState`，纯函数）：
+- `pending` = 磁盘上未被任何存活项引用的记录。**目录是兜底索引**，手写的记录也算待验收；
+  `record_change` 只是补上行为句与测试提示，不是闸门。
+- `reopened` = 项内最新证据时间 > 最后一次 `check`。「已验收」= 按当前证据集验过。
+- `merge` 把源项的记录并入目标并隐藏源；`drop` 只标记，事件不删。
+
+### 决策（崔总 2026-11-12 定）
+
+1. **review 与 uat 分离**：`/ask-review` 只是多模型交叉核验，自由发挥、不落状态；页面不显示「审过」。
+2. **实施报告保持散文**，桥另立账本；一条验收项可对应多条实施报告，一条报告也可落进多个项。
+3. **聚类只在 UAT 侧发生**：实施会话并行且互相看不见，项的身份必须单点创建，否则必然重复。
+4. **没有提交、不勾也行**：勾选即 `check` 事件；关页面不丢；已勾项可反选。
+5. **页面只读 + 勾选**：不编辑、不排序、不评论、不指派；聚类不满意就在对话里让 agent 调 `uat_item`。
+6. **账本只住主仓**：worktree 里的会话把记录与事件写主仓（`resolveProjectRoot` 走 `git worktree list`）。
+7. **分钟精度**：`record_change` 写 `YYYY-MM-DD_HHMM_slug.md` + `# YYYY-MM-DDTHH:MM±HH:MM — 标题`；
+   读取端宽容（旧文件名 / 秒级首行照读），审计对 14 天内不合规记录报 `W-REC-01`。
+8. **每轮上限**：默认 40 条候选 / 12 个新项（`MAX_*_PER_RUN`），超出的留在 pending；
+   页面顶部常显「还有 N 条未归类」。
+
+### 落位
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/features/uat/records.ts` | 记录读写、规范首行/文件名、宽容解析、`readRecordText` |
+| `src/features/uat/ledger.ts` | 事件类型、追加（自愈缺尾换行）、解析去重、`deriveState` |
+| `src/features/uat/state.ts` | 主仓解析（worktree）、框架检测、快照加载 |
+| `src/features/uat/record-tool.ts` | `record_change`（框架存在时激活） |
+| `src/features/uat/item-tool.ts` | `uat_item`（仅 `/ask-uat` 期间） |
+| `src/features/uat/prompt.ts` | 聚类工作单、阶段横幅、计数行 |
+| `src/features/uat/server.ts` | `/api/state`、`/api/toggle`、`/api/report`、ledger mtime 监听 |
+| `src/features/uat/index.ts` | 命令、相位、工具激活、空闲关服 |
+| `ui/uat/` + `ui/vite.config.uat.ts` | 第二套 Solid 单页（产物 `src/features/uat/assets/`） |
+| `src/lib/web-review.ts` | plan/uat 共用的 HTTP 壳（token、Host/Origin、端口池、静态文件、SSE） |
+
+### 已验证
+
+- `pnpm test` 48 文件 / 841 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
+- 真实 pi 1.5.2 冒烟：`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`、无 Extension 警告。
+- 覆盖：记录解析/命名/同分钟防覆盖、账本坏行与重复 id、自愈换行、N:M、link 重开、
+  merge/drop/amend、命令开页与聚类派发、页面勾选往返、未知项 404。
+
+### 已知边界
+
+- 一个进程只有一个 UAT 页面；多进程靠端口池（3401+20）并存，页面靠 ledger mtime 轮询收敛。
+- 关页面不关服（`/ask-uat off` 或 2h 空闲才关）；`/reload` 后需重开。
+- `record_change` 只在装了框架的项目激活；没有框架时 `/ask-uat` 直接拒绝。
+- 聚类质量由实施侧行为句决定；`hint` 允许写 `none: <理由>`，让「这次不用测」也是明确记录。

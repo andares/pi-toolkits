@@ -39,9 +39,20 @@ export const AGENTS_DIR = ".agents";
 export const MEMORY_DIR = ".agents/memory";
 export const IMPLEMENTATIONS_DIR = ".agents/implementations";
 export const PROMPTS_DIR = ".agents/prompts";
+/**
+ * Acceptance ledger: the bridge between change records and user-visible
+ * behaviour. Optional and additive — a project without it is still a valid v1
+ * framework (the audit reports `I-UAT-01`, not an error).
+ */
+export const UAT_DIR = ".agents/uat";
+export const UAT_LEDGER_FILE = ".agents/uat/ledger.jsonl";
+export const UAT_CONTRACT_FILE = ".agents/uat/README.md";
 export const FRAMEWORK_DIR = ".agents/framework";
 
 export const STATE_FILE = ".agents/framework/state.toml";
+/** Managed block markers inside AGENTS.md (framework-owned bytes). */
+export const WORKFLOW_BLOCK_BEGIN = "<!-- ask-init:begin workflow";
+export const WORKFLOW_BLOCK_END = "<!-- ask-init:end workflow -->";
 export const STATE_GITIGNORE = ".agents/framework/.gitignore";
 export const SNAPSHOTS_DIR = ".agents/framework/snapshots";
 export const PLANS_DIR = ".agents/framework/plans";
@@ -299,6 +310,15 @@ export const AUDIT_CODES = {
 	agentsSkills: "I-AGENTS-01",
 	notInstalled: "I-INSTALL-01",
 	planSpecDrift: "W-PLAN-01",
+	// Acceptance ledger and change-record hygiene.
+	uatLedgerBroken: "E-UAT-01",
+	uatMissingReport: "W-UAT-01",
+	uatStaleCandidate: "W-UAT-02",
+	uatStaleItem: "W-UAT-03",
+	recordHeader: "W-REC-01",
+	// Framework-owned file edited by hand: a refresh will not overwrite it.
+	managedEdited: "W-FW-01",
+	uatNotInstalled: "I-UAT-01",
 } as const;
 
 export type AuditCode = (typeof AUDIT_CODES)[keyof typeof AUDIT_CODES];

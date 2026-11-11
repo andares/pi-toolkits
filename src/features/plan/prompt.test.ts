@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildPlanKickoff, buildPlanSystemPrompt, PLAN_MODE_BANNER, SPEC_FRAMEWORK_GUIDE } from "./prompt.js";
+import {
+	buildPlanKickoff,
+	buildPlanSystemPrompt,
+	INTERVIEW_GUIDE,
+	PLAN_MODE_BANNER,
+	SPEC_FRAMEWORK_GUIDE,
+} from "./prompt.js";
 
 describe("plan mode prompt", () => {
 	it("states what the phase allows and how a turn may end", () => {
@@ -8,6 +14,13 @@ describe("plan mode prompt", () => {
 		expect(PLAN_MODE_BANNER).toContain("Not allowed: editing other files");
 		expect(PLAN_MODE_BANNER).toContain("plan_submit");
 		expect(PLAN_MODE_BANNER).toContain("End every turn with either a question or a plan_submit call");
+	});
+
+	it("asks in rounds instead of guessing, and never names a tool the session lacks", () => {
+		expect(INTERVIEW_GUIDE).toContain("in rounds");
+		expect(INTERVIEW_GUIDE).toContain("Do not ask what you can read");
+		expect(buildPlanSystemPrompt({ questionTool: false })).toContain("ask in plain text");
+		expect(buildPlanSystemPrompt({ questionTool: true })).toContain("`ask_user_question` is available");
 	});
 
 	it("gives the spec framework in reading order", () => {
