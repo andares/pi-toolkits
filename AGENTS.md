@@ -283,20 +283,60 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
 
 ## Release
 
+**发版 = 推 tag。**（2026-11 迁移）`pnpm release` 不再直接写 registry：它做门禁、bump、
+commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.yml` 被 tag 触发后
+用 **npm trusted publishing（OIDC）** 发布——不需要任何 npm token、不需要交互式 2FA，
+并自动附 provenance。工作流里的 `environment: npm` + 文件名 `publish.yml` 是 npm 侧信任
+配置的一部分，改名会让发布拿不到凭据。
+
+- **一次性配置（人工，交互式 2FA）**：
+
+  ```bash
+  npm trust github @andares/pi-toolkits \
+    --repo andares/pi-toolkits --file publish.yml --env npm --allow-publish
+  ```
+
+  要求 npm ≥ 11.15.0、账号级 2FA（安全密钥/通行密钥）；用 bypass-2FA 的 granular
+  token 执行会 E401。信任关系只在 npm 网页/这条命令里改，本仓不存任何 token。
+
+- **CI 门禁**（与本地一致）：`pnpm install --frozen-lockfile` → `pnpm typecheck` →
+  `pnpm test` → `pnpm ui:typecheck` → `pnpm ui:check` → 校验 tag == `package.json`
+  version → 该版本已在 npm 则跳过（重跑幂等）→ `pnpm publish --provenance
+  --access public`（`--ignore-scripts`：门禁已作为显式步骤跑过）。
+
 - **前置条件：工作区必须干净**——release 提交只含版本号（`git add package.json`），
-  有未提交变更时脚本会在任何改动前直接中止。否则未提交内容会被打包进 npm
-  包（pnpm 从工作区打包）却不进 tag，造成「tag 内容 ≠ 实际发布内容」
-  （v0.4.0 事故）
-- `pnpm release <patch|minor|major> [--dry-run] [--skip-tail-check]` 一键发布：
-  干净检查 → **上一版尾部校验**（见下）→ typecheck+test → bump → commit + tag
-  （`scripts/tag-current.mjs` 打 `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且
-  工作区干净**（否则中止）→ `pnpm publish`（失败即中止，版本已锚定）
-  → **npm 成功后**：只推当前分支；tag 的推送 / 远端校验 / Release 创建交给
-  `scripts/lib/github-release.mjs`（与 `pnpm release:github` 共用同一条路径）——
-  远端没有 tag 就推，哈希与本地一致才建 Release，指向别的提交就拒绝创建
-  并给出人工修复命令（绝不 force、绝不给错版本建 Release）
-  → **尾部自检（自动）**：这一版是否真的三处都有（`npm view` 有该版本、远端 tag
-  同哈希、有公开的 Release），逐项打印 ✅/❌；不全只提示补建命令，不中止。
+  有未提交变更时脚本会在任何改动前直接中止。未提交内容会被打包进 npm 包却不进
+  tag，造成「tag 内容 ≠ 实际发布内容」（v0.4.0 事故）。现在 CI 从 tag 的提交重新
+  checkout，已发布内容 = tag 内容，但这道闸仍保留：本地门禁必须针对将要发布的
+  同一份工作树。
+
+- `pnpm release <patch|minor|major> [flags]`：
+  干净检查 → **上一版尾部校验**（见下）→ typecheck + test + UI → bump → commit +
+  tag（`scripts/tag-current.mjs` 打 `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且
+  工作区干净**（否则中止）→ `git push origin <branch>` + `git push origin
+  refs/tags/vX.Y.Z`（**这一步就是发版**）→ 等 CI（workflow run 失败立即中止并给
+  run URL；npm 上出现该版本且 provenance 非空才算完成）→ 远端 tag 校验 + 幂等创建
+  GitHub Release → 尾部自检。
+  - `--dry-run`：只打印计划。
+  - `--prepare-only`：停在 push 之前并打印推送命令——「准备都做完、发不发由人按
+    最后一次」用这一档。
+  - `--no-wait`：推完 tag 就返回，不轮询、不建 Release。
+  - `--local`：应急路径，本机 `pnpm publish`（旧行为，需要 token）。2027-01 起
+    bypass-2FA granular token 失去直接发布能力，届时应改用 `npm stage publish` +
+    网页端 2FA 审批。
+  - `--skip-tail-check`：跳过「上一版尾部必须完成」的硬闸。
+
+- **CI 失败后怎么办**：tag 已推、内容不会变，npm 不允许重发同一版本。修好原因后
+  **重跑同一个 tag 的工作流**（幂等，已发布版本会跳过）：
+
+  ```bash
+  gh workflow run publish.yml -f tag=vX.Y.Z
+  ```
+
+  或 Actions → publish → Run workflow → tag 填 `vX.Y.Z`。不要删 tag 重打，也不要
+  `pnpm release` 再 bump 一版来「绕过」——前者毁掉 tag 与发布内容的对应关系，
+  后者把一次失败变成两个版本号。
+
 - **上一版尾部校验（发版前的硬闸）**：`package.json` 的当前版本如果本地没有 tag、
   或 tag 没到远端 / 指向别的提交，**直接中止**并指向 `pnpm release:github v<当前>`。
   为什么必须有：一次中断的发版（打断在推 tag / 建 Release 之前）之后，再按一次
@@ -320,25 +360,32 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
   tag 指向 `8a0e2fb`，建 Release 时用 `make_latest: false` + 回填 `created_at`，
   所以 Latest 与 `git describe` 仍是 v0.11.3（证据：
   `.agents/implementations/2026-11-04_backfill-v0.1.0-release.md`）。
+- **尾部自检（现在四项）**：npm 版本、**provenance attestation**（`npm view
+  <name>@<version> dist.attestations` 非空）、远端 tag 同哈希、公开 Release。npm 缺
+  版本或 provenance 为空 → **退出码 1**（这是这次迁移的验收标准，不能只打印一行 ❌
+  就算过）；Release 缺失仍只提示补建。
 - GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（classic token 的 `repo` scope 或
   fine-grained 的 Contents: write 都够用；本机用的是 **classic token**）；未设置时
-  只提示——且 `pnpm release` 会在 `pnpm publish`
-  **之前**先警告一次：npm 会照常发布，Release 事后用 `pnpm release:github` 补。
+  只提示，npm 发布与 provenance 不受影响，Release 事后用 `pnpm release:github` 补。
   创建失败（403/422/网络等）后脚本会自动 `GET /releases/tags/{tag}` 查询确认：
   200 = 已存在（并发/重试/手动补建过）→ 视为成功跳过；404 = 真失败 → 提示可
-  稍后重跑补建，均不影响 npm 已发布的结果
-- `pnpm tag-current` 可独立使用：给当前版本打本地 tag（已存在跳过，不推送）
-- **远端 tag 校验：推之前只探一次，推之后才退避重试**（默认 5 次、2s 起翻倍）。
-  顺序是强制的，不是风格：`pnpm release` 只推分支、**不推 tag**，所以「push 之前
-  探测到 tag 不存在」是**必然事件、不是竞态**——曾经对这一步也套了 5 次退避，
-  结果每次发版白等 ~30 s（2+4+8+16）才去推，推完第一次就绿。重试只对「刚推完
-  ref 可见性滞后」有意义：v0.7.3 发布时就出现过「tag 实际已推成功、校验却报
-  不存在」，一次 `ls-remote` 报「不存在」不等于失败。脚本区分「远端不存在」
-  与「哈希不同」：前者重试仍失败才提示推 tag，后者提示人工确认后才可 `--force`。
-  看到不一致**先手动 `git ls-remote origin refs/tags/vX.Y.Z` 复核**：哈希一致
-  就说明只是竞态，此时**不要** force-push（会把同一个 tag 重推一次），重跑
-  `pnpm release:github vX.Y.Z`（幂等）即可。
-- 发布失败回滚：`git tag -d vX.Y.Z && git reset --hard HEAD~1`
+  稍后重跑补建。
+- `pnpm tag-current` 可独立使用：给当前版本打本地 tag（已存在跳过，不推送）。
+- **tag 命名**：本仓是单包，tag = `v<package.json version>`（如 `v0.12.5`）。
+  `publish.yml` 会拒绝版本不一致的 tag（tag `v0.12.5` 但 package.json 还是
+  `0.12.4` → 失败），也不要手打 tag 绕过 `pnpm release`。tag 一旦推送就不可改：
+  npm 不允许重发同一版本，重打 tag 会毁掉「tag 指向发布内容」的对应关系。
+- **远端 tag 校验的退避只属于续跑路径**：`pnpm release` 现在自己推 tag，Release
+  步骤再校验时 tag 必然存在；「推之前只探一次」是为 `release:github`（tag 还没推
+  的补建场景）保留的——那一步的「不存在」是必然事件、不是竞态，套 5 次退避会让
+  每次补建白等 ~30 s（2+4+8+16）。重试只对「刚推完 ref 可见性滞后」有意义：
+  v0.7.3 出现过「tag 实际已推成功、校验却报不存在」，一次 `ls-remote` 报「不
+  存在」不等于失败。脚本区分「远端不存在」与「哈希不同」：前者重试仍失败才提示
+  推 tag，后者提示人工确认后才可 `--force`。看到不一致**先手动
+  `git ls-remote origin refs/tags/vX.Y.Z` 复核**：哈希一致就说明只是竞态，此时
+  **不要** force-push，重跑 `pnpm release:github vX.Y.Z`（幂等）即可。
+- 发布失败回滚（**仅限 tag 尚未推送时**）：`git tag -d vX.Y.Z && git reset --hard
+  HEAD~1`。tag 已推送就走上面的「重跑同一个 tag 的工作流」，不要 reset。
 - 需要覆盖远端 tag（如本地 tag 已重指）时：
   `git push origin refs/tags/vX.Y.Z --force`
 

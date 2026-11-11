@@ -553,20 +553,23 @@ src/
 
 **新增功能**:新建 `src/features/<name>/`,导出 `registerXxx(pi)`,在 `src/index.ts` 中调用;已有模块保持不变。每个功能自带 `*.test.ts`(vitest)——保持确定性(时钟/状态可注入,不写真实 agent-dir)。
 
-**发布**(仅 pnpm 一条命令):
+**发布**(一条命令;上传由 CI 执行):
 
 ```bash
 pnpm release patch   # 0.1.2 → 0.1.3
 pnpm release minor   # 0.1.2 → 0.2.0   (patch 清零)
 pnpm release major   # 0.1.2 → 1.0.0   (minor + patch 清零)
-pnpm release patch --dry-run   # 预览,不做任何改动
-pnpm release:github            # 为当前版本创建/校验 GitHub Release(幂等)
-pnpm release:github --audit    # 列出 npm 版本 vs GitHub Release vs 远端 tag
+pnpm release patch --dry-run        # 预览,不做任何改动
+pnpm release patch --prepare-only   # 准备到本地 tag,打印推送命令
+pnpm release:github                 # 为当前版本创建/校验 GitHub Release(幂等)
+pnpm release:github --audit         # 列出 npm 版本 vs GitHub Release vs 远端 tag
 ```
 
-`release` 要求且仅要求 `major | minor | patch` 之一;上级递增清零下级。执行链:**工作区必须干净(有未提交变更直接中止,保证 tag 内容 == 发布内容)** → `typecheck + test` 门禁 → 改版本 → git commit + `vX.Y.Z` tag(自检 tag==HEAD 且工作区干净) → `pnpm publish`(`prepublishOnly` 二次门禁) → 推当前分支 → tag 远端没有就推、有就校验哈希一致(带有限次重试——刚推完 GitHub 的 ref 可见性可能滞后)→ 创建 GitHub Release。
+**发版 = 推 tag。** `pnpm release` 跑完门禁(`typecheck`、`test`、UI 检查)、改版本、commit、打 `vX.Y.Z` tag、推分支和 tag,然后等 GitHub Actions 的 `publish` 工作流。该工作流用 **npm trusted publishing(OIDC)** 发布:不需要 npm token、不需要交互式 2FA,每个版本自动附 provenance。脚本只在 npm 上真的出现该版本、且 `dist.attestations` 非空时才报成功。
 
-若最后一步被跳过(无 `GITHUB_TOKEN`、push 失败、HTTP 报错),该版本会永远没有 Release:下一版自动生成的 release notes 是**对着上一个已发布的 Release** 算 diff 的,于是缺的那版提交被吞进下一版,GitHub 的版本线就与 npm 对不上。`pnpm release:github` 就是补建/续跑入口——不动版本号、不碰 npm;`--audit` 是差集探测器(`--allow-gaps` 把历史缺口降级为警告)。
+`--prepare-only` 是「都准备好、发不发最后再说」的开关:停在 commit+tag 后,打印确切的推送命令。`--no-wait` 推完就返回;`--local` 是应急路径(本机用旧 token 发布)。工作流失败后重跑同一个 tag 即可(`gh workflow run publish.yml -f tag=vX.Y.Z`):已发布的版本会跳过,所以重跑是幂等的。
+
+维护者一次性配置(交互式 2FA):`npm trust github @andares/pi-toolkits --repo andares/pi-toolkits --file publish.yml --env npm --allow-publish`。GitHub Release 仍是 best-effort(需要 `GITHUB_TOKEN`);`pnpm release:github` 可以不动 npm 补建。
 
 ---
 

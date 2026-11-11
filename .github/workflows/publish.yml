@@ -1,0 +1,109 @@
+name: publish
+
+# 发版信号 = 推 tag（v<version>）。手动重跑：Actions → publish → Run workflow，
+# 输入一个已存在的 tag（用于 CI 中途失败后重试，不需要重新发版）。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)publish, e.g. v0.12.5'
+        required: true
+        type: string
+
+# 无 token：OIDC trusted publishing。npm 只信任「本仓库 + 本工作流文件 +
+# environment npm」这个组合，凭据在每次运行时现签，落不了盘。
+permissions:
+  contents: read
+  id-token: write
+
+# 同一个 tag 只允许一个发布在跑；重跑不抢跑。
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: npm
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 12
+
+      # 故意不传 registry-url：那会写一个 _authToken=${NODE_AUTH_TOKEN} 的 .npmrc，
+      # 而本工作流按设计没有任何 token（缺这个环境变量反而会干扰 OIDC）。
+      # 也不用 cache: pnpm —— 发布作业带 id-token: write，恢复一份自己无法校验的
+      # 缓存等于把 tarball 内容交给缓存投毒（zizmor: cache-poisoning），不值得换十几秒。
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+
+      # trusted publishing 的 OIDC token 交换由 npm CLI 完成，需要 >= 11.5.1。
+      # 钉 11.x（不是 latest）：npm 12 的 sigstore 打包有问题，--provenance 会报
+      # Cannot find module 'sigstore'。这是 CI 工具链，不是项目依赖——项目依赖一律 pnpm。
+      - name: Upgrade npm for trusted publishing (OIDC)
+        run: npm install -g npm@^11.15.0
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 门禁与本地 release 脚本一致；发布步骤用 --ignore-scripts，避免
+      # prepublishOnly 把这些步骤再跑一遍。
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: UI typecheck
+        run: pnpm ui:typecheck
+
+      - name: UI assets are up to date
+        run: pnpm ui:check
+
+      - name: Check tag matches package.json version
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_INPUT:-${GITHUB_REF_NAME}}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Not a release tag: '$tag' (expected vX.Y.Z)" >&2
+            exit 1
+          fi
+          expected="${tag#v}"
+          actual="$(node -p "require('./package.json').version")"
+          if [[ "$expected" != "$actual" ]]; then
+            echo "tag $tag does not match package.json version $actual" >&2
+            exit 1
+          fi
+
+      - name: Check whether this version is already published
+        id: probe
+        env:
+          TAG_INPUT: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${TAG_INPUT:-${GITHUB_REF_NAME}}"
+          version="${tag#v}"
+          pkg="@andares/pi-toolkits@${version}"
+          # 重跑同一个 tag 是正常操作（首次失败后补发）；npm 不允许重发同一版本，
+          # 已经在了就跳过，把这次运行变成幂等的。
+          if npm view "$pkg" version >/dev/null 2>&1; then
+            echo "$pkg is already published; skipping"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with provenance
+        if: steps.probe.outputs.skip != 'true'
+        run: |
+          pnpm publish --no-git-checks --ignore-scripts \
+            --access public --provenance

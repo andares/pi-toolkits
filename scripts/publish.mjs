@@ -5,49 +5,71 @@
  *   pnpm release patch   # 0.1.2 → 0.1.3
  *   pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
  *   pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
+ *   pnpm release patch --prepare-only   # 准备到本地 tag，不 push
+ *   pnpm release patch --no-wait        # 推完 tag 就返回，不轮询 CI
+ *   pnpm release patch --local          # 应急：本机直接发布（需要 npm token）
  *
  * Exactly one of `major | minor | patch` is required. A higher-level bump
  * zeroes every lower level.
  *
+ * 发版语义（2026-11 起）：**tag 是发版意图，CI 是发版执行**。
+ * 本脚本做足准备并把 tag 推上去；`.github/workflows/publish.yml` 被 tag 触发后
+ * 用 OIDC trusted publishing 发布（无 token、无 2FA、自动 provenance）。
+ *
  * Flow:
- *   validate arg → 工作区必须干净（有未提交变更直接中止）→ typecheck + test
+ *   validate arg → 工作区必须干净（有未提交变更直接中止）→ typecheck + test + UI checks
  *   → bump package.json → git commit `chore: release vX.Y.Z` + tag `vX.Y.Z`
  *     (tag via scripts/tag-current.mjs — skips if already exists)
  *     → 自检：tag == HEAD 且工作区干净（否则中止）
- *   → `pnpm publish` (pnpm-only repo — never `npm publish`). `prepublishOnly`
- *     re-runs typecheck + test as the publish gate.
- *   → npm 成功后（失败即中止）：git push origin <branch>（只推当前分支），
- *     tag 的推送/远端校验/GitHub Release 创建交给 scripts/lib/github-release.mjs
- *     （与 `pnpm release:github` 共用同一条路径，带远端可见性重试；远端 tag 不存在
- *     就推，指向别的提交就拒绝建 Release 并给出人工修复命令）。
+ *   → `git push origin <branch>`，再 `git push origin refs/tags/vX.Y.Z`
+ *     **这就是发版动作**：推成功后 CI 开始发布，本机不再写 registry。
+ *   → 等 CI：workflow run 失败立即中止（带 run URL）；npm 上出现该版本且
+ *     provenance attestation 非空，才算这一版发布完成。
  *   → 用 GITHUB_TOKEN 创建 GitHub Release v{next}（best-effort：未设 token /
  *     已存在 / 失败都只提示、不中止）。
+ *   → 尾部自检：npm / provenance / 远端 tag / Release。
  *
  * 发布后若 GitHub Release 被跳过（竞态/缺 token/push 失败），补建用：
  *     pnpm release:github v{next}      # 不动版本号，不碰 npm，幂等
  *     pnpm release:github --audit      # 列出 npm 与 GitHub Release 的差集
  *
  * `--dry-run` prints the plan (version + steps) and exits without changing
- * anything.
+ * anything. `--prepare-only` stops after commit+tag and prints the push command.
  *
  * Notes:
  *  - 干净检查是硬性前置：release 提交只含版本号，未提交内容会进 npm 包
- *    （pnpm 从工作区打包）却不进 tag —— v0.4.0 事故即由此产生。
- *    `pnpm publish` 仍用 `--no-git-checks`，但此时工作区已保证干净。
+ *    （pnpm 从工作区打包）却不进 tag —— v0.4.0 事故即由此产生。CI 从 tag 的
+ *    提交重新 checkout，发布内容 = tag 内容，不再依赖本机工作区。
  *  - The published tarball ships only `src` (package.json "files"); this
  *    script and `plans/` are never published.
- *  - GitHub Release 需要 fine-grained token（Contents: write），存于
- *    GITHUB_TOKEN 环境变量；创建失败不影响 npm 已发布的结果。
+ *  - GitHub Release 需要 fine-grained token（Contents 写权限），存于
+ *    GITHUB_TOKEN 环境变量；创建失败不影响已推送的 tag 与 npm 发布。
+ *  - 应急（CI 不可用）：`--local` 走本机 `pnpm publish`（需要绕过 2FA 的
+ *    granular token）。2027-01 起该令牌失去直接发布能力，届时应改用
+ *    `npm stage publish` + 网页端 2FA 审批，不要再依赖 `--local`。
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { githubApi, parseJson, releaseTailGap, syncGitHubRelease } from "./lib/github-release.mjs";
+import {
+	githubApi,
+	parseJson,
+	releaseTailGap,
+	syncGitHubRelease,
+} from "./lib/github-release.mjs";
+import { waitForAttestations, waitForCiPublish } from "./lib/ci-publish.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_PATH = join(ROOT, "package.json");
 const BUMPS = ["major", "minor", "patch"];
+const FLAGS = new Set([
+	"--dry-run",
+	"--skip-tail-check",
+	"--prepare-only",
+	"--no-wait",
+	"--local",
+]);
 
 const C = {
 	reset: "\x1b[0m",
@@ -58,26 +80,38 @@ const C = {
 	red: "\x1b[31m",
 };
 
-const arg = process.argv[2];
-const dryRun = process.argv.includes("--dry-run");
-const skipTailCheck = process.argv.includes("--skip-tail-check");
+const argv = process.argv.slice(2);
+const arg = argv[0];
+const dryRun = argv.includes("--dry-run");
+const skipTailCheck = argv.includes("--skip-tail-check");
+const prepareOnly = argv.includes("--prepare-only");
+const noWait = argv.includes("--no-wait");
+const localPublish = argv.includes("--local");
+const unknownFlags = argv.filter((a) => a.startsWith("--") && !FLAGS.has(a));
+const strayArgs = argv.filter((a) => !a.startsWith("--") && a !== arg);
 
-if (!BUMPS.includes(arg)) {
+if (!BUMPS.includes(arg) || unknownFlags.length > 0 || strayArgs.length > 0) {
 	console.error(
-		`${C.red}${C.bold}Usage: pnpm release <${BUMPS.join("|")}>${C.reset}` +
-			`\n  Bump the package version and publish to npm (requires exactly one argument).` +
-			`\n  Add --dry-run to preview without changing anything.` +
-			`\n  Add --skip-tail-check to publish even when the PREVIOUS version's tag is missing remotely.`,
+		`${C.red}${C.bold}Usage: pnpm release <${BUMPS.join("|")}> [flags]${C.reset}` +
+			`\n  Bump the package version, commit + tag it, push branch + tag, and let GitHub Actions publish to npm.` +
+			`\n  --dry-run         preview without changing anything.` +
+			`\n  --prepare-only    stop after commit+tag and print the push command (push = publish).` +
+			`\n  --no-wait         return right after the tag push; do not poll CI or create the Release.` +
+			`\n  --local           emergency: publish from this machine with the local npm token.` +
+			`\n  --skip-tail-check release even when the PREVIOUS version's tag is missing remotely.`,
 	);
+	if (unknownFlags.length > 0) {
+		console.error(`${C.red}Unknown flag(s): ${unknownFlags.join(" ")}${C.reset}`);
+	}
+	if (strayArgs.length > 0) {
+		console.error(`${C.red}Unexpected argument(s): ${strayArgs.join(" ")}${C.reset}`);
+	}
 	process.exit(1);
 }
-if (
-	process.argv
-		.slice(2)
-		.filter((a) => a !== "--dry-run" && a !== "--skip-tail-check").length > 1
-) {
+if (localPublish && (noWait || prepareOnly)) {
 	console.error(
-		`${C.red}Exactly one of ${BUMPS.join("|")} is required.${C.reset}`,
+		`${C.red}--local cannot be combined with --no-wait or --prepare-only.${C.reset}` +
+			`\n  --local publishes synchronously from this machine (the old behaviour).`,
 	);
 	process.exit(1);
 }
@@ -139,6 +173,7 @@ function run(cmd, args, opts = {}) {
 
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const git = process.platform === "win32" ? "git.exe" : "git";
+const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 
 function tagExists(tag) {
 	return (
@@ -155,9 +190,6 @@ function gitOut(args) {
 }
 
 /** Run a git command tolerating failure (network checks, push). */
-function gitTry(args) {
-	return run(git, args, { stdio: "pipe", allowFailure: true });
-}
 
 const branch =
 	run(git, ["branch", "--show-current"], {
@@ -199,12 +231,27 @@ if (dryRun) {
 		);
 	}
 	console.log(`  3b. 自检：tag == HEAD 且工作区干净`);
-	console.log(`  4. pnpm publish --no-git-checks`);
-	console.log(
-		`  5. git push origin ${branch} + refs/tags/v${next}（tag 不存在才推）+ 校验远端 tag 哈希` +
-			`（带可见性重试）+ 创建 GitHub Release` +
-			(process.env.GITHUB_TOKEN ? "" : "（未设置 GITHUB_TOKEN → Release 跳过）"),
-	);
+	if (localPublish) {
+		console.log(`  4. pnpm publish --no-git-checks（--local：本机直接发布，需要 npm token）`);
+		console.log(`  5. git push origin ${branch} + refs/tags/v${next}`);
+		console.log(`  6. 校验远端 tag + 创建 GitHub Release`);
+		console.log(`  7. 尾部自检：npm / remote tag / Release（--local 不检查 provenance）`);
+	} else if (prepareOnly) {
+		console.log(`  4. --prepare-only：停在 push 之前，打印推送命令（推 = 发版）`);
+	} else {
+		console.log(
+			`  4. git push origin ${branch}（分支）→ git push origin refs/tags/v${next}（发版信号）`,
+		);
+		console.log(
+			`  5. CI：pnpm install → typecheck / test / ui → 校验 tag==package.json → pnpm publish --provenance`,
+		);
+		console.log(`  6. 等 CI：workflow run 失败即中止；npm 出现该版本才算完成（--no-wait 跳过）`);
+		console.log(
+			`  7. 校验远端 tag（可见性重试）+ 创建 GitHub Release` +
+				(process.env.GITHUB_TOKEN ? "" : "（未设置 GITHUB_TOKEN → Release 跳过）"),
+		);
+		console.log(`  8. 尾部自检：npm / provenance / remote tag / Release`);
+	}
 	if (dirty) {
 		console.log(
 			`\n${C.yellow}注意：当前工作区有未提交变更——实际执行会在第 0 步直接中止（先提交再发版）：${C.reset}\n` +
@@ -316,47 +363,126 @@ console.log(
 	`${C.green}tag v${next} == HEAD (${headHash.slice(0, 7)}), working tree clean${C.reset}`,
 );
 
-// 4. Publish (prepublishOnly re-gates with typecheck + test).
+// 4. 检查点：--prepare-only 停在 push 之前（本地 tag 已就绪，由人决定何时推）。
+if (prepareOnly) {
+	step("prepare-only：停在 push 之前");
+	console.log(
+		`${C.yellow}未推送——npm 上还不会出现 v${next}。确认后执行：${C.reset}` +
+			`\n  git push origin ${branch} refs/tags/v${next}` +
+			`\n${C.dim}推 tag 会触发 GitHub Actions 的 publish 工作流（OIDC，无 token）。` +
+			`\n决定不发这一版：git tag -d v${next} && git reset --hard HEAD~1${C.reset}`,
+	);
+	process.exit(0);
+}
+
+// 5. 发版执行。默认把 tag 推给 CI —— tag push 就是发版信号。
+if (localPublish) {
+	// 应急路径：本机 token + 2FA bypass 直接发布。2027-01 起该类令牌失去
+	// 直接发布能力，届时改用 `npm stage publish` + 网页端 2FA 审批。
+	step("pnpm publish --no-git-checks（--local：本机直接发布）");
+	const publish = run(pnpm, ["publish", "--no-git-checks"], {
+		allowFailure: true,
+	});
+	if (publish.status !== 0) {
+		console.error(
+			`${C.red}Publish failed. The version bump is already committed + tagged as v${next}.` +
+				`\n  To roll back: git tag -d v${next} && git reset --hard HEAD~1${C.reset}`,
+		);
+		process.exit(publish.status ?? 1);
+	}
+	step(`git push origin ${branch} + refs/tags/v${next}`);
+	const pushed = run(git, ["push", "origin", branch, `refs/tags/v${next}`], {
+		allowFailure: true,
+	});
+	if (pushed.status !== 0) {
+		console.warn(
+			`${C.yellow}git push 失败（可能已推过）——tag 若没到远端，Release 会跳过。${C.reset}`,
+		);
+	}
+} else {
+	step(`git push origin ${branch} → 再推 refs/tags/v${next}（发版信号）`);
+	const pushBranch = run(git, ["push", "origin", branch], { allowFailure: true });
+	if (pushBranch.status !== 0) {
+		console.error(
+			`${C.red}git push origin ${branch} 失败——tag 尚未推送，发版未发生。${C.reset}` +
+				`\n  本地 commit + tag 已就绪；修好远端后重试：` +
+				`\n  git push origin ${branch} refs/tags/v${next}` +
+				`\n  决定不发这一版：git tag -d v${next} && git reset --hard HEAD~1`,
+		);
+		process.exit(pushBranch.status ?? 1);
+	}
+	const pushTag = run(git, ["push", "origin", `refs/tags/v${next}`], {
+		allowFailure: true,
+	});
+	if (pushTag.status !== 0) {
+		console.error(
+			`${C.red}git push refs/tags/v${next} 失败——CI 不会触发，npm 不会有这一版。${C.reset}` +
+				`\n  分支已推送；重试：git push origin refs/tags/v${next}`,
+		);
+		process.exit(pushTag.status ?? 1);
+	}
+	console.log(`${C.green}✅ 已推送 tag v${next}，GitHub Actions 开始发布${C.reset}`);
+}
+
+if (noWait) {
+	console.log(
+		`\n${C.dim}--no-wait：已推 tag，CI 在后台发布。` +
+			`\n  run: https://github.com/${ghRepo}/actions/workflows/publish.yml` +
+			`\n  完成后补尾部：pnpm release:github v${next}（幂等，不碰 npm；Release 需要 GITHUB_TOKEN）${C.reset}`,
+	);
+	process.exit(0);
+}
+
+// 6. 等 CI 真正把这一版落到 npm。先等再建 Release：Release 不应指向一个
+//    没发出去的版本（那就是历史漂移的起点）。
+let ciResult = { status: "published", run: undefined, elapsedMs: 0 };
+if (!localPublish) {
+	step("等待 CI 发布（tag 触发）");
+	ciResult = await waitForCiPublish({
+		repo: ghRepo,
+		token: process.env.GITHUB_TOKEN,
+		sha: headHash,
+		name: pkg.name,
+		version: next,
+		npm,
+		cwd: ROOT,
+		log: (line) => console.log(`${C.dim}${line}${C.reset}`),
+	});
+	if (ciResult.status === "failed") {
+		const url =
+			ciResult.run?.html_url ??
+			`https://github.com/${ghRepo}/actions/workflows/publish.yml`;
+		console.error(
+			`${C.red}${C.bold}CI publish failed for v${next}.${C.reset}` +
+				`\n  run: ${url}` +
+				`\n  tag v${next} 已推送（npm 不能重发同一版本）；修好后重跑工作流：` +
+				`\n    gh workflow run publish.yml -f tag=v${next}` +
+				`\n  或 Actions → publish → Run workflow → tag = v${next}（已发布的版本会跳过）。`,
+		);
+		process.exit(1);
+	}
+	if (ciResult.status === "timeout") {
+		// 不确定 = 不发 Release：Release 不应指向一个可能没发出去的版本。
+		console.error(
+			`${C.red}等待超时：npm 上还没有 ${pkg.name}@${next}。${C.reset}` +
+				(ciResult.run ? `\n  run: ${ciResult.run.html_url}` : "") +
+				`\n  CI 若已成功，这是 registry 传播/扫描延迟：稍后用 npm view ${pkg.name}@${next} 复核，` +
+				`\n  确认后再补 Release：pnpm release:github v${next}` +
+				`\n  CI 若失败，修好后重跑工作流（tag 不变）。`,
+		);
+		process.exit(1);
+	}
+}
+
+// 7. GitHub Release（best-effort）。tag 已推、版本已在 npm；syncGitHubRelease
+//    只做「校验远端 tag → 幂等创建 Release」。
 if (!process.env.GITHUB_TOKEN) {
 	console.warn(
-		`${C.yellow}未设置 GITHUB_TOKEN —— npm 会照常发布，但 GitHub Release 会被跳过；` +
+		`${C.yellow}未设置 GITHUB_TOKEN —— GitHub Release 会被跳过；` +
 			`发布后用 pnpm release:github v${next} 补建（幂等，不碰 npm）。${C.reset}`,
 	);
 }
-step("pnpm publish");
-const publish = run(pnpm, ["publish", "--no-git-checks"], {
-	allowFailure: true,
-});
-if (publish.status !== 0) {
-	console.error(
-		`${C.red}Publish failed. The version bump is already committed + tagged as v${next}.` +
-			`\n  To roll back: git tag -d v${next} && git reset --hard HEAD~1${C.reset}`,
-	);
-	process.exit(publish.status ?? 1);
-}
-
-// 5. GitHub：只推当前分支（不再 --tags —— 历史 tag 分歧会整条拒绝推送且掩盖
-// 当前 tag 的真实状态）；tag 推送 + 远端校验 + Release 创建在
-// scripts/lib/github-release.mjs 里，与 `pnpm release:github` 共用。
-// 旧版把「远端 tag 不一致」当成终局、又提示「重跑本脚本（幂等）」——两条都是坑：
-// `pnpm release` 永远会再 bump 一版，漏掉的 Release 反而永远补不上。
-step("git push + 校验 + GitHub Release");
-const pushBranch = gitTry(["push", "origin", branch]);
-if (pushBranch.status !== 0) {
-	console.warn(
-		`${C.yellow}git push origin ${branch} 失败（可能已推过或非快进）— 请手动检查。${C.reset}`,
-	);
-}
-const remoteBranch =
-	gitTry(["ls-remote", "origin", `refs/heads/${branch}`])
-		.stdout.toString()
-		.trim()
-		.split(/\s+/)[0] ?? "";
-if (remoteBranch !== headHash) {
-	console.warn(
-		`${C.yellow}远端 ${branch} (${remoteBranch.slice(0, 7) || "?"}) 与本地 (${headHash.slice(0, 7)}) 不一致 — push 可能未成功。${C.reset}`,
-	);
-}
+step("远端 tag 校验 + GitHub Release");
 const release = await syncGitHubRelease({
 	cwd: ROOT,
 	repo: ghRepo,
@@ -365,18 +491,22 @@ const release = await syncGitHubRelease({
 });
 const releaseOk = release.status === "created" || release.status === "exists";
 
-// 尾部自检（自动）—— 这一版必须三处都有：npm 上有该版本、远端 tag 指向发布
-// 提交、有一个公开的 Release。这就是原来「发完再手动跑 pnpm release:github
-// --audit」的日常份额：全量 audit 会扫所有历史版本，而且历史缺口不该拦住今天
-// 这版；单版本的三处核实才是每次发版都要有的证据。全量 audit 仍可用于怀疑
-// 历史漂移时（比如怀疑某次被打断的发版没人补）。
-step("尾部自检（这一版的三处证据）");
-const npmView = spawnSync("npm", ["view", `${pkg.name}@${next}`, "version"], {
+
+// 8. 尾部自检（自动）—— 这一版必须四项都有：npm 上有该版本、有 provenance、
+// 远端 tag 指向发布提交、有一个公开的 Release。这就是原来「发完再手动跑
+// pnpm release:github --audit」的日常份额：全量 audit 会扫所有历史版本，
+// 而且历史缺口不该拦住今天这版；单版本的四处核实才是每次发版都要有的证据。
+// 全量 audit 仍可用于怀疑历史漂移时（比如怀疑某次被打断的发版没人补）。
+step("尾部自检（这一版的四处证据）");
+const npmView = spawnSync(npm, ["view", `${pkg.name}@${next}`, "version"], {
 	cwd: ROOT,
 	encoding: "utf8",
 	stdio: "pipe",
 });
 const npmOk = npmView.status === 0 && npmView.stdout.trim() === next;
+const attestations = npmOk
+	? await waitForAttestations({ npm, name: pkg.name, version: next, cwd: ROOT })
+	: [];
 const tailRef = await releaseTailGap({ cwd: ROOT, git, tag: `v${next}` });
 let releaseCheck = { label: "release", ok: false, detail: "未设 GITHUB_TOKEN（跳过）" };
 if (process.env.GITHUB_TOKEN) {
@@ -393,12 +523,28 @@ if (process.env.GITHUB_TOKEN) {
 		detail: ok ? data.html_url : `HTTP ${res.code || "?"}`,
 	};
 }
+const npmCheck = {
+	label: "npm",
+	ok: npmOk,
+	detail: npmOk ? next : (npmView.stderr || "npm view 未返回该版本").trim().slice(0, 200),
+};
+let provenanceDetail = "未发布，无 provenance";
+if (attestations.length > 0) {
+	provenanceDetail =
+		attestations[0].url ?? `${attestations.length} attestation(s)`;
+} else if (npmOk) {
+	provenanceDetail = "dist.attestations 为空 —— 检查工作流是否真的走了 OIDC";
+}
+const provenanceCheck = {
+	label: "provenance",
+	ok: attestations.length > 0,
+	detail: provenanceDetail,
+};
 const checks = [
-	{
-		label: "npm",
-		ok: npmOk,
-		detail: npmOk ? next : (npmView.stderr || "npm view 未返回该版本").trim().slice(0, 200),
-	},
+	npmCheck,
+	...(!localPublish
+		? [provenanceCheck]
+		: [{ label: "provenance", ok: true, detail: "n/a（--local 不在本机签名）" }]),
 	{
 		label: "remote tag",
 		ok: tailRef.state === "ok",
@@ -416,10 +562,31 @@ for (const check of checks) {
 }
 const tailComplete = releaseOk && checks.every((check) => check.ok);
 
+// npm 上的版本与 provenance 是这次迁移的硬验收：缺任何一项都不能报「已发布」。
+// Release 仍属 best-effort（缺 token 的人不应该因此发失败）。
+if (!npmOk) {
+	console.error(
+		`\n${C.red}${C.bold}这一版没有发出去：npm 上没有 ${pkg.name}@${next}。${C.reset}` +
+			`\n  tag v${next} 已推送、内容不会变；不要在本地重复发布同一版本。` +
+			`\n  修好工作流后重跑：gh workflow run publish.yml -f tag=v${next}` +
+			`\n  或 Actions → publish → Run workflow → tag = v${next}。`,
+	);
+	process.exit(1);
+}
+if (!localPublish && attestations.length === 0) {
+	console.error(
+		`\n${C.red}${C.bold}${pkg.name}@${next} 已在 npm，但没有 provenance attestation。${C.reset}` +
+			`\n  用 npm view ${pkg.name}@${next} dist.attestations 复核；` +
+			`\n  为空通常意味着发布没走 OIDC（或工作流漏了 --provenance）。`,
+	);
+	process.exit(1);
+}
+
 console.log(
 	`\n${C.green}${C.bold}✅ Published v${current} → v${next}${C.reset}` +
 		`\n${C.dim}Tag: v${next} (${tagHash.slice(0, 7)}) · npm` +
-		(tailComplete ? " · GitHub Release（三处已核实）" : " · 尾部未完成，见上") +
+		(localPublish ? "（--local）" : " by GitHub Actions（OIDC + provenance）") +
+		(tailComplete ? " · GitHub Release（已核实）" : " · GitHub Release 未完成，见上") +
 		`${C.reset}`,
 );
 if (!tailComplete) {

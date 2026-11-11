@@ -608,20 +608,23 @@ src/
 
 **Adding a feature**: create `src/features/<name>/` exporting `registerXxx(pi)` and call it from `src/index.ts`. Existing modules stay untouched. Each feature ships its own `*.test.ts` (vitest) — keep them deterministic (inject clocks/state, no real agent-dir writes).
 
-**Publishing** (pnpm-only, one command):
+**Publishing** (one command; CI performs the upload):
 
 ```bash
 pnpm release patch   # 0.1.2 → 0.1.3
 pnpm release minor   # 0.1.2 → 0.2.0   (patch zeroed)
 pnpm release major   # 0.1.2 → 1.0.0   (minor + patch zeroed)
-pnpm release patch --dry-run   # preview without changing anything
-pnpm release:github            # create/verify the GitHub Release for the current version
-pnpm release:github --audit    # list npm versions vs GitHub Releases vs remote tags
+pnpm release patch --dry-run        # preview without changing anything
+pnpm release patch --prepare-only   # stop at the local tag, print the push command
+pnpm release:github                 # create/verify the GitHub Release for the current version
+pnpm release:github --audit         # list npm versions vs GitHub Releases vs remote tags
 ```
 
-`release` requires exactly one of `major | minor | patch`; incrementing a higher level zeroes the lower ones. The chain is: **the working tree must be clean (any uncommitted change aborts before anything happens, guaranteeing tag content == published content)** → `typecheck + test` gate → version bump → git commit + `vX.Y.Z` tag (self-check that tag == HEAD and the tree is clean) → `pnpm publish` (with `prepublishOnly` as a second gate) → push the current branch → push the tag if the remote lacks it, verify the remote tag hash (with bounded retries, because GitHub's ref view lags right after a push) and create the GitHub Release.
+Releasing is a **tag push**. `pnpm release` runs the gates (`typecheck`, `test`, UI checks), bumps the version, commits, tags `vX.Y.Z`, pushes the branch and the tag — then waits for the GitHub Actions `publish` workflow. That workflow publishes with **npm trusted publishing (OIDC)**: no npm token, no interactive 2FA, and a provenance attestation on every version. The script only reports success once the version is on npm with `dist.attestations` non-empty.
 
-If that last step is skipped (no `GITHUB_TOKEN`, a failed push, an HTTP error), the version would otherwise stay Release-less forever: the next release's auto-generated notes diff against the previous *published* Release, so the missing version's commits get folded into the next one and GitHub drifts away from npm. `pnpm release:github` is the resume path — it never bumps the version and never touches npm; `--audit` is the drift detector (`--allow-gaps` downgrades a historical gap to a warning).
+`--prepare-only` is the "prepare everything, decide later" switch: it stops after commit+tag and prints the exact push command. `--no-wait` returns right after the push; `--local` is the emergency path that publishes from this machine with the old token. A failed workflow is retried on the same tag (`gh workflow run publish.yml -f tag=vX.Y.Z`); an already-published version is skipped, so the rerun is idempotent.
+
+One-time setup by the maintainer (interactive 2FA): `npm trust github @andares/pi-toolkits --repo andares/pi-toolkits --file publish.yml --env npm --allow-publish`. The GitHub Release remains best-effort (`GITHUB_TOKEN`); `pnpm release:github` backfills it without touching npm.
 
 ---
 
