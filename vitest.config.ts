@@ -20,12 +20,22 @@
  *    dynamic-import test), which silently dragged the public floor down to
  *    the noise. Bounding the pool and giving subprocess/dynamic-import tests
  *    room keeps the gate measuring the host instead of the machine.
+ *
+ * 3. `env.TZ`: the zone is pinned to UTC so "green here" means "green in CI".
+ *    A record header carries the machine's numeric offset (`+08:00` locally,
+ *    `+00:00` on the runner), so a hand-written offset in an assertion passed
+ *    here and failed the v0.13.0 publish (run 43093038001). Assertions derive
+ *    such stamps from the code under test; the pinned zone makes any future
+ *    one fail identically on both machines instead of only in CI.
+ *    `scripts/check-compat.mjs` runs its sandboxes without this file, so it
+ *    pins the same zone on the `vitest run` it spawns.
  */
 import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
 	test: {
 		exclude: [...configDefaults.exclude, "**/.agents/framework/**"],
+		env: { TZ: "UTC" },
 		maxWorkers: 4,
 		testTimeout: 30_000,
 		hookTimeout: 30_000,

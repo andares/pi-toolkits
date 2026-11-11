@@ -300,7 +300,10 @@ async function testVersion(version, kind) {
 	if (opts.skipTests) {
 		result.stages.tests = null;
 	} else {
-		tests = await run("pnpm", ["exec", "vitest", "run"], { cwd: dir });
+		// The sandbox does not copy vitest.config.ts, so the UTC pin has to be
+		// repeated here; without it the matrix judges in the machine's zone while
+		// CI judges in UTC (v0.13.0 publish, run 43093038001).
+		tests = await run("pnpm", ["exec", "vitest", "run"], { cwd: dir, env: { TZ: "UTC" } });
 		result.stages.tests = tests.ok;
 		if (!tests.ok) result.notes.push(`tests failed:\n${tail(tests.out, 15)}`);
 	}
