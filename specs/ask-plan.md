@@ -110,15 +110,23 @@
 提交时前端拼固定模板（`feedback.ts`，单测覆盖字节）：
 
 ```text
-## Plan feedback — v2 (3 blocks changed)
+## Plan feedback — v2 of 2 (2 blocks changed)
 
-### Global
-- [change] 整体方向没问题，但别把权限开关藏进计划流程里。
+### Global notes (apply to the whole plan)
+- [suggest] Keep each milestone under a day.
 
-### Block: ## 5. 里程碑  (modified)
-> 原块首行：1. 块模型 + 服务器
-- [change] 里程碑 1 太大，拆成 块模型 与 服务器 两步。
+### Block notes (apply to the quoted block only)
+
+#### line 9 · 1. blocks, then the server (modified)
+> 1. blocks, then the server
+> 2. tests
+- [change] Split the list into two milestones.
 ```
+
+- 全局与块级靠标题区分，不靠缩进或顺序：模型读到的第一句就是"哪些作用于整篇、哪些只作用于下面引用的块"。
+- 块条目带**行号**与该块**完整原文**（多行逐行 `>`，超 600 字符截断）：只给首行时，两个相似的列表项无法区分。
+- 删除的块标 `was in the previous revision` 并引用**旧文本**。
+- 批注 key 找不到当前块时按 `prevId` 反查（旧标签页/改过名的块），绝不静默丢弃批注。
 
 ## 6. 服务器（`server.ts`，`node:http`）
 

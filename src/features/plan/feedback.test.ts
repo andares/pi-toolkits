@@ -23,9 +23,11 @@ describe("buildFeedbackMarkdown", () => {
 			],
 		});
 		expect(text).toContain("## Plan feedback — v2 of 5 (no block changes)");
-		expect(text).toContain("### Global");
+		expect(text).toContain("### Global notes (apply to the whole plan)");
 		expect(text).toContain("- [change] Keep the permission toggle out of the plan flow.");
-		expect(text).toContain("### Block: 1. blocks (unchanged)");
+		expect(text).toContain("### Block notes (apply to the quoted block only)");
+		expect(text).toContain("#### line 3 · 1. blocks (unchanged)");
+		expect(text).toContain("> 1. blocks");
 		expect(text).toContain("- [question] What stops a third round here?");
 		expect(text).toContain(
 			"Update the plan file to address every annotation above, then submit it again with plan_submit.",
@@ -51,8 +53,8 @@ describe("buildFeedbackMarkdown", () => {
 			],
 		});
 		expect(text).toContain("## Plan feedback — v3 of 5 (1 block changed)");
-		expect(text).toContain("### Block: 1. blocks, then the server (modified)");
-		expect(text).toContain("> Previous first line: 1. blocks and server");
+		expect(text).toContain("#### line 3 · 1. blocks, then the server (modified)");
+		expect(text).toContain("> 1. blocks, then the server");
 		expect(text).toContain("- [change] Split it in two.");
 	});
 
@@ -162,7 +164,7 @@ describe("buildFeedbackMarkdown", () => {
 				{ blockId: "deadbeef0000#0", annotations: [{ verdict: "change", comment: "ghost" }] },
 			],
 		});
-		expect(text).not.toContain("### Global");
+		expect(text).not.toContain("### Global notes");
 		expect(text).not.toContain("ghost");
 		expect(text).toContain(
 			"No specific annotations were left — ask what should change before resubmitting.",
@@ -187,8 +189,32 @@ describe("buildFeedbackMarkdown", () => {
 				},
 			],
 		});
-		expect(text).toContain("### Block: remove this step (removed)");
+		expect(text).toContain("#### was in the previous revision · remove this step (removed)");
+		expect(text).toContain("> remove this step");
 		expect(text).toContain("- [question] Why was this dropped?");
+	});
+
+	it("resolves an annotation keyed by the previous block id instead of dropping it", () => {
+		const before = parse("## Plan\n\nwrite the parser first");
+		const after = parse("## Plan\n\nwrite the block parser first");
+		const text = buildFeedbackMarkdown({
+			decision: "deny",
+			version: 2,
+			totalVersions: 2,
+			blocks: after,
+			diff: diffBlocks(before, after),
+			previousBlocks: before,
+			global: [],
+			perBlock: [
+				{
+					// a tab that has not refreshed still refers to the old block
+					blockId: before[1].id,
+					annotations: [{ verdict: "change", comment: "still relevant" }],
+				},
+			],
+		});
+		expect(text).toContain("still relevant");
+		expect(text).toContain("(modified)");
 	});
 
 	it("collapses multi-line comments onto one line", () => {

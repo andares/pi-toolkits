@@ -35,3 +35,21 @@
   `### Approved plan (specs/topic.md)`、原文、`Record the implementation work in the todo list`。
 - 语言复核：`grep -P '[\p{Han}]' src/features/plan --include='*.ts'`（排除测试）为空；
   中文只出现在 `ui/src/i18n.ts`（界面文案，崔总要求的中英双语）与中文注释里。
+
+## 追加（同日）：批注的两级更明确
+
+崔总问：deny 不回填原文时，模型分得清哪条批注是全局、哪条针对某块吗？
+
+原来的格式靠 `### Global` 与 `### Block: <首行> (状态)` 区分——能分，但定位弱：只有首行，
+两个相似的列表项无从分辨，也没有行号。
+
+现在：
+
+- `### Global notes (apply to the whole plan)` / `### Block notes (apply to the quoted block only)`
+  —— 标题本身就把作用域说死；
+- 块条目 `#### line 9 · 1. blocks, then the server (modified)`，下面是**整块原文引用**
+  （多行逐行加 `>`，超过 600 字符截断）；删除块标 `was in the previous revision` 并引用旧文本；
+- 批注 key 命中不到当前块时按 `prevId` 反查：旧标签页/被改名的块不再静默丢批注（这条是实测
+  示例时发现的真 bug——原先 `byId.get()` 落空就 `continue`）。
+
+验证：`pnpm test` 42 文件 / 777 测试（plan 110 例），新增「按 prevId 反查」用例；`ui:check` 绿。

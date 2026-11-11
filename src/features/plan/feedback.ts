@@ -75,6 +75,21 @@ function annotationLines(annotations: readonly Annotation[]): string[] {
 		);
 }
 
+/** Longest block excerpt quoted back — enough to locate it, not a second copy of the plan. */
+const QUOTE_LIMIT = 600;
+
+function quoteBlock(text: string): string {
+	const trimmed = text.trim();
+	const clipped =
+		trimmed.length > QUOTE_LIMIT ? `${trimmed.slice(0, QUOTE_LIMIT)}…` : trimmed;
+	// Every line of a blockquote needs the marker, otherwise the tail of a
+	// multi-line paragraph escapes the quote and reads like instructions.
+	return clipped
+		.split("\n")
+		.map((line) => `> ${line}`)
+		.join("\n");
+}
+
 /**
  * Build the message for one decision. Approval without notes gets a short
  * instruction to start; approval with notes keeps the notes; denial always
@@ -90,30 +105,37 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 	const sections: string[] = [];
 	const globalLines = annotationLines(input.global);
 	if (globalLines.length > 0) {
-		sections.push(["### Global", ...globalLines].join("\n"));
+		sections.push(["### Global notes (apply to the whole plan)", ...globalLines].join("\n"));
 	}
+
+	// An annotation may arrive keyed by the block's PREVIOUS id (a tab that has
+	// not refreshed, a block that was edited between review and submit). Resolve
+	// through `prevId` instead of dropping the operator's note on the floor.
+	const entryByPrevId = new Map(
+		input.diff.flatMap((entry) => (entry.prevId ? [[entry.prevId, entry] as const] : [])),
+	);
 
 	const blockSections: string[] = [];
 	for (const group of input.perBlock) {
-		const block = byId.get(group.blockId);
-		const status = diffById.get(group.blockId)?.status ?? "unchanged";
+		const viaPrevious = entryByPrevId.get(group.blockId);
+		const blockId = byId.has(group.blockId) ? group.blockId : (viaPrevious?.id ?? group.blockId);
+		const block = byId.get(blockId);
+		const status = diffById.get(blockId)?.status ?? "unchanged";
 		// Removed blocks stay visible in the review and remain annotatable; their
 		// text comes from the previous revision. A genuinely unknown id is still
 		// ignored (it cannot be rendered or meaningfully addressed).
-		const source = block ?? (status === "removed" ? prevById.get(group.blockId) : undefined);
+		const source = block ?? (status === "removed" ? prevById.get(blockId) : undefined);
 		if (!source) continue;
 		const lines = annotationLines(group.annotations);
 		if (lines.length === 0) continue;
-		const heading = `### Block: ${blockLabel(source)} (${STATUS_LABEL[status] ?? status})`;
-		const previousId = diffById.get(group.blockId)?.prevId;
-		const previous = previousId ? prevById.get(previousId) : undefined;
-		const quote =
-			status === "modified" && previous
-				? [`> Previous first line: ${blockLabel(previous, 120)}`]
-				: [];
-		blockSections.push([heading, ...quote, ...lines].join("\n"));
+		const anchor = status === "removed" ? "was in the previous revision" : `line ${source.line}`;
+		const blockHeading = `#### ${anchor} · ${blockLabel(source, 100)} (${STATUS_LABEL[status] ?? status})`;
+		// Quote the block itself, not its first line: two similar list items are
+		// indistinguishable from a label alone, and the model edits files, so it
+		// needs text it can search for. Removed blocks quote the old text.
+		blockSections.push([blockHeading, quoteBlock(source.text), ...lines].join("\n"));
 	}
-	if (blockSections.length > 0) sections.push(...blockSections);
+	if (blockSections.length > 0) sections.push(["### Block notes (apply to the quoted block only)", ...blockSections].join("\n\n"));
 
 	const body =
 		sections.length > 0
