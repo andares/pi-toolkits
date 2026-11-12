@@ -102,8 +102,14 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # 发布器必须是 npm CLI，不能是 pnpm：
+      # pnpm 12 自己做 OIDC token 交换，对 registry 的交换端点拿到 404 后不报错退出，
+      # 而是回落成**匿名**发布，最后以 `404 Not Found` 收场（v0.13.0 首次尝试，
+      # run 43167439237：`[WARN] Skipped OIDC: ERR_PNPM_AUTH_TOKEN_EXCHANGE ... 404`
+      # → `Failed to publish ... status 404`）。npm CLI 的同一条交换在同一个仓库、
+      # 同一组 claim 下是成功的（对照：aliciai-dev/paintress 的 publish.yml，同样是
+      # immutable subject claims 的新仓库）。
+      # `--ignore-scripts`：门禁已作为显式步骤跑过，prepublishOnly 不必再跑一遍。
       - name: Publish with provenance
         if: steps.probe.outputs.skip != 'true'
-        run: |
-          pnpm publish --no-git-checks --ignore-scripts \
-            --access public --provenance
+        run: npm publish --provenance --access public --ignore-scripts
