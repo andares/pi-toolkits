@@ -7,8 +7,11 @@ and the one just installed, once. This file keeps the full history.
 Before releasing, add top-level `- ` bullets under `## Unreleased`. `pnpm release`
 renames that heading to the version being published and refuses an empty section
 (`--skip-changelog` bypasses the gate).
-
 ## Unreleased
+
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
+## 0.14.0 — 2026-11-13
 
 - **whats-new** — the first interactive `pi` start after an upgrade shows what changed since the version you last ran, once, without registering a slash command.
 - **permission** — fewer false-positive prompts for quoted grep patterns, literal shell loops, `env`, `curl` data flags and read-only container inspection; multi-line commands are now split correctly.
@@ -37,3 +40,4 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
