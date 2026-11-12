@@ -4,16 +4,18 @@
 
 ## 分层
 
-证据：`package.json`、`src/index.ts`、`git ls-files src`（2026-10-26 读取）。
+证据：`package.json`、`src/index.ts`、`git ls-files src`（2026-11-12 复核）。
 
-- **一个 npm 包** `@andares/pi-toolkits`，`pi.extensions` 指向 `./src/index.ts`；`files: ["src"]`，
+- **一个 npm 包** `@andares/pi-toolkits`，`pi.extensions` 指向 `./src/index.ts`；`files: ["src", "CHANGELOG.md"]`，
   没有 build 步骤（宿主直接加载 TypeScript 源）。`LICENSE` 为 MIT（2026 Andares Cui）。
 - **入口** `src/index.ts` 默认导出 `piToolkits(pi: ExtensionAPI)`：先建一个 gate 总线
-  （`createGateHub`）与一个审批日志（`createApprovalLog`），再顺序注册 8 个 feature，
+  （`createGateHub`）与一个审批日志（`createApprovalLog`），再顺序注册 12 个 feature，
   最后 `gates.install(pi)`。注册顺序有语义：`permission` 在 `autostart` 之前，好让项目声明的
-  `/ask-perm ...` 面对干净状态（`src/index.ts` 的注释即此依据）。
-- **feature 层** `src/features/<name>/`，每个导出 `registerXxx(pi, …)`；当前 8 个：
-  `ask`、`autostart`、`compact`、`favorites`、`init`、`permission`、`review`、`stash`。
+  `/ask-perm ...` 面对干净状态；`uat` 在 `plan` 之后，让 `record_change` 追加到 plan 装好的
+  工具集上（`src/index.ts` 的注释即此依据）。
+- **feature 层** `src/features/<name>/`，每个导出 `registerXxx(pi, …)`；当前 12 个：
+  `ask`、`autostart`、`compact`、`favorites`、`init`、`permission`、`plan`、`quit-guard`、
+  `review`、`stash`、`uat`、`whats-new`。
   新增 feature = 新建目录 + 入口加一行，不改既有模块。
 - **共享层** `src/lib/`：`gates.ts`（闸门总线 + 弹窗串行队列 + 审计计数）、`approval-log.ts`
   （滚动 JSONL）、`tools.ts`（活跃工具快照/恢复 + jailed 工具登记）、`model-config.ts`、
@@ -110,3 +112,17 @@
 - 后果：`record_change` 是唯一写规范记录与候选的工具，但目录本身仍是兜底索引；review 不落任何状态；
   框架刷新用受管文件 + 模板哈希锚，`AGENTS.md` 只重写 workflow 标记块，不升 `FRAMEWORK_VERSION`。
 - 来源：`specs/ask-uat.md`；证据 `.agents/implementations/2026-11-12_0313_ask-uat.md`。
+
+### D8 whats-new 的内容源与「一次一版」语义（2026-11-12）
+
+- 背景：插件升级后「改了什么」只能靠翻 README / git log；README 描述的是当前状态、不是增量，
+  提交标题（`fix(uat): …`）是写给维护者的。多数插件的做法是升级后首启弹一次变更提示。
+- 决定：① 内容源是随包发布的 `CHANGELOG.md`，发布时由 `pnpm release` 把 `## Unreleased`
+  改名为目标版本（`scripts/lib/changelog.mjs`），空段落/缺段落直接中止发版——不做运行时拼提交
+  标题；② 只在 `session_start(reason=startup)` 且 TUI 模式触发，非 TUI 不消费这次提示；
+  ③ 状态是 `<agent-dir>/pi-toolkits-whats-new.json` 里的最高已处理版本，严格升高才提示，
+  全新安装与降级都不弹；④ 呈现用会话条目（invalidate 冲不掉、不进模型上下文）；
+  ⑤ 不注册 `/whats-new` 等全局命令，只保留自动提示（崔总 2026-11-13）。
+- 后果：提示文本与 `CHANGELOG.md` 同源，无法出现「公告说有、实际没发」；维护者必须为每次发版
+  写至少一条顶层 bullet（`--skip-changelog` 显式跳过）。发布链因此多一道门，见
+  `AGENTS.md` §Feature: whats-new 与 §Release。

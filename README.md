@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: eleven ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **plan review in the browser** `ask-plan`, an **acceptance ledger with a browser page** `ask-uat`, and a **quit watchdog** `quit-guard` — with more to come.
+In a nutshell: twelve ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **plan review in the browser** `ask-plan`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.1 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -58,6 +58,7 @@ After installing, verify in any pi session:
   - [🚀 autostart — session startup automation](#autostart)
   - [🧠 init — agent memory framework](#init)
   - [🧯 quit-guard — quit watchdog](#quit-guard)
+  - [🆕 whats-new — release notes after an upgrade](#whats-new)
 - [Development](#development)
 - [Contributing](#contributing)
 - [License](#license)
@@ -81,6 +82,7 @@ After installing, verify in any pi session:
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
 | 🧯 **quit-guard** quit watchdog | `/quit-guard` | force-exit when an interactive shutdown hangs, whether after the TUI teardown or before it on a signal-triggered quit; write a hang report and give the shell prompt back; TUI restarts and Ctrl+Z resume disarm it |
+| 🆕 **whats-new** release notes after an upgrade | automatic | the first `pi` start after an upgrade shows what changed since the version you last ran, once; no slash command or other global namespace is claimed |
 
 ---
 
@@ -136,8 +138,11 @@ Repeating the argument form with the modes already in force is a **no-op**: no s
 - **bash** is decomposed into simple commands — `&&`, `||`, `;`, pipes, `$(…)`, backticks, `bash -c`, `eval`, the common indirection wrappers (`sudo`, `env`, `xargs`, `find -exec`, …), heredocs — and judged per command. `cd` folds into the commands after it; the strictest result wins, so `cd /tmp && rm x` cannot ride on the first segment.
 - **path-bearing tools** (`read` / `write` / `edit` / `grep` / `find` / `ls`) are judged by their own path; every other tool is judged by the working directory.
 - **unresolvable input** — a non-literal `cd` or `git -C`, an unknown shell variable in a path, an unterminated heredoc or substitution — is asked about regardless of mode (fail closed), never guessed.
+- **literal for-loops** — `for f in a b; do grep x "$f"; done` is expanded with the literal words, because that is what bash does. Ordinary assignments are not persisted across commands without control-flow analysis; an unresolved loop, a value from `$(…)`, or a reassigned/mutated loop variable stays fail-closed. Newlines separate commands (`ls⏎rm x` is two commands, not one), and a backslash-newline is a line continuation.
+- **patterns are not paths** — the first positional operand of `grep`/`rg`/`ag` is the pattern (`grep -n '</div>\s*$' file` asks nothing), and `$` at the end of a quoted string is literal, not a variable.
 - **`git -C <dir>`** is resolved like a local `cd`: relative path arguments (and the repository) are judged against `<dir>`, not the working directory.
-- **device sinks and data arguments** — `/dev/null`, `/dev/stdout` and `/dev/stderr` are never boundary targets, whether written as a redirect (`cmd > /dev/null`) or an operand (`curl -o /dev/null`); the arguments of `echo` / `printf` are data, not paths.
+- **device sinks and data arguments** — `/dev/null`, `/dev/stdout` and `/dev/stderr` are never boundary targets, whether written as a redirect (`cmd > /dev/null`) or an operand (`curl -o /dev/null`); the arguments of `echo` / `printf` are data, not paths, as are declared data flags such as `curl -w` / `-H` / `-d`. Unresolved input and output redirects both stay fail-closed.
+- **container inspection** — `docker`/`podman` subcommands that only inspect (`ps`, `logs`, `inspect`, `images`, `compose ps/logs/config`, …) are reads; `exec`, `run`, `rm`, `build` and everything unlisted stay writes.
 
 **Answers**: `a` allow once · `s` allow this directory for the session · `d` deny · `f` deny this directory for the session. Session grants are kept in memory as `(read|write, directory)`, matched by containment, and cleared when the mode is turned off or the session ends. A session grant outranks the destructive table — once you have allowed an operation for the session, repeating it does not ask again. A command the parser cannot resolve is granted by its exact text instead, so repeating the same opaque command does not ask again.
 
@@ -616,6 +621,31 @@ extension registration); once the TUI is gone it is the only channel left.
 
 ---
 
+## 🆕 whats-new — release notes after an upgrade
+
+<a name="whats-new"></a>
+
+**What this does.** The first interactive `pi` start after an upgrade prints the notes for every
+version between the one you last ran and the one you just installed — once. Later starts are
+silent: the version is recorded in `<agent-dir>/pi-toolkits-whats-new.json`, so the notice never
+comes back for that version. A fresh install is silent too (there is no previous version to
+report from), and a downgrade is not an upgrade.
+
+The notes are the bundled `CHANGELOG.md`: `pnpm release` renames its `## Unreleased` section to
+the version being published (`--skip-changelog` bypasses that gate), so the notes always describe
+the version that actually shipped. The startup notice is a session entry — it survives theme
+changes and invalidations, and it stays out of the model context, so it costs no tokens. It is
+capped at four versions and six notes per version; the file keeps everything. There is no slash
+command: this is a plugin, and an automatic notice should not occupy the host's command namespace.
+
+**Boundaries** — interactive TUI only: print/JSON/RPC sessions have no transcript to append to,
+so they leave the notice for the first interactive start instead of consuming it. Notes appear
+only when the version *increases*; reinstalling or downgrading records nothing new. If
+`CHANGELOG.md` has no section for the running version, the notice still reports the version
+change with an explicit "no release notes bundled" line rather than inventing content.
+
+---
+
 ## 🛠️ Development
 
 <a name="development"></a>
@@ -660,7 +690,9 @@ src/
     │                     #           settings store, hang report, tests
     ├── review/           # third-party review: input/command triggers,
     │                     #           review model config store, prompt, tests
-    └── stash/            # prompt stash: hotkey state machine + tests
+    ├── stash/            # prompt stash: hotkey state machine + tests
+    └── whats-new/        # release notes after an upgrade: CHANGELOG parser,
+                          #           last-seen store, startup notice, tests
 ```
 
 **Adding a feature**: create `src/features/<name>/` exporting `registerXxx(pi)` and call it from `src/index.ts`. Existing modules stay untouched. Each feature ships its own `*.test.ts` (vitest) — keep them deterministic (inject clocks/state, no real agent-dir writes).
@@ -677,7 +709,7 @@ pnpm release:github                 # create/verify the GitHub Release for the c
 pnpm release:github --audit         # list npm versions vs GitHub Releases vs remote tags
 ```
 
-Releasing is a **tag push**. `pnpm release` runs the gates (`typecheck`, `test`, UI checks), bumps the version, commits, tags `vX.Y.Z`, pushes the branch and the tag — then waits for the GitHub Actions `publish` workflow. That workflow publishes with **npm trusted publishing (OIDC)**: no npm token, no interactive 2FA, and a provenance attestation on every version. The script only reports success once the version is on npm with `dist.attestations` non-empty.
+Releasing is a **tag push**. `pnpm release` runs the gates (`typecheck`, `test`, UI checks), promotes the `## Unreleased` section of `CHANGELOG.md` to the new version (an empty section aborts the release — `--skip-changelog` opts out), bumps the version, commits, tags `vX.Y.Z`, pushes the branch and the tag — then waits for the GitHub Actions `publish` workflow. That workflow publishes with **npm trusted publishing (OIDC)**: no npm token, no interactive 2FA, and a provenance attestation on every version. The script only reports success once the version is on npm with `dist.attestations` non-empty.
 
 `--prepare-only` is the "prepare everything, decide later" switch: it stops after commit+tag and prints the exact push command. `--no-wait` returns right after the push; `--local` is the emergency path that publishes from this machine with the old token. A failed workflow is retried on the same tag (`gh workflow run publish.yml -f tag=vX.Y.Z`); an already-published version is skipped, so the rerun is idempotent.
 

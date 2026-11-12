@@ -74,6 +74,21 @@ const DEVICE_SINKS = new Set(["/dev/null", "/dev/stdout", "/dev/stderr"]);
  */
 const NO_PATH_OPERANDS = new Set(["echo", "printf"]);
 
+/**
+ * Flags whose value is data even when it looks like a path. `curl -w
+ * '%{http_code}\n'` contains a backslash, so the path heuristic claimed a
+ * write target inside the project (audit 2026-10-26: 2 asks). The table stays
+ * small on purpose: every entry widens the read blind spot for that flag.
+ */
+const DATA_VALUE_OPTS: Record<string, ReadonlySet<string>> = {
+	curl: new Set([
+		"-w", "--write-out", "-H", "--header", "-d", "--data", "--data-raw",
+		"--data-binary", "--data-urlencode", "-X", "--request", "-A",
+		"--user-agent", "-e", "--referer", "-u", "--user", "-b", "--cookie",
+		"-F", "--form", "--form-string", "-x", "--proxy",
+	]),
+};
+
 /* -------------------------------------------------------------------------- */
 /* Read/write classification                                                  */
 /* -------------------------------------------------------------------------- */
@@ -232,6 +247,7 @@ export function commandEffect(command: string, args: readonly string[]): Effect 
 		const verb = args.find((arg) => /^[a-zA-Z]+$/.test(arg)) ?? "";
 		return /[xc]/.test(verb) ? "write" : "read";
 	}
+	if (command === "docker" || command === "podman") return containerEffect(args);
 	if (READ_COMMANDS.has(command)) return "read";
 	if (WRITE_COMMANDS.has(command)) return "write";
 	return "write";
@@ -249,6 +265,42 @@ const REDIRECTS = new Set([
 ]);
 const WRITE_REDIRECTS = new Set([">", ">>", ">|", "&>", "&>>", ">&", "<>"]);
 const PROCESS_SUBSTITUTION = new Set(["<(", ">("]);
+
+/**
+ * Container subcommands that only inspect. `docker compose ps` in a directory
+ * outside the session roots used to ask as an "outside-project write" (audit
+ * 2026-10-29) although it touches no local file; anything not listed — `run`,
+ * `exec`, `rm`, `build`, … — stays a write. `exec` in particular runs an
+ * arbitrary command and must keep asking.
+ */
+const CONTAINER_READ_SUBCOMMANDS = new Set([
+	"ps", "logs", "inspect", "images", "version", "info", "top", "stats",
+	"port", "diff", "history", "search", "events", "df",
+]);
+const CONTAINER_VALUE_OPTS = new Set([
+	"-H", "--host", "--context", "-c", "--config", "--log-level",
+	"--tlscacert", "--tlscert", "--tlskey",
+]);
+const COMPOSE_READ_SUBCOMMANDS = new Set([
+	"ps", "logs", "config", "top", "images", "version", "ls", "port",
+]);
+const COMPOSE_VALUE_OPTS = new Set([
+	"-f", "--file", "-p", "--project-name", "--profile",
+	"--project-directory", "--env-file", "--ansi", "--progress",
+]);
+
+function containerEffect(args: readonly string[]): Effect {
+	const top = firstNonOption(args, CONTAINER_VALUE_OPTS);
+	if (top < 0) return "write";
+	if (args[top] === "compose") {
+		const rest = args.slice(top + 1);
+		const inner = firstNonOption(rest, COMPOSE_VALUE_OPTS);
+		return inner >= 0 && COMPOSE_READ_SUBCOMMANDS.has(rest[inner])
+			? "read"
+			: "write";
+	}
+	return CONTAINER_READ_SUBCOMMANDS.has(args[top]) ? "read" : "write";
+}
 
 function opOf(entry: ParseEntry): string | undefined {
 	if (typeof entry !== "object" || entry === null) return undefined;
@@ -319,6 +371,11 @@ export function stripHeredocs(input: string): string | undefined {
  * Replace `$(…)` and backtick substitutions with placeholder words and return
  * their payloads, so the outer command parses cleanly and each payload can be
  * analysed as a command of its own.
+ *
+ * Quote-aware: inside single quotes both forms are literal text, not commands
+ * (`grep -n ':title="x`' file` is a pattern, not an unterminated
+ * substitution — audit 2026-11-05). Inside double quotes they do expand, as in
+ * bash.
  */
 export function extractSubstitutions(input: string): {
 	text: string;
@@ -327,26 +384,49 @@ export function extractSubstitutions(input: string): {
 	const payloads: string[] = [];
 	let out = "";
 	let index = 0;
+	let quote: "'" | '"' | undefined;
+
+	const takeSubstitution = (start: number, end: number): void => {
+		payloads.push(input.slice(start, end));
+		out += `${SENTINEL}SUBST${payloads.length - 1}${SENTINEL}`;
+	};
+
 	while (index < input.length) {
 		const char = input[index];
-		if (char === "\\") {
+		if (char === "\\" && quote !== "'") {
 			out += input.slice(index, index + 2);
 			index += 2;
+			continue;
+		}
+		if (quote === "'") {
+			out += char;
+			if (char === "'") quote = undefined;
+			index++;
+			continue;
+		}
+		if (char === "'" && quote === undefined) {
+			quote = "'";
+			out += char;
+			index++;
+			continue;
+		}
+		if (char === '"' ) {
+			quote = quote === '"' ? undefined : '"';
+			out += char;
+			index++;
 			continue;
 		}
 		if (char === "`") {
 			const end = input.indexOf("`", index + 1);
 			if (end < 0) return undefined;
-			payloads.push(input.slice(index + 1, end));
-			out += `${SENTINEL}SUBST${payloads.length - 1}${SENTINEL}`;
+			takeSubstitution(index + 1, end);
 			index = end + 1;
 			continue;
 		}
 		if (char === "$" && input[index + 1] === "(") {
 			const end = findClosingParen(input, index + 2);
 			if (end < 0) return undefined;
-			payloads.push(input.slice(index + 2, end));
-			out += `${SENTINEL}SUBST${payloads.length - 1}${SENTINEL}`;
+			takeSubstitution(index + 2, end);
 			index = end + 1;
 			continue;
 		}
@@ -357,12 +437,19 @@ export function extractSubstitutions(input: string): {
 }
 
 /**
- * Remove shell comments and verify quote balance in one pass.
+ * Remove shell comments, normalize line breaks, and verify quote balance in
+ * one pass.
  *
  * `shell-quote` silently accepts an unterminated quote, so the balance check
  * is what keeps malformed input from being parsed as a command we then judge.
  * Comments are dropped first because an apostrophe in `# it's fine` would
  * otherwise look like an opening quote. `undefined` means unbalanced.
+ *
+ * Unquoted newlines become `;`: shell-quote treats a newline as plain
+ * whitespace, so without this two commands on separate lines merged into one
+ * segment (`ls⏎rm -rf x` looked like `ls rm -rf x` — a missed write, and the
+ * common source of phantom "unresolved path" asks for multi-line scripts).
+ * A backslash-newline is a line continuation in bash and is removed instead.
  */
 function stripComments(input: string): string | undefined {
 	let out = "";
@@ -371,6 +458,14 @@ function stripComments(input: string): string | undefined {
 		const char = input[i];
 		if (quote !== "'") {
 			if (char === "\\") {
+				if (input[i + 1] === "\n") {
+					i++;
+					continue;
+				}
+				if (input[i + 1] === "\r" && input[i + 2] === "\n") {
+					i += 2;
+					continue;
+				}
 				out += input.slice(i, i + 2);
 				i++;
 				continue;
@@ -388,10 +483,15 @@ function stripComments(input: string): string | undefined {
 		}
 		if (char === "#" && (i === 0 || /\s/.test(input[i - 1]))) {
 			while (i < input.length && input[i] !== "\n") i++;
-			out += "\n";
+			out += ";";
 			continue;
 		}
-		out += char;
+		if (char === "\r" && input[i + 1] === "\n") {
+			out += ";";
+			i++;
+			continue;
+		}
+		out += char === "\n" ? ";" : char;
 	}
 	return quote === undefined ? out : undefined;
 }
@@ -435,6 +535,12 @@ function envFor(base: string | null): Record<string, string> {
 		get(target, key) {
 			if (typeof key !== "string") return undefined;
 			if (Object.hasOwn(target, key)) return target[key];
+			// A lone `$` — end of a double-quoted string (`"</div>\s*$"`), or
+			// `$` before a character that cannot start a name — is literal in
+			// bash. shell-quote still calls the proxy with an empty key for that
+			// case; expanding it to the sentinel turned every such grep pattern
+			// into an "unresolved path" (audit 2026-11-12: 5 asks).
+			if (key === "") return "$";
 			return `${SENTINEL}VAR${key}${SENTINEL}`;
 		},
 	});
@@ -539,13 +645,18 @@ function firstCommandWord(words: readonly string[]): string {
 /** Whether a word looks like a filesystem path. */
 export function looksLikePath(word: string): boolean {
 	if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(word)) return false; // URL
+	if (/^[A-Za-z]:[\\/]/.test(word) || word.startsWith("\\\\")) return true; // Windows drive / UNC
 	return (
 		word === "." ||
 		word === ".." ||
 		word.startsWith("/") ||
 		word.startsWith("~") ||
 		word.includes("/") ||
-		word.includes("\\") ||
+		// A bare backslash is *not* a path separator on POSIX: `\s*`, `\|`, and
+		// `%{http_code}\n` are regex/format text, and treating them as paths made
+		// read targets out of grep patterns (audit 2026-11-12). Relative Windows
+		// spellings (`dir\file`) join the read blind spot; the target host here is
+		// POSIX, and absolute Windows paths still match above.
 		word.includes("*") ||
 		word.includes("?") ||
 		word.includes("[")
@@ -603,6 +714,21 @@ export function operands(
 const WRITE_OPERAND_VALUE_OPTS = new Set([
 	"-t", "-S", "-e", "-C", "-o", "--output", "--target-directory", "--suffix",
 	"--reference", "--mode",
+]);
+
+/**
+ * grep-family commands whose **first positional operand is the pattern**, not a
+ * path. `grep -n '</div>\s*$' src/a.vue` used to collect the pattern as a file
+ * target (and an unresolved `$`/`\` in a pattern as an opaque path — audit
+ * 2026-11-12: 5 asks). With `-e`/`-f` the pattern is named explicitly, so every
+ * positional is a file again.
+ */
+const GREP_FAMILY = new Set(["grep", "egrep", "fgrep", "rg", "ag"]);
+const GREP_VALUE_OPTS = new Set([
+	"-A", "-B", "-C", "-m", "-d", "-e", "--regexp", "-f", "--file",
+	"--after-context", "--before-context", "--context", "--max-count",
+	"--directories", "--include", "--exclude", "--exclude-dir", "--exclude-from",
+	"--label", "--color", "--colour",
 ]);
 
 function dedupeTargets(targets: UnitTarget[]): UnitTarget[] {
@@ -669,17 +795,38 @@ function analyzeSegment(
 	if (words.length === 0) return { units: [], nextBase: base };
 
 	// Leading `VAR=value` assignments belong to the segment's environment, not
-	// to the command.
+	// to the command. A segment made only of assignments touches nothing, so it
+	// produces no unit (audit 2026-11-12: `f=…jsonl` asked as a write).
 	let peeled = words.filter(() => true);
 	while (peeled.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(peeled[0])) {
 		peeled = peeled.slice(1);
 	}
+	if (peeled.length === 0) return { units: [], nextBase: base };
 
 	// Wrapper peeling: `sudo rm` is decided by `rm`, while `headWord` keeps the
 	// wrapper visible for the danger table.
 	for (let round = 0; round < 4; round++) {
 		const step = peelOne(peeled);
 		if (!step) break;
+		// A plain `env` / `env FOO=1` prints the environment: nothing to resolve,
+		// nothing to guard. Without this it was an opaque "wrapper runs no
+		// visible command" (audit 2026-11-12: 5 asks for `env | grep …`).
+		const rest = peeled.slice(step.inner);
+		if (step.wrapper === "env" && rest.every((word) => ASSIGNMENT_RE.test(word))) {
+			return {
+				units: [{
+					raw,
+					headWord,
+					command: "env",
+					args: rest,
+					effect: "read",
+					opaque: false,
+					base,
+					targets: [],
+				}],
+				nextBase: base,
+			};
+		}
 		if (step.inner >= peeled.length) {
 			return {
 				units: [opaqueUnit(raw, headWord, step.wrapper, base, "wrapper runs no visible command")],
@@ -877,9 +1024,22 @@ function analyzeSegment(
 	}
 
 	// Path-like arguments are targets for every command, except for commands
-	// whose arguments are data (`echo`, `printf`) and device sinks.
+	// whose arguments are data (`echo`, `printf`), declared data flags, and
+	// device sinks.
 	if (!NO_PATH_OPERANDS.has(command)) {
-		for (const arg of args) {
+		const dataOpts = DATA_VALUE_OPTS[command];
+		const patternIndex =
+			GREP_FAMILY.has(command) &&
+			!hasFlag(args, "-e", "--regexp", "-f", "--file")
+				? firstNonOption(args, GREP_VALUE_OPTS)
+				: -1;
+		for (let i = 0; i < args.length; i++) {
+			const arg = args[i];
+			if (dataOpts?.has(arg)) {
+				i++;
+				continue;
+			}
+			if (i === patternIndex) continue;
 			if (DEVICE_SINKS.has(arg)) continue;
 			if (!looksLikePath(arg)) continue;
 			// `sed -i` operands were already classified above; its script is not a path.
@@ -947,6 +1107,145 @@ function segmentTokens(entries: ParseEntry[]): string[][] {
 
 const PLACEHOLDER = /\u0000SUBST(\d+)\u0000/g;
 
+/* -------------------------------------------------------------------------- */
+/* Literal for-loops                                                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `for f in a b; do grep x "$f"; done` is a common read-only inspection
+ * shape. The tokenizer leaves `$f` as an unresolved sentinel, which made every
+ * such command opaque (audit 2026-11-12: 29 of 61 asks). Expanding the literal
+ * loop values is what bash does, so the per-unit judgement sees real paths.
+ *
+ * This deliberately does **not** persist ordinary `NAME=value` assignments:
+ * without a control-flow graph, `false && d=/safe; rm "$d/x"` or
+ * `d=/safe; read d; rm "$d/x"` would be judged against the wrong path. Such
+ * uses stay opaque. Loop expansion likewise stops for a variable reassigned or
+ * passed to a shell builtin that can mutate it.
+ *
+ * Anything not provably literal — a value from `$(…)`, a loop over an unknown
+ * list, more than {@link MAX_EXPANSIONS} combinations, a value with whitespace
+ * — is left untouched: the sentinel survives and the unit stays opaque.
+ */
+const MAX_EXPANSIONS = 64;
+const ASSIGNMENT_RE = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
+const SUBST_PLACEHOLDER_RE = /\u0000SUBST\d+\u0000/;
+
+interface LoopFrame {
+	readonly name: string;
+	/** Literal values; empty means "cannot expand, keep failing closed". */
+	readonly values: readonly string[];
+}
+
+interface ExpansionState {
+	/** Open `for` loops, innermost last. */
+	readonly loops: LoopFrame[];
+}
+
+function variableMarker(name: string): string {
+	return `${SENTINEL}VAR${name}${SENTINEL}`;
+}
+
+/** A value that can be substituted without changing word splitting. */
+function isLiteralValue(value: string): boolean {
+	return (
+		value !== "" &&
+		!hasSentinel(value) &&
+		!SUBST_PLACEHOLDER_RE.test(value) &&
+		!/\s/.test(value)
+	);
+}
+
+/** `for NAME in w1 w2 …`; any other header keeps an unexpandable frame. */
+function parseForHeader(words: readonly string[]): LoopFrame {
+	const name = words[1] ?? "";
+	if (words[2] !== "in") return { name, values: [] };
+	const values = words.slice(3);
+	return { name, values: values.every(isLiteralValue) ? values : [] };
+}
+
+/** Stop expanding a loop variable after code may have changed its value. */
+function disableLoopVariable(state: ExpansionState, name: string): void {
+	for (let i = 0; i < state.loops.length; i++) {
+		if (state.loops[i].name === name) {
+			state.loops[i] = { name, values: [] };
+		}
+	}
+}
+
+const LOOP_MUTATING_COMMANDS = new Set([
+	"read", "readarray", "mapfile", "unset", "export", "declare", "local",
+	"typeset", "let", "printf",
+]);
+const LOOP_DYNAMIC_COMMANDS = new Set(["eval", "source", "."]);
+
+/** Conservative guard for builtins that can assign to a named variable. */
+function disableMutatedLoopVariables(
+	words: readonly string[],
+	state: ExpansionState,
+): void {
+	const command = words[0];
+	if (LOOP_DYNAMIC_COMMANDS.has(command)) {
+		for (const loop of state.loops) disableLoopVariable(state, loop.name);
+		return;
+	}
+	if (!LOOP_MUTATING_COMMANDS.has(command)) return;
+	for (const arg of words.slice(1)) {
+		const match = /^([A-Za-z_][A-Za-z0-9_]*)(?:=|$)/.exec(arg);
+		if (match) disableLoopVariable(state, match[1]);
+	}
+}
+
+/**
+ * Apply loop keywords and literal expansion to one segment.
+ *
+ * Returns zero segments for structural statements (`for …`, `done`, a bare
+ * assignment) and one segment per literal loop value otherwise.
+ */
+function expandSegment(
+	words: readonly string[],
+	state: ExpansionState,
+): string[][] {
+	let rest = [...words];
+	if (rest[0] === "do") rest = rest.slice(1);
+
+	if (rest[0] === "done") {
+		state.loops.pop();
+		return [];
+	}
+	if (rest[0] === "for") {
+		state.loops.push(parseForHeader(rest));
+		return [];
+	}
+
+	// A reassignment shadows the loop value from this point on. Do not substitute
+	// the old literal into later commands; leave their variable marker opaque.
+	while (rest.length > 0) {
+		const match = ASSIGNMENT_RE.exec(rest[0]);
+		if (!match) break;
+		disableLoopVariable(state, match[1]);
+		rest = rest.slice(1);
+	}
+	if (rest.length === 0) return [];
+	disableMutatedLoopVariables(rest, state);
+
+	let variants: string[][] = [rest];
+	// Innermost first: `for f in /a; do for f in /b; …` uses the inner binding.
+	for (const loop of [...state.loops].reverse()) {
+		if (loop.values.length === 0) continue;
+		const marker = variableMarker(loop.name);
+		const next: string[][] = [];
+		for (const variant of variants) {
+			for (const value of loop.values) {
+				next.push(variant.map((word) => word.split(marker).join(value)));
+				if (next.length > MAX_EXPANSIONS) return [rest];
+			}
+		}
+		variants = next;
+	}
+	return variants;
+}
+
 /**
  * Token-level walker: substitutions are analysed where their placeholder
  * appears, so a payload after `cd /tmp` is judged against `/tmp`.
@@ -965,6 +1264,7 @@ function parseText(
 	}
 	const units: CommandUnit[] = [];
 	let currentBase = base;
+	const expansion: ExpansionState = { loops: [] };
 	for (const segment of segmentTokens(entries)) {
 		const cleaned: string[] = [];
 		for (const word of segment) {
@@ -979,9 +1279,11 @@ function parseText(
 			if (rest !== "") cleaned.push(rest);
 		}
 		if (cleaned.length === 0) continue;
-		const analyzed = analyzeSegment(cleaned, currentBase, depth);
-		units.push(...analyzed.units);
-		currentBase = analyzed.nextBase;
+		for (const words of expandSegment(cleaned, expansion)) {
+			const analyzed = analyzeSegment(words, currentBase, depth);
+			units.push(...analyzed.units);
+			currentBase = analyzed.nextBase;
+		}
 	}
 	return units;
 }

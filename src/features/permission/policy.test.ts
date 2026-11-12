@@ -215,6 +215,16 @@ describe("fail closed", () => {
 		const decision = decide('cd "$DIR" && rm x', ctx);
 		expect(decision.action).toBe("ask");
 	});
+
+	it("does not ignore an unresolved input redirect under strict read modes", () => {
+		const cwd = project();
+		for (const outRead of ["ask", "deny"] as const) {
+			const ctx = makeContext(cwd, { ...DEFAULT_MODES, outRead });
+			const decision = decide('cat < "$UNKNOWN"', ctx);
+			expect(decision.action).toBe("ask");
+			expect(decision.layer).toBe("opaque");
+		}
+	});
 });
 
 describe("decision helpers", () => {

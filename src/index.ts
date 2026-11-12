@@ -15,6 +15,7 @@
  *  - init — agent memory framework install / adoption (/ask-init)
  *  - uat — acceptance ledger and browser page (/ask-uat, record_change)
  *  - quit-guard — quit watchdog: force-exit when pi's shutdown hangs (/quit-guard)
+ *  - whats-new — automatic release notes on the first start after an upgrade
  *
  * `ask` and `permission` are independent gates on one bus: each answers its own
  * question and the strictest answer wins, so they compose rather than replace
@@ -34,6 +35,7 @@ import { registerQuitGuard } from "./features/quit-guard/index.js";
 import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
 import { registerUat } from "./features/uat/index.js";
+import { registerWhatsNew } from "./features/whats-new/index.js";
 
 export default function piToolkits(pi: ExtensionAPI): void {
 	// One rolling audit sink for every gate. Creation is lazy and side-effect
@@ -58,6 +60,7 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	// UAT registers after plan so its `before_agent_start` re-assertion runs last
 	// and can add `record_change` to whatever tool set plan installed.
 	registerUat(pi);
+	registerWhatsNew(pi);
 
 	gates.install(pi);
 }

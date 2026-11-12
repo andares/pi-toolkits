@@ -1,7 +1,7 @@
 {
   "name": "@andares/pi-toolkits",
   "version": "0.13.0",
-  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), browser-reviewed planning, an acceptance ledger with a browser page, session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, a dedicated compaction model, and an agent memory framework (/ask-init)",
+  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), browser-reviewed planning, an acceptance ledger with a browser page, session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, a dedicated compaction model, an agent memory framework (/ask-init), and release notes on the first start after an upgrade",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -12,7 +12,8 @@
     "access": "public"
   },
   "files": [
-    "src"
+    "src",
+    "CHANGELOG.md"
   ],
   "keywords": [
     "pi-package",
@@ -38,7 +39,10 @@
     "uat",
     "acceptance",
     "acceptance-testing",
-    "change-record"
+    "change-record",
+    "whats-new",
+    "release-notes",
+    "changelog"
   ],
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.99.0",

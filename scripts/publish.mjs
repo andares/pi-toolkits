@@ -18,7 +18,9 @@
  *
  * Flow:
  *   validate arg → 工作区必须干净（有未提交变更直接中止）→ typecheck + test + UI checks
- *   → bump package.json → git commit `chore: release vX.Y.Z` + tag `vX.Y.Z`
+ *   → CHANGELOG.md 的 `## Unreleased` 改名为 `## <next> — <date>`（空或缺就中止；
+ *     `--skip-changelog` 跳过）—— 运行时据此在升级后首次启动展示变更摘要
+ *   → bump package.json → git commit `chore: release vX.Y.Z`（含 CHANGELOG.md）+ tag `vX.Y.Z`
  *     (tag via scripts/tag-current.mjs — skips if already exists)
  *     → 自检：tag == HEAD 且工作区干净（否则中止）
  *   → `git push origin <branch>`，再 `git push origin refs/tags/vX.Y.Z`
@@ -40,8 +42,8 @@
  *  - 干净检查是硬性前置：release 提交只含版本号，未提交内容会进 npm 包
  *    （pnpm 从工作区打包）却不进 tag —— v0.4.0 事故即由此产生。CI 从 tag 的
  *    提交重新 checkout，发布内容 = tag 内容，不再依赖本机工作区。
- *  - The published tarball ships only `src` (package.json "files"); this
- *    script and `plans/` are never published.
+ *  - The published tarball ships `src` plus `CHANGELOG.md`; the extension
+ *    announces the released section on the first start after an upgrade.
  *  - GitHub Release 需要 fine-grained token（Contents 写权限），存于
  *    GITHUB_TOKEN 环境变量；创建失败不影响已推送的 tag 与 npm 发布。
  *  - 应急（CI 不可用）：`--local` 走本机 `pnpm publish`（需要绕过 2FA 的
@@ -59,13 +61,16 @@ import {
 	syncGitHubRelease,
 } from "./lib/github-release.mjs";
 import { waitForAttestations, waitForCiPublish } from "./lib/ci-publish.mjs";
+import { findUnreleasedSection, promoteUnreleased } from "./lib/changelog.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_PATH = join(ROOT, "package.json");
+const CHANGELOG_PATH = join(ROOT, "CHANGELOG.md");
 const BUMPS = ["major", "minor", "patch"];
 const FLAGS = new Set([
 	"--dry-run",
 	"--skip-tail-check",
+	"--skip-changelog",
 	"--prepare-only",
 	"--no-wait",
 	"--local",
@@ -84,6 +89,7 @@ const argv = process.argv.slice(2);
 const arg = argv[0];
 const dryRun = argv.includes("--dry-run");
 const skipTailCheck = argv.includes("--skip-tail-check");
+const skipChangelog = argv.includes("--skip-changelog");
 const prepareOnly = argv.includes("--prepare-only");
 const noWait = argv.includes("--no-wait");
 const localPublish = argv.includes("--local");
@@ -98,7 +104,8 @@ if (!BUMPS.includes(arg) || unknownFlags.length > 0 || strayArgs.length > 0) {
 			`\n  --prepare-only    stop after commit+tag and print the push command (push = publish).` +
 			`\n  --no-wait         return right after the tag push; do not poll CI or create the Release.` +
 			`\n  --local           emergency: publish from this machine with the local npm token.` +
-			`\n  --skip-tail-check release even when the PREVIOUS version's tag is missing remotely.`,
+			`\n  --skip-tail-check release even when the PREVIOUS version's tag is missing remotely.` +
+			`\n  --skip-changelog  release without promoting an Unreleased section in CHANGELOG.md.`,
 	);
 	if (unknownFlags.length > 0) {
 		console.error(`${C.red}Unknown flag(s): ${unknownFlags.join(" ")}${C.reset}`);
@@ -189,6 +196,22 @@ function gitOut(args) {
 	return run(git, args, { stdio: "pipe" }).stdout.toString().trim();
 }
 
+/** Current date for a changelog heading (`YYYY-MM-DD`, local time). */
+function todayStamp() {
+	const now = new Date();
+	const pad = (value) => String(value).padStart(2, "0");
+	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** The Unreleased section of CHANGELOG.md, or undefined when absent. */
+function changelogSection() {
+	try {
+		return findUnreleasedSection(readFileSync(CHANGELOG_PATH, "utf8"));
+	} catch {
+		return undefined;
+	}
+}
+
 /** Run a git command tolerating failure (network checks, push). */
 
 const branch =
@@ -220,6 +243,18 @@ if (dryRun) {
 		);
 	}
 	console.log(`  1. pnpm typecheck && pnpm test && pnpm ui:typecheck && pnpm ui:check`);
+	if (skipChangelog) {
+		console.log(`  2a. CHANGELOG.md：--skip-changelog，不提升 Unreleased（本版没有启动公告条目）`);
+	} else {
+		const section = changelogSection();
+		const state =
+			section === undefined
+				? "缺少 `## Unreleased`"
+				: section.notes.length === 0
+					? "`## Unreleased` 还是空的"
+					: `${section.notes.length} 条待发布 → \`## ${next}\``;
+		console.log(`  2a. CHANGELOG.md：${state}（空或缺失会在真实运行时中止）`);
+	}
 	console.log(`  2. bump package.json version → ${next}`);
 	if (tagExists(`v${next}`)) {
 		console.log(
@@ -325,19 +360,62 @@ run(pnpm, ["test"]);
 run(pnpm, ["ui:typecheck"]);
 run(pnpm, ["ui:check"]);
 
-// 2. Bump package.json (preserve formatting: 2-space indent + trailing newline).
+// 2. Release notes gate — promote `## Unreleased` to the version being shipped.
+// The extension (src/features/whats-new) reads the published CHANGELOG.md and
+// announces those notes on the first start after an upgrade, so a release with
+// no notes ships an announcement with nothing in it. The gate runs after the
+// checks: a failed test suite must not leave a half-written changelog.
+step(`release notes → ${next}`);
+if (skipChangelog) {
+	console.log(
+		`${C.yellow}--skip-changelog：CHANGELOG.md 未提升，本版不会有启动公告条目。${C.reset}`,
+	);
+} else {
+	if (!Array.isArray(pkg.files) || !pkg.files.includes("CHANGELOG.md")) {
+		console.error(
+			`${C.red}${C.bold}Aborting: package.json "files" does not include CHANGELOG.md.${C.reset}\n` +
+				`  The runtime reads the changelog from the installed package; without it every\n` +
+				`  \`/whats-new\` says there are no notes. Add "CHANGELOG.md" to files.`,
+		);
+		process.exit(1);
+	}
+	let markdown = "";
+	try {
+		markdown = readFileSync(CHANGELOG_PATH, "utf8");
+	} catch {
+		markdown = "";
+	}
+	try {
+		const date = todayStamp();
+		const promoted = promoteUnreleased(markdown, next, date);
+		writeFileSync(CHANGELOG_PATH, promoted.markdown, "utf8");
+		console.log(
+			`${C.green}## Unreleased → ## ${next} — ${date}（${promoted.notes.length} 条）${C.reset}`,
+		);
+	} catch (error) {
+		console.error(
+			`${C.red}${C.bold}Aborting: release notes are not ready.${C.reset}\n` +
+				`  ${error instanceof Error ? error.message : String(error)}\n` +
+				`  The extension announces these notes on the first start after an upgrade;\n` +
+				`  write them in CHANGELOG.md under \`## Unreleased\` (or pass --skip-changelog).`,
+		);
+		process.exit(1);
+	}
+}
+
+// 3. Bump package.json (preserve formatting: 2-space indent + trailing newline).
 step(`bump version → ${next}`);
 pkg.version = next;
 writeFileSync(PKG_PATH, `${JSON.stringify(pkg, null, 2)}\n`, "utf8");
 
-// 3. Commit，然后调用 tag-current.mjs 打 tag（内部检测已存在 → 不重复打）。
+// 4. Commit，然后调用 tag-current.mjs 打 tag（内部检测已存在 → 不重复打）。
 // 此时 package.json 已是新版本，打出的 v${next} 恰好指向 release commit。
 step(`git commit + tag v${next}`);
-run(git, ["add", "package.json"]);
+run(git, ["add", "package.json", "CHANGELOG.md"]);
 run(git, ["commit", "-m", `chore: release v${next}`]);
 run(process.execPath, [join(ROOT, "scripts", "tag-current.mjs")]);
 
-// 3b. 自检：tag 必须指向 HEAD 且工作区干净 —— 保证「将要发布的 tarball
+// 4b. 自检：tag 必须指向 HEAD 且工作区干净 —— 保证「将要发布的 tarball
 // （从工作区打包）== tag 内容」。任何不一致都在 publish 之前中止。
 const headHash = gitOut(["rev-parse", "HEAD"]);
 const tagHash = gitOut(["rev-parse", `v${next}`]);
@@ -363,7 +441,7 @@ console.log(
 	`${C.green}tag v${next} == HEAD (${headHash.slice(0, 7)}), working tree clean${C.reset}`,
 );
 
-// 4. 检查点：--prepare-only 停在 push 之前（本地 tag 已就绪，由人决定何时推）。
+// 5. 检查点：--prepare-only 停在 push 之前（本地 tag 已就绪，由人决定何时推）。
 if (prepareOnly) {
 	step("prepare-only：停在 push 之前");
 	console.log(
@@ -375,7 +453,7 @@ if (prepareOnly) {
 	process.exit(0);
 }
 
-// 5. 发版执行。默认把 tag 推给 CI —— tag push 就是发版信号。
+// 6. 发版执行。默认把 tag 推给 CI —— tag push 就是发版信号。
 if (localPublish) {
 	// 应急路径：本机 token + 2FA bypass 直接发布。2027-01 起该类令牌失去
 	// 直接发布能力，届时改用 `npm stage publish` + 网页端 2FA 审批。
@@ -433,7 +511,7 @@ if (noWait) {
 	process.exit(0);
 }
 
-// 6. 等 CI 真正把这一版落到 npm。先等再建 Release：Release 不应指向一个
+// 7. 等 CI 真正把这一版落到 npm。先等再建 Release：Release 不应指向一个
 //    没发出去的版本（那就是历史漂移的起点）。
 let ciResult = { status: "published", run: undefined, elapsedMs: 0 };
 if (!localPublish) {
@@ -474,7 +552,7 @@ if (!localPublish) {
 	}
 }
 
-// 7. GitHub Release（best-effort）。tag 已推、版本已在 npm；syncGitHubRelease
+// 8. GitHub Release（best-effort）。tag 已推、版本已在 npm；syncGitHubRelease
 //    只做「校验远端 tag → 幂等创建 Release」。
 if (!process.env.GITHUB_TOKEN) {
 	console.warn(
@@ -492,7 +570,7 @@ const release = await syncGitHubRelease({
 const releaseOk = release.status === "created" || release.status === "exists";
 
 
-// 8. 尾部自检（自动）—— 这一版必须四项都有：npm 上有该版本、有 provenance、
+// 9. 尾部自检（自动）—— 这一版必须四项都有：npm 上有该版本、有 provenance、
 // 远端 tag 指向发布提交、有一个公开的 Release。这就是原来「发完再手动跑
 // pnpm release:github --audit」的日常份额：全量 audit 会扫所有历史版本，
 // 而且历史缺口不该拦住今天这版；单版本的四处核实才是每次发版都要有的证据。

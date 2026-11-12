@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含十一个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内计划评审** `ask-plan`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`,后续持续追加。
+一句话介绍:目前包含十二个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内计划评审** `ask-plan`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.1 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -58,6 +58,7 @@ pi -e ./src/index.ts
   - [🚀 autostart — 会话启动自动化](#autostart)
   - [🧠 init — agent 记忆框架](#init)
   - [🧯 quit-guard — 退出看门狗](#quit-guard)
+  - [🆕 whats-new — 升级后的版本变更提示](#whats-new)
 - [开发](#development)
 - [贡献](#contributing)
 - [许可](#license)
@@ -81,6 +82,7 @@ pi -e ./src/index.ts
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 | 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计漂移、预算与重复事实 |
 | 🧯 **quit-guard** 退出看门狗 | `/quit-guard` | 交互式退出卡死时，无论发生在 TUI 收尾之后、还是信号触发路径的收尾之前，超时后写诊断报告并强制退出，把命令行提示符还给你；TUI 重启与 Ctrl+Z 恢复都会解除看守 |
+| 🆕 **whats-new** 升级后的版本变更提示 | 自动 | 升级后的首次 `pi` 启动展示「从你上次运行的版本到现在改了什么」，只展示一次；不注册斜杠命令，不占用宿主的全局命令命名空间 |
 
 ---
 
@@ -136,8 +138,11 @@ pi -e ./src/index.ts
 - **bash** 先拆成简单命令 —— `&&`、`||`、`;`、管道、`$(…)`、反引号、`bash -c`、`eval`、常见间接包装(`sudo`、`env`、`xargs`、`find -exec`…)、heredoc —— 再逐条判定;`cd` 向前折叠,取最严格的结果,所以 `cd /tmp && rm x` 不会靠第一段蒙混过关
 - **带路径的工具**(`read` / `write` / `edit` / `grep` / `find` / `ls`)按自己的路径判定;其它工具按工作目录判定
 - **无法解析的输入** —— 非字面量 `cd` 或 `git -C`、路径里的未知 shell 变量、未闭合的 heredoc/命令替换 —— 一律询问,不看模式(fail closed),绝不猜测
+- **字面量 for 循环** —— `for f in a b; do grep x "$f"; done` 按字面量展开(这正是 bash 的行为);普通赋值不跨命令持久化(缺少控制流分析时不能安全替换),值来自 `$(…)`、循环列表不可知、循环变量被重赋值/修改时仍按 fail-closed 处理。换行是命令分隔符(`ls⏎rm x` 是两条命令,不是一条),反斜杠+换行是续行
+- **模式不是路径** —— `grep`/`rg`/`ag` 的第一个位置参数是模式(`grep -n '</div>\s*$' file` 不会询问);引号内的结尾 `$` 是字面字符,不是变量
 - **`git -C <dir>`** 按局部 `cd` 处理:相对路径参数(和仓库本身)按 `<dir>` 判定,而不是工作目录
-- **设备 sink 与数据参数** —— `/dev/null`、`/dev/stdout`、`/dev/stderr` 无论是重定向(`cmd > /dev/null`)还是普通操作数(`curl -o /dev/null`),都不算边界目标;`echo` / `printf` 的参数是数据,不按路径处理
+- **设备 sink 与数据参数** —— `/dev/null`、`/dev/stdout`、`/dev/stderr` 无论是重定向(`cmd > /dev/null`)还是普通操作数(`curl -o /dev/null`),都不算边界目标;`echo` / `printf` 的参数是数据,`curl -w` / `-H` / `-d` 这类已声明的 data flag 同理。未解析的输入与输出重定向都保持 fail closed
+- **容器只读子命令** —— `docker`/`podman` 的只读子命令(`ps`、`logs`、`inspect`、`images`、`compose ps/logs/config` 等)算读;`exec`、`run`、`rm`、`build` 以及未列出的子命令算写
 
 **回答**:`a` 本次允许 · `s` 本会话允许该目录 · `d` 拒绝 · `f` 本会话拒绝该目录。会话授权在内存中按 `(读|写, 目录)` 保存、按包含关系匹配,关闭模式或会话结束时清空;**会话授权优先于破坏性表**——你按了 `s` 之后,重复同一操作不会再弹;解析不了完整路径的命令则按**完整命令文本**授权,重复同一条命令不会再问。
 
@@ -557,6 +562,18 @@ run = [
 
 ---
 
+## 🆕 whats-new — 升级后的版本变更提示
+
+<a name="whats-new"></a>
+
+**做什么。** 升级后第一次进入交互式 `pi` 时，展示「你上次运行的版本 → 刚装上的版本」之间每个版本的变更要点,**只展示一次**。版本号记在 `<agent-dir>/pi-toolkits-whats-new.json`,同一版本之后再怎么进入都不会再弹;全新安装也不弹(没有「上一个版本」可对比),降级不算升级。
+
+变更内容来自随包发布的 `CHANGELOG.md`:`pnpm release` 会把 `## Unreleased` 改名成即将发布的版本号(`--skip-changelog` 可跳过这道闸),所以提示里的内容永远对得上真正发出去的那一版。启动提示是一个会话条目 —— 主题切换/invalidate 不会冲掉它,也不进模型上下文(不花 token)。启动提示最多展示 4 个版本、每个版本 6 条;全文始终在 `CHANGELOG.md` 里。不提供斜杠命令:插件只负责自动提示,不占宿主的全局命令命名空间。
+
+**边界** —— 只覆盖交互式 TUI:print/JSON/RPC 模式没有可追加的 transcript,会把这次提示留给下一次交互式启动,而不是白白消耗掉。只有版本**升高**时才会提示;重装或降级什么都不记。若 `CHANGELOG.md` 没有当前版本的段落,提示仍会报告版本变化,并明确写「没有内置变更记录」,不会编造内容。
+
+---
+
 ## 🛠️ 开发
 
 <a name="development"></a>
@@ -600,7 +617,9 @@ src/
     │                     #           配置存储、诊断报告、测试
     ├── review/           # 第三方评审:输入/指令触发、
     │                     #           评审模型配置存储、提示词、测试
-    └── stash/            # 提示词暂存:热键状态机 + 测试
+    ├── stash/            # 提示词暂存:热键状态机 + 测试
+    └── whats-new/        # 升级后的版本变更提示:CHANGELOG 解析、
+                          #           已见版本存储、启动提示、测试
 ```
 
 **新增功能**:新建 `src/features/<name>/`,导出 `registerXxx(pi)`,在 `src/index.ts` 中调用;已有模块保持不变。每个功能自带 `*.test.ts`(vitest)——保持确定性(时钟/状态可注入,不写真实 agent-dir)。
@@ -617,7 +636,7 @@ pnpm release:github                 # 为当前版本创建/校验 GitHub Releas
 pnpm release:github --audit         # 列出 npm 版本 vs GitHub Release vs 远端 tag
 ```
 
-**发版 = 推 tag。** `pnpm release` 跑完门禁(`typecheck`、`test`、UI 检查)、改版本、commit、打 `vX.Y.Z` tag、推分支和 tag,然后等 GitHub Actions 的 `publish` 工作流。该工作流用 **npm trusted publishing(OIDC)** 发布:不需要 npm token、不需要交互式 2FA,每个版本自动附 provenance。脚本只在 npm 上真的出现该版本、且 `dist.attestations` 非空时才报成功。
+**发版 = 推 tag。** `pnpm release` 跑完门禁(`typecheck`、`test`、UI 检查)、把 `CHANGELOG.md` 的 `## Unreleased` 提升为即将发布的版本号(段落为空则中止,`--skip-changelog` 可跳过)、改版本、commit、打 `vX.Y.Z` tag、推分支和 tag,然后等 GitHub Actions 的 `publish` 工作流。该工作流用 **npm trusted publishing(OIDC)** 发布:不需要 npm token、不需要交互式 2FA,每个版本自动附 provenance。脚本只在 npm 上真的出现该版本、且 `dist.attestations` 非空时才报成功。
 
 `--prepare-only` 是「都准备好、发不发最后再说」的开关:停在 commit+tag 后,打印确切的推送命令。`--no-wait` 推完就返回;`--local` 是应急路径(本机用旧 token 发布)。工作流失败后重跑同一个 tag 即可(`gh workflow run publish.yml -f tag=vX.Y.Z`):已发布的版本会跳过,所以重跑是幂等的。
 

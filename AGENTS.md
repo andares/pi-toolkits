@@ -329,12 +329,14 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   同一份工作树。
 
 - `pnpm release <patch|minor|major> [flags]`：
-  干净检查 → **上一版尾部校验**（见下）→ typecheck + test + UI → bump → commit +
-  tag（`scripts/tag-current.mjs` 打 `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且
-  工作区干净**（否则中止）→ `git push origin <branch>` + `git push origin
-  refs/tags/vX.Y.Z`（**这一步就是发版**）→ 等 CI（workflow run 失败立即中止并给
-  run URL；npm 上出现该版本且 provenance 非空才算完成）→ 远端 tag 校验 + 幂等创建
-  GitHub Release → 尾部自检。
+  干净检查 → **上一版尾部校验**（见下）→ typecheck + test + UI → **CHANGELOG.md 提升**
+  （`## Unreleased` 改成 `## <next> — <date>`；缺段落或没有顶层 `- ` 条目直接中止，
+  `--skip-changelog` 跳过；同时校验 `package.json` 的 `files` 含 `CHANGELOG.md`）→
+  bump → commit（`package.json` + `CHANGELOG.md`）+ tag（`scripts/tag-current.mjs` 打
+  `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且工作区干净**（否则中止）→ `git push
+  origin <branch>` + `git push origin refs/tags/vX.Y.Z`（**这一步就是发版**）→ 等 CI
+  （workflow run 失败立即中止并给 run URL；npm 上出现该版本且 provenance 非空才算完成）
+  → 远端 tag 校验 + 幂等创建 GitHub Release → 尾部自检。
   - `--dry-run`：只打印计划。
   - `--prepare-only`：停在 push 之前并打印推送命令——「准备都做完、发不发由人按
     最后一次」用这一档。
@@ -953,12 +955,40 @@ A+B 落地后这批 7 次里 5 次免弹；剩余 2 次是解析器能力问题�
 `curl -o /dev/null` 无弹窗（`session` 摘要 `asks=0`）；`/var/pi-perm-smoke-out.txt`
 仍弹窗，按 `d` 后文件未创建。
 
+### 日志驱动优化（2026-11-12）
+
+本机审批日志（`~/.pi/agent/approval-log/audit-000001.jsonl`，491 条记录 / 61 次 ask）回放：
+把每条 ask 的 command 重新喂给 `parseCommandUnits` + `decideProgram`（记录里的四格模式与
+roots，空授权表），**52 条仍会 ask**。逐类修掉并经第三方复查撤回不安全放宽后剩 **21 条**，
+且都属有意 fail-closed：
+
+| 类别 | 修法（`units.ts`） |
+| --- | --- |
+| 引号内结尾 `$`（`grep "</div>\s*$"`）被 env 代理展开成变量 | 代理对空 key 返回字面 `$` |
+| 单引号内的反引号被当成命令替换 | `extractSubstitutions` 改成引号感知 |
+| 换行被 shell-quote 当空白 → 跨行命令**合并** | `stripComments` 把未引用换行变 `;`，`\\⏎` 当续行删除。`ls⏎rm -rf x` 曾被解析成一条 `ls`（**漏判写**），这是安全修复 |
+| 纯赋值段 `f=…jsonl` 被当写 | 赋值段不产生 unit；普通赋值不跨命令展开（缺控制流分析会误判） |
+| `for f in a b; do …"$f"…; done`、`for d in /a /b; do git -C "$d" …; done` | 字面量 for 展开（非字面量/含空白值/组合 >64/变量被重赋值或修改时保持 opaque；嵌套同名变量按内层） |
+| `env` / `env FOO=1` 被当 "wrapper runs no visible command" | 读单元 |
+| grep 家族的首个位置参数（模式）被当路径/glob | `GREP_VALUE_OPTS` + pattern index；模式不产生目标 |
+| `%{http_code}\n`、`\s*` 里的反斜杠被 `looksLikePath` 当路径 | 反斜杠只在盘符/UNC 上认（POSIX 目标是既有一致口径） |
+| `curl -w/-H/-d/…` 的值被当路径操作数 | `DATA_VALUE_OPTS` 按命令声明 |
+| 未解析的输入/输出重定向 | 均保持 opaque；评审确认跳过输入会绕过 `outRead=ask/deny`，已撤回该放宽 |
+| `docker compose ps` 被当写（项目外 → ask） | 容器只读子命令表；`exec`/`run`/`rm`/`build` 仍是写 |
+
+剩余 21 条的组成：`docker exec` + 未解析变量、未解析输入/输出重定向、`node -e` / `python3 -` /
+ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`（值来自命令替换）、进程替换、
+`cd -`、`sudo`、mysql heredoc（真写 SQL）—— 都是有意询问，不再优化。
+
+回归用例在 `units.test.ts` 的 `approval-log regressions`（23 例）与 `policy.test.ts` 的严格读模式
+重定向用例；另有变量遮蔽、条件赋值和 `read` 改值的反向安全用例。
+
 ### 已知边界（有意为之，README 已声明）
 
 - 读命令的**裸文件名参数**不判定（`cat notes.txt`）：默认模式下无影响，
   但把 `out-read` 调成 ask/deny 时绝对路径以外的读目标不会被问。这是「读盲区」，不是写盲区。
-- 启发式，不是沙箱：进程替换走 opaque、Windows Git-Bash 路径拼写只近似（实测目标是 POSIX）、
-  PowerShell 不拆解、子代理会话不继承父会话状态。
+- 启发式，不是沙箱：进程替换走 opaque、相对 Windows 路径拼写（`dir\\file`）落进读盲区
+  （绝对盘符/UNC 仍识别；实测目标是 POSIX）、PowerShell 不拆解、子代理会话不继承父会话状态。
 - 项目内的破坏性操作靠固定表兜，不靠沙箱。
 
 ## Feature: quit-guard（退出看门狗，2026-11-05 立项并实现）
@@ -1206,3 +1236,62 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 - 关页面不关服（`/ask-uat off` 或 2h 空闲才关）；`/reload` 后需重开。
 - `record_change` 只在装了框架的项目激活；没有框架时 `/ask-uat` 直接拒绝。
 - 聚类质量由实施侧行为句决定；`hint` 允许写 `none: <理由>`，让「这次不用测」也是明确记录。
+
+## Feature: whats-new（升级后首次启动的版本变更提示，2026-11-12 实现）
+
+### 定位与硬约束
+
+升级后第一次进入交互式 pi 时展示「上次运行的版本 → 当前版本」之间的变更，每个版本只展示一次。
+**不注册 `/whats-new` 或任何其它斜杠命令**——本包只是插件，不为一个被动提示占用宿主的全局命令
+命名空间（崔总 2026-11-13 定）。没有 on/off 命令、没有重播入口；完整内容直接看包内
+`CHANGELOG.md`。
+
+触发条件只有 `session_start(reason="startup")` 且 `ctx.mode === "tui"`：
+
+| reason / mode | 行为 |
+| --- | --- |
+| `startup`（TUI） | 版本严格升高时展示，并记录当前版本 |
+| `reload` / `new` / `resume` / `fork` | 不展示；进程内切换不是「重新进入」 |
+| `print` / `json` / `rpc` | 不展示，也**不记**版本；留给下一次交互式启动 |
+
+全新安装静默记录当前版本（没有上一版可对比）；同版本、降级、重装都不展示，也不倒退已记版本。
+状态只有 `<agent-dir>/pi-toolkits-whats-new.json` 的 `lastSeenVersion`，原子写、损坏回落默认、
+写失败不阻断会话。
+
+### 发版前怎么添加更新信息（给实施 agent）
+
+**发版前必须编辑 `CHANGELOG.md`，把这一版的用户可见变更写进已有的 `## Unreleased` 段落。**
+一行一条顶层 `- ` bullet，英文，写操作者能看到的行为，不写提交哈希/内部重构/测试流水账。
+不要自己改成版本号，也不要新建段落——`pnpm release` 会自动把 `## Unreleased` 改名为
+`## <新版本> — <日期>` 并在上方补一个空的新 Unreleased 段。
+
+```md
+## Unreleased
+
+- **feature-name** — what the operator can now do, in one sentence.
+- **permission** — which prompt or behavior changed, in one sentence.
+```
+
+只认**顶格**的 `- ` / `* `；缩进的子 bullet 是给人看的细节，不进启动提示。空段落、缺段落、或
+`package.json.files` 不含 `CHANGELOG.md` 都会让 `pnpm release` 在 bump/commit 前中止；
+`--skip-changelog` 可显式跳过（该版没有公告条目）。发布门禁先把测试跑完再改 changelog，
+避免失败留下半写状态。
+
+### 实现
+
+- 内容源是随包发布的 `CHANGELOG.md`，不在运行时拼 git 提交标题；`src/features/whats-new/changelog.ts`
+  与 `scripts/lib/changelog.mjs` 共用同一套「顶层 bullet」口径。
+- 启动提示最多 4 个版本 × 每版 6 条，超出指向 `CHANGELOG.md`。呈现用自定义会话条目
+  （`whats-new:notice`）：invalidate 冲不掉、不进模型上下文；老宿主没有 `registerEntryRenderer`
+  时回落 `notify`。
+- 文件：`version.ts`（数值比较）、`changelog.ts`（解析/区间）、`paths.ts`（按
+  `import.meta.url` 定位包内文件）、`store.ts`（已见版本）、`notice.ts`（文本）、
+  `index.ts`（startup 门控与条目渲染）。发布侧提升在 `scripts/lib/changelog.mjs`。
+- 测试在 `whats-new.test.ts` 与 `scripts/lib/changelog.test.mjs`；包含「不注册任何命令」的回归断言。
+
+### 已验证与边界
+
+- `pnpm typecheck` 绿；`pnpm test` **50 文件 / 898 测试**全绿。真实 pi 1.5.2 复验：
+  预置旧版本后首启展示，第二次启动不再展示；单元测试断言不注册任何命令。
+- print 模式不消费提示。最新修复与复验证据见本轮后续实施记录。
+- 只在交互式 TUI 展示；多进程同时首启可能各展示一次（无锁）。提示文本与 changelog 用英文。

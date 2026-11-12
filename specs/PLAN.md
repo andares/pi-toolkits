@@ -21,7 +21,8 @@
 ## 未决 1 — AGENTS.md 超预算（债务，2026-10-26 实测）
 
 > 2026-11-12 复测：**93463 字节**（新增 §Feature: uat 与 §init 刷新机制，约 +7.5 KB；
-> 同时 plan 段补了 bash 窄闸门与访谈协议）。下表是首轮登记时的分段测量，未重算。
+> 同时 plan 段补了 bash 窄闸门与访谈协议）。同日再测 **102602 字节**（§Feature: whats-new
+> 与 permission 的日志驱动优化表）。第三方复查后同日为 **101576 字节**。下表是首轮登记时的分段测量，未重算。
 
 - 实测：`wc -c AGENTS.md` = **58663 字节**（34227 字符）。预算：soft 12000 / hard 20000
   （`.agents/memory/README.md` 的 Budgets 表；`framework_audit` 的 `W-BUDGET-01` 用字节比）。
