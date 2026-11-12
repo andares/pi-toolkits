@@ -102,13 +102,14 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # 发布器必须是 npm CLI，不能是 pnpm：
-      # pnpm 12 自己做 OIDC token 交换，对 registry 的交换端点拿到 404 后不报错退出，
-      # 而是回落成**匿名**发布，最后以 `404 Not Found` 收场（v0.13.0 首次尝试，
-      # run 43167439237：`[WARN] Skipped OIDC: ERR_PNPM_AUTH_TOKEN_EXCHANGE ... 404`
-      # → `Failed to publish ... status 404`）。npm CLI 的同一条交换在同一个仓库、
-      # 同一组 claim 下是成功的（对照：aliciai-dev/paintress 的 publish.yml，同样是
-      # immutable subject claims 的新仓库）。
+      # 发布用 npm CLI（与已验证可用的 aliciai-dev/paintress 完全一致）。
+      # 客户端不是这里的变量：pnpm 12 与 npm 11.21 在同一个 job、同一组 claim 下
+      # 都从 `/-/npm/v1/oidc/token/exchange/package/@andares%2fpi-toolkits` 拿到
+      # `404 {"message":"OIDC token exchange error - package not found"}`
+      # （v0.13.0 两次尝试，run 43167439237 与 dry-run 探针 43169817065）。
+      # 404 是 registry 的遮蔽响应：真正的比对字段（repo / workflow 文件名 /
+      # environment）匹配不上时它一律回 package not found，所以这条报错要往
+      # npm 上的 trusted publisher 记录查，不要往客户端查。
       # `--ignore-scripts`：门禁已作为显式步骤跑过，prepublishOnly 不必再跑一遍。
       - name: Publish with provenance
         if: steps.probe.outputs.skip != 'true'
