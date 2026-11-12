@@ -25,8 +25,11 @@
  *     → 自检：tag == HEAD 且工作区干净（否则中止）
  *   → `git push origin <branch>`，再 `git push origin refs/tags/vX.Y.Z`
  *     **这就是发版动作**：推成功后 CI 开始发布，本机不再写 registry。
- *   → 等 CI：workflow run 失败立即中止（带 run URL）；npm 上出现该版本且
- *     provenance attestation 非空，才算这一版发布完成。
+ *   → 等 CI：registry 每 1.5 s 直接探 HTTP（不再每轮 spawn `npm view`），进度按阶段打印
+ *     （run 未出现 / queued / in_progress / CI 已绿等 registry 传播），肉眼能分出「CI 卡住」
+ *     与「npm 传播慢」；workflow run 失败立即中止（带 run URL）；run 排队超阈值仍未开始
+ *     = 僵尸 run，补发一次 `workflow_dispatch`（PI_RELEASE_RESCUE_QUEUE_MS，默认 60 s）。
+ *     npm 上出现该版本且 provenance attestation 非空，才算这一版发布完成。
  *   → 用 GITHUB_TOKEN 创建 GitHub Release v{next}（best-effort：未设 token /
  *     已存在 / 失败都只提示、不中止）。
  *   → 尾部自检：npm / provenance / 远端 tag / Release。
@@ -60,7 +63,11 @@ import {
 	releaseTailGap,
 	syncGitHubRelease,
 } from "./lib/github-release.mjs";
-import { waitForAttestations, waitForCiPublish } from "./lib/ci-publish.mjs";
+import {
+	createDispatchRescue,
+	waitForAttestations,
+	waitForCiPublish,
+} from "./lib/ci-publish.mjs";
 import { findUnreleasedSection, promoteUnreleased } from "./lib/changelog.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -93,6 +100,12 @@ const skipChangelog = argv.includes("--skip-changelog");
 const prepareOnly = argv.includes("--prepare-only");
 const noWait = argv.includes("--no-wait");
 const localPublish = argv.includes("--local");
+// 排队多久算「僵尸 run」→ 补发 workflow_dispatch。0 / off 关闭。
+// 先例：v0.13.0 的 tag 触发的 run 43096640287 一直 queued、started_at 为空，
+// 永远不开始也不失败；健康时 run 在 3 秒内就开始，所以 60 秒足够区分。
+const rescueEnv = (process.env.PI_RELEASE_RESCUE_QUEUE_MS ?? "").trim();
+const rescueQueueMs =
+	rescueEnv === "" ? 60_000 : Number.parseInt(rescueEnv, 10) || 0;
 const unknownFlags = argv.filter((a) => a.startsWith("--") && !FLAGS.has(a));
 const strayArgs = argv.filter((a) => !a.startsWith("--") && a !== arg);
 
@@ -280,7 +293,11 @@ if (dryRun) {
 		console.log(
 			`  5. CI：pnpm install → typecheck / test / ui → 校验 tag==package.json → pnpm publish --provenance`,
 		);
-		console.log(`  6. 等 CI：workflow run 失败即中止；npm 出现该版本才算完成（--no-wait 跳过）`);
+		console.log(
+			`  6. 等 CI：registry 直接 HTTP 轮询；workflow run 失败即中止；排队卡死的 run 自动补发` +
+				`（PI_RELEASE_RESCUE_QUEUE_MS=${rescueQueueMs > 0 ? rescueQueueMs : "off"}）；` +
+				`npm 出现该版本才算完成（--no-wait 跳过）`,
+		);
 		console.log(
 			`  7. 校验远端 tag（可见性重试）+ 创建 GitHub Release` +
 				(process.env.GITHUB_TOKEN ? "" : "（未设置 GITHUB_TOKEN → Release 跳过）"),
@@ -516,6 +533,22 @@ if (noWait) {
 let ciResult = { status: "published", run: undefined, elapsedMs: 0 };
 if (!localPublish) {
 	step("等待 CI 发布（tag 触发）");
+	// 卡在 queued 的 run 只能靠补发救援，而 workflow_dispatch 需要 token。
+	const dispatchStuck =
+		rescueQueueMs > 0 && process.env.GITHUB_TOKEN
+			? createDispatchRescue({
+					repo: ghRepo,
+					token: process.env.GITHUB_TOKEN,
+					tag: `v${next}`,
+					ref: branch,
+					onLog: (line) => console.log(`${C.yellow}${line}${C.reset}`),
+				})
+			: undefined;
+	if (!dispatchStuck) {
+		console.log(
+			`${C.dim}  （僵尸 run 自动补发已关闭：${rescueQueueMs > 0 ? "未设 GITHUB_TOKEN" : "PI_RELEASE_RESCUE_QUEUE_MS=0"}）${C.reset}`,
+		);
+	}
 	ciResult = await waitForCiPublish({
 		repo: ghRepo,
 		token: process.env.GITHUB_TOKEN,
@@ -524,6 +557,8 @@ if (!localPublish) {
 		version: next,
 		npm,
 		cwd: ROOT,
+		queuedGraceMs: rescueQueueMs > 0 ? rescueQueueMs : Infinity,
+		dispatchStuck,
 		log: (line) => console.log(`${C.dim}${line}${C.reset}`),
 	});
 	if (ciResult.status === "failed") {

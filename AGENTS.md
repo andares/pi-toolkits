@@ -335,7 +335,8 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   bump → commit（`package.json` + `CHANGELOG.md`）+ tag（`scripts/tag-current.mjs` 打
   `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且工作区干净**（否则中止）→ `git push
   origin <branch>` + `git push origin refs/tags/vX.Y.Z`（**这一步就是发版**）→ 等 CI
-  （workflow run 失败立即中止并给 run URL；npm 上出现该版本且 provenance 非空才算完成）
+  （registry 直接 HTTP 轮询、分阶段打印进度、排队卡死的 run 自动补发；workflow run
+  失败立即中止并给 run URL；npm 上出现该版本且 provenance 非空才算完成）
   → 远端 tag 校验 + 幂等创建 GitHub Release → 尾部自检。
   - `--dry-run`：只打印计划。
   - `--prepare-only`：停在 push 之前并打印推送命令——「准备都做完、发不发由人按
@@ -345,6 +346,26 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
     bypass-2FA granular token 失去直接发布能力，届时应改用 `npm stage publish` +
     网页端 2FA 审批。
   - `--skip-tail-check`：跳过「上一版尾部必须完成」的硬闸。
+
+- **等 CI 的那一步（`scripts/lib/ci-publish.mjs`）**——三个实测结论换来的写法：
+  - **registry 直接 HTTP 轮询**，不再每轮 spawn `npm view`：`GET
+    registry.npmjs.org/<name>/<version>` 每 1.5 s 一次；`npm view` 只在 HTTP 不可达时
+    兜底（每 10 s），其余情况每 30 s 做一次权威复核。本机 WSL 实测 2026-11-12：
+    HTTP 稳定 ~290 ms/次，`npm view` ~1.15 s/次（大头是子进程启动）。HTTP 返回
+    `undefined`（离线/5xx）**不能**当成「版本不在」。
+  - **进度按阶段打印**：run 未出现 / `queued` / `in_progress` / **CI 已绿、等 registry
+    传播**，每行带 `t=Ns`。v0.14.0 那次 CI 只跑了 49 s（18:26:38→18:27:27），之后
+    ~2 min 全在等 npm 读副本，而旧日志只会重复 `completed / success`——看起来像 CI 卡死。
+  - **僵尸 run 自动补发**：run 是 `queued`、`started_at` 为空、创建已超 60 s
+    （`PI_RELEASE_RESCUE_QUEUE_MS` 可调，`0`/`off` 关闭；需要 `GITHUB_TOKEN`，没有就
+    明确打印「不会自动补发」）→ 补发**一次** `workflow_dispatch`（同 tag、ref=当前分支），
+    并接管新 run；新 run 按 **run id** 跟踪（dispatch run 的 `head_sha` 是分支头，
+    不一定是 tag 的提交，按 sha 找会找丢）。只补发一次，新 run 也卡住就走 15 min 超时。
+    先例：v0.13.0 的 tag run `43096640287` 至今 `queued`、`started_at` 为空，永远不开始
+    也不失败，当时只能人工 `gh workflow run -f tag=v0.13.0 --ref master`。
+    幂等靠工作流自带的「已发布则跳过」：两个 run 同时在场最多多一条 publish 步骤被
+    跳过的绿 run，不会重发同一版本。真机验证（2026-11-12）：对已发布的 `v0.14.0`
+    补发 → run `43282484846` 46 s 绿、`Publish with provenance` 跳过。
 
 - **CI 失败后怎么办**：tag 已推、内容不会变，npm 不允许重发同一版本。修好原因后
   **重跑同一个 tag 的工作流**（幂等，已发布版本会跳过）：
