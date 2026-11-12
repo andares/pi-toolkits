@@ -25,7 +25,10 @@
   - `pnpm dlx <pkg>` instead of `npx`
   - `pnpm typecheck` / `pnpm test` for scripts
 - Do **not** run `npm install`, `npm publish`, `npx`, or `npm whoami` in this
-  project — always use the pnpm form.
+  project — always use the pnpm form. **One exception, in CI only**: the release
+  workflow publishes with `npm publish` because pnpm's own OIDC exchange is
+  rejected by the registry (see Release); that token never touches this machine
+  and no dependency is installed with npm there.
 
 ## 文案语言（不变量）
 
@@ -301,8 +304,23 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
 
 - **CI 门禁**（与本地一致）：`pnpm install --frozen-lockfile` → `pnpm typecheck` →
   `pnpm test` → `pnpm ui:typecheck` → `pnpm ui:check` → 校验 tag == `package.json`
-  version → 该版本已在 npm 则跳过（重跑幂等）→ `pnpm publish --provenance
-  --access public`（`--ignore-scripts`：门禁已作为显式步骤跑过）。
+  version → 该版本已在 npm 则跳过（重跑幂等）→ `npm publish --provenance
+  --access public --ignore-scripts`（`--ignore-scripts`：门禁已作为显式步骤跑过）。
+  **发布器必须是 npm CLI，不是 pnpm**：pnpm 12 自己实现 OIDC 交换，拿到 404 后只
+  记一条 warning 就回落成**匿名**发布（v0.13.0 首次尝试即如此，最后 `Failed to publish
+  ... 404`）。npm CLI 走同一条交换、同一组 claim。
+- **`OIDC token exchange error - package not found` 是 registry 的遮蔽响应**：仓库 /
+  workflow 文件名 / environment 任一比对失败都是这一句，看不出是哪项。所以先查 npm
+  上的 trusted publisher 记录（字段对照见上），**不要**往客户端（pnpm 还是 npm）或
+  GitHub 的 claim 格式上找——v0.13.0 卡了整整一轮，两次误判（先归因 GitHub 的
+  immutable subject claims 上游 bug、再归因 pnpm），真因只是记录没配好/字段不匹配。
+  可用对照实验辨伪：同一账号下已能 OIDC 发布的仓（`aliciai-dev/paintress`）与出事的
+  仓 claim 形态相同（immutable `sub`），它能发就说明不是平台侧故障。
+  只读探针：同一 workflow 文件路径 + `npm publish --dry-run --loglevel verbose`，
+  能看到完整交换过程且不会真发；换文件名探针会让 `job_workflow_ref` 必然不匹配。
+- **重跑同一个 tag 要用 `--ref master`**：`publish.yml` 按 `ref: inputs.tag` 检出，
+  workflow 定义取自被 dispatch 的分支。代码修复若只在 tag 内，重跑才会带上；
+  若修复在 tag 之后又要发同一版本，只能先 `git tag -f` 重指（0.13.0 如此）。
 
 - **前置条件：工作区必须干净**——release 提交只含版本号（`git add package.json`），
   有未提交变更时脚本会在任何改动前直接中止。未提交内容会被打包进 npm 包却不进
