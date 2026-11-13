@@ -36,14 +36,15 @@ import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
+	HARD_KILL_DELAY_MS,
 	MAX_TIMEOUT_MS,
 	MIN_TIMEOUT_MS,
 	QUIT_GUARD_FILE,
 	QUIT_GUARD_REPORT_DIR,
-	SHUTDOWN_EVENT_MARKER,
 	TERMINAL_RESTORE,
 } from "./constants.js";
 import { QuitGuard, type GuardFireInfo } from "./guard.js";
+import { armThreadHardKill, armThreadWatchdog, type ThreadWatchdog } from "./killer.js";
 import {
 	collectHangReport,
 	formatHangReportSummary,
@@ -83,17 +84,19 @@ function storeSharedState(state: QuitGuardState): void {
 }
 
 function fire(state: QuitGuardState, info: GuardFireInfo): void {
-	// Armed by `session_shutdown` (signal-triggered quit, or a shutdown that
-	// hung before `ui.stop()`): nothing restored the terminal, so do it here
-	// before exiting or the prompt comes back on the alternate screen, with
-	// bracketed paste on and the cursor hidden. `writeSync(1, …)` bypasses our
-	// own stdout wrapper, so these sequences cannot re-arm the guard.
-	if (info.marker === SHUTDOWN_EVENT_MARKER) {
-		try {
-			writeSync(1, TERMINAL_RESTORE);
-		} catch {
-			// Dead terminal: the report and the exit still happen.
-		}
+	// Restore the terminal on every path, not just the shutdown-event one.
+	// When the guard was armed by `session_shutdown` nothing restored the
+	// terminal at all: without this write the prompt comes back on the
+	// alternate screen, with bracketed paste on and the cursor hidden. When it
+	// was armed by a teardown marker the TUI usually already restored — but
+	// `ui.stop()` can also hang between its two sequences (`?2004l` written,
+	// `?1049l` never), and a terminal that is already healthy ignores the
+	// extra sequences. `writeSync(1, …)` bypasses our own stdout wrapper, so
+	// these sequences cannot re-arm the guard.
+	try {
+		writeSync(1, TERMINAL_RESTORE);
+	} catch {
+		// Dead terminal: the report and the exit still happen.
 	}
 	const timeoutMs = state.guard.getTimeoutMs();
 	const elapsedMs = Math.round(info.elapsedMs);
@@ -125,18 +128,29 @@ function fire(state: QuitGuardState, info: GuardFireInfo): void {
 		// The terminal is gone or blocked; the report (if any) still exists.
 	}
 	// `process.exit(0)` is normally immediate, but every step of it is host
-	// code: an `exit` listener (or a patched `reallyExit`) can turn it into a
-	// no-op or throw — one such case was observed while testing this feature.
-	// The SIGKILL fallback guarantees the prompt comes back; the report is
-	// already on disk and session entries are appended as they happen, so
-	// nothing recoverable is lost.
-	const hardKill = setTimeout(() => process.kill(process.pid, "SIGKILL"), 500);
+	// code: an `exit` listener (pi-tui's own `exitRestoreHandler`, the
+	// graceful-fs patches bundled with the host, stdio flushing) can deadlock
+	// it. Observed for real on 2026-11-13: the process sat in `futex_wait` for
+	// 18 minutes after this line, its pty already deleted, because the
+	// `setTimeout` SIGKILL below cannot fire while the main thread is blocked
+	// *inside* `process.exit`. Three layers now guarantee the prompt comes
+	// back: (1) `process.exit(0)`; (2) a same-loop SIGKILL timer for hangs
+	// where the loop still turns; (3) the independent-thread SIGKILL from
+	// killer.ts, which works even when the main thread never unblocks. The
+	// report is already on disk and session entries are appended as they
+	// happen, so nothing recoverable is lost.
+	const hardKill = setTimeout(
+		() => process.kill(process.pid, "SIGKILL"),
+		HARD_KILL_DELAY_MS,
+	);
+	const cancelThreadKill = armThreadHardKill(HARD_KILL_DELAY_MS);
 	try {
 		process.exit(0);
 	} catch {
 		// Fall through to the hard kill.
 	}
 	clearTimeout(hardKill);
+	cancelThreadKill();
 	process.kill(process.pid, "SIGKILL");
 }
 
@@ -204,24 +218,56 @@ function buildState(agentDir: string): QuitGuardState {
 	// arm/disarm/fire. It exists because the failure being debugged happens
 	// after the TUI is gone: there is no other channel left to observe.
 	const debugPath = process.env.PI_QUIT_GUARD_DEBUG;
+	// Arm-time layer of the independent-thread kill: a main thread that
+	// deadlocks synchronously (observed inside `process.exit` right after a
+	// fast dispose) never runs the fire timer, so the guard needs a watcher
+	// that does not live on the main event loop. The worker waits out the
+	// deadline, then samples this heartbeat: a beating loop means the fire
+	// timer owns the outcome (with its raw-mode probe and full report); a
+	// stopped loop can only be ended by the worker. Disarmed/fired guards
+	// cancel the worker — including every restart (mode switch, Ctrl+Z
+	// resume, /reload) so a returning TUI is never killed.
+	let watchdog: ThreadWatchdog | undefined;
+	let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+	const stopWatchdog = (): void => {
+		if (heartbeatTimer !== undefined) {
+			clearInterval(heartbeatTimer);
+			heartbeatTimer = undefined;
+		}
+		watchdog?.cancel();
+		watchdog = undefined;
+	};
 	const guard = new QuitGuard(config.timeoutMs, {
 		onFire: (info) => {
 			if (state) fire(state, info);
 		},
 		// Raw mode is the independent "TUI still running" signal; see guard.ts.
 		isTuiActive: () => process.stdin.isRaw === true,
-		onEvent: debugPath
-			? (event, detail) => {
-					try {
-						appendFileSync(
-							debugPath,
-							`${new Date().toISOString()} ${event} ${detail}\n`,
-						);
-					} catch {
-						// Debug output must never affect the guard.
-					}
+		onEvent: (event, detail) => {
+			if (event === "arm") {
+				watchdog = armThreadWatchdog({
+					deadlineMs: guard.getTimeoutMs(),
+					restore: TERMINAL_RESTORE,
+					reportDir: join(agentDir, QUIT_GUARD_REPORT_DIR),
+					debugPath,
+					});
+				watchdog.heartbeat();
+				heartbeatTimer = setInterval(() => watchdog?.heartbeat(), 1_000);
+				heartbeatTimer?.unref?.();
+			} else if (event === "disarm" || event === "fire") {
+				stopWatchdog();
+			}
+			if (debugPath) {
+				try {
+					appendFileSync(
+						debugPath,
+						`${new Date().toISOString()} ${event} ${detail}\n`,
+					);
+				} catch {
+					// Debug output must never affect the guard.
 				}
-			: undefined,
+			}
+		},
 	});
 	state = {
 		store,

@@ -570,6 +570,29 @@ Ctrl+Z suspend/resume both re-enter the TUI, and a live session must never be ki
 trigger is deliberately limited to TUI mode: RPC/JSON/print stdout is machine-readable and is
 never given terminal escape sequences.
 
+**Two hangs, two layers.** The fire path above lives on the main event loop — which is exactly
+what can also die: on 2026-11-13 the guard fired, wrote its report, printed "forcing exit" and
+called `process.exit(0)` … and the process hung for 18 minutes in `futex_wait` with the pty
+already deleted (the user had closed the terminal window to escape). Host code on the exit path
+(`process.on("exit")` listeners, bundled graceful-fs patches, stdio flush) can deadlock
+synchronously, and a `setTimeout` fallback cannot fire inside a dead loop. Therefore:
+
+- **arm-time watchdog thread** — arming also starts a `worker_threads` worker that does not
+  live on the main loop. The main loop beats a 1 Hz heartbeat into shared memory; after the
+  deadline (plus a head start for the main-loop fire timer, which handles the common hangs with
+  full context: raw-mode probe, full report, terminal restore) the worker samples the heartbeat
+  twice. Still beating → the event loop is alive → it steps aside (the fire timer owns the
+  outcome, including its stray-marker protection). Stopped → the main loop can never fire → the
+  worker restores the terminal, writes a minimal `-thread.json` report and SIGKILLs. This also
+  covers the blind spot where the main thread deadlocks *before* the fire deadline — e.g.
+  synchronously inside `process.exit` right after a fast dispose — because the worker never
+  needed the main loop in the first place. Every disarm (TUI restart, Ctrl+Z resume, `/reload`)
+  cancels the worker, so a returning TUI is never killed.
+- **fire-time hard kill** — after the report is on disk and "forcing exit" printed, fire()
+  starts a second worker that unconditionally SIGKILLs 500 ms later; `process.exit(0)` and a
+  same-loop `setTimeout` SIGKILL run before it, so the worker only matters when the main thread
+  is blocked inside the exit path (the exact 2026-11-13 shape).
+
 ### Commands
 
 | Command | Effect |
@@ -604,7 +627,8 @@ arguments are redacted with the same rules as the approval log, so `pi --api-key
 leave the key on disk.
 
 `PI_QUIT_GUARD_DEBUG=<file>` appends one line per `arm` / `disarm` / `fire` (plus one per
-extension registration); once the TUI is gone it is the only channel left.
+extension registration); once the TUI is gone it is the only channel left. A thread-watchdog
+kill appends `thread-kill heartbeat-stopped …` there.
 
 ### Boundaries
 
@@ -614,8 +638,11 @@ extension registration); once the TUI is gone it is the only channel left.
   (not observed; `drainInput` is bounded at 1 s) is out of scope.
 - When it fires, the remaining extension cleanup is skipped **by design** — that cleanup is what
   was hanging. Session entries are appended to the session JSONL as they happen, so the
-  transcript is intact up to the last written entry. The process exits 0; if `process.exit()`
-  itself is turned into a no-op by an `exit` listener, a 500 ms fallback sends `SIGKILL`.
+  transcript is intact up to the last written entry. The process exits 0; if the exit path
+  itself deadlocks (observed for real: host `exit` listeners, stdio flush), the layered
+  fallbacks — same-loop `setTimeout` SIGKILL, then the watchdog/hard-kill worker threads — end
+  the process anyway. A worker cannot be constructed only under resource exhaustion; the guard
+  then degrades to the behavior it had before the thread layers existed.
 - This is a workaround for a host gap. If pi ever bounds `session_shutdown`, the guard becomes
   a no-op safety net and can be removed.
 

@@ -1061,9 +1061,20 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   0600 文件，`argv` 走上游 `redactText` + 位置式旗标脱敏（`--api-key <opaque>`、`--token=…`），
   避免把密钥写进盘。**报告链路整体 try/catch**：`process.cwd()` 在目录被删后会抛 ENOENT
   （pi 1.5.1 自己也为此加了启动保护），诊断失败绝不能挡住强制退出。
-- **退出用 `process.exit(0)`，外加 SIGKILL 兜底**（先排 500 ms 定时器，再 exit，正常路径
-  定时器不会触发）。测试中实际撞到过一次 exit 之后进程仍停在事件循环里；会话 JSONL 是
-  增量落盘的，报告也已同步写完，硬杀不丢可恢复内容。
+- **退出用 `process.exit(0)`，三层兜底**（2026-11-13 实测教训：fire 全部完成后
+  `process.exit(0)` 本身卡死在宿主 exit 路径里——pi-tui 的 `exitRestoreHandler`、bundle 里的
+  graceful-fs 补丁、stdio flush 都在这条链上——进程以 `futex_wait` 挂了 18 分钟，pty 已被
+  用户关窗口删掉，`setTimeout` 排的 SIGKILL 兜底因为主线程同步阻塞永远不触发）：
+  ① 同一事件循环上的 `setTimeout` SIGKILL（覆盖循环还活着的挂法）；② fire 时启动的
+  独立线程 worker（500 ms 后无条件 SIGKILL，覆盖主线程阻塞在 exit 路径里的场景）；
+  ③ **arm 时启动的独立线程 watchdog**（`killer.ts`）：主循环以 1 Hz 向共享内存写心跳，
+  worker 在 deadline + 500 ms 头启动后两次采样心跳——还在跳说明事件循环活着（由主循环的
+  fire 定时器全权处理，含误杀防护与完整报告）；停跳说明主循环永远不可能 fire（含
+  「dispose 快速完成、`process.exit` 内同步死锁」的盲区——此时主线程连 fire 定时器都排不上），
+  worker 自己恢复终端、写精简的 `-thread.json` 报告并 SIGKILL。所有 disarm 路径
+  （TUI 重启、Ctrl+Z resume、/reload）都会取消 worker，回来的 TUI 绝不会被误杀。worker
+  构造失败仅在资源枯竭时发生，此时降级为加线程层之前的行为。会话 JSONL 是增量落盘的，
+  报告也已同步写完，硬杀不丢可恢复内容。
 
 ### 落位
 
@@ -1073,8 +1084,9 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 | `src/features/quit-guard/guard.ts` | 纯状态机（注入 clock/scheduler/defer），arm/disarm/fire |
 | `src/features/quit-guard/store.ts` | 配置读写（原子写、损坏回落默认、时长时间钳制） |
 | `src/features/quit-guard/report.ts` | 报告采集与同步落盘（失败只警告，绝不阻塞退出） |
-| `src/features/quit-guard/index.ts` | 进程接线：stdout 单例包装、SIGCONT、TUI 限定的 `session_shutdown` 触发、`/quit-guard` 命令 |
-| `src/features/quit-guard/quit-guard.test.ts` | 51 个用例（状态机、钳制、存储、报告与脱敏/权限位、命令面板、stdout 单例、raw-mode 兜底、事件原因与模式过滤、探针异常） |
+| `src/features/quit-guard/killer.ts` | 独立线程杀手：arm 级 watchdog（心跳判活 + 死锁时恢复终端/写精简报告/SIGKILL）与 fire 级 hard kill（2026-11-13 事故后新增） |
+| `src/features/quit-guard/index.ts` | 进程接线：stdout 单例包装、SIGCONT、TUI 限定的 `session_shutdown` 触发、onEvent 里的 watchdog/心跳接线、`/quit-guard` 命令 |
+| `src/features/quit-guard/quit-guard.test.ts` + `killer.test.ts` | 55 个用例（状态机、钳制、存储、报告与脱敏/权限位、命令面板、stdout 单例、raw-mode 兜底、事件原因与模式过滤、探针异常、线程杀手的心跳/取消语义） |
 
 不变量：stdout 包装**每进程只装一次**（`Symbol.for` 存在 `globalThis`，`/reload` 只刷新
 配置与状态，不重复包装）；计时用 `performance.now()`（单调时钟——测试里撞到过 WSL 墙上时钟
@@ -1082,7 +1094,27 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck`、`pnpm test`：**32 文件 / 666 测试**全绿（quit-guard 51 例）。
+- `pnpm typecheck`、`pnpm test`：**52 文件 / 919 测试**全绿（quit-guard 55 例，含 killer 4 例）。
+- **2026-11-13 真实事故与修复验证**：真实会话里 guard 已 fire、报告已落盘、"forcing exit"
+  已打印，但 `process.exit(0)` 卡死在宿主 exit 路径（主线程 `futex_wait`，18 分钟未退，
+  pty 被用户关窗口删掉，fd 0/1/2 → `/dev/pts/N (deleted)`；宿主 chunk 里确认 pi-tui
+  `start()` 注册 `process.on("exit", exitRestoreHandler)`、bundle 内含 graceful-fs 补丁）。
+  修复 = 三层退出（exit → 同循环 timer → 线程）+ arm 级心跳 watchdog（盲区：主线程在
+  fire deadline **之前**就同步死锁——如 dispose 快速完成后 `process.exit` 内死锁——
+  此时 fire 定时器根本没机会跑）。修复后四组真机冒烟（真实 pi 1.5.2、tmux、独立
+  `PI_CODING_AGENT_DIR`、探针先于/后于本包加载各验证过）：
+  1. guard ON + `process.on("exit")` 内同步死锁（盲区场景）：**10 s** pi 被线程 watchdog
+     杀掉，debug 记录 `arm → thread-kill heartbeat-stopped`，`quit-hang-*-thread.json`
+     （`source: thread-watchdog`）落盘，主线程从未 fire（符合预期）；
+  2. guard OFF + 同上探针：25 s 后仍挂（对照组，探针真实死锁）；
+  3. guard ON + 无探针：**1 s** 正常退出、无报告（线程层对健康退出零干扰）；
+  4. guard ON + dispose-await 挂 + exit 内死锁（原事故形态）：主线程 **8.007 s** fire
+     （完整报告 `marker=?2004l`）+ fire 级 500 ms 线程兜底 SIGKILL，总 **9 s** 退出。
+  另两个冒烟坑的教训：① /quit 后终端恢复**回显**，tmux `send-keys` 发的字符会被回显
+  到屏幕上，grep 式判定永远假阳性——必须用「pane 子进程里 pi 是否存活」判定；
+  ② 反引号模板里要给 worker 源码写字面 `\n`，文件里必须是 `\\n`（写成 `\n` 会让
+  worker 源码字符串断行，SyntaxError 静默吞进 uncaughtException，watchdog 看似装好
+  实则必死）。
 - 真实 pi 1.5.1 冒烟（tmux，`-ne -e ./src/index.ts`，卡死探针为「`session_shutdown` 返回
   永不 resolve 的 Promise」，且探针**先于**本包加载以证明不依赖处理器顺序；每轮独立
   `PI_CODING_AGENT_DIR` + `timeoutMs: 2000`）：
@@ -1118,6 +1150,11 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   本包之前加载的处理器会让我们的处理器不运行，那条路仍然无解。
 - TUI 停下之前就卡住、且不来自 `session_shutdown` 的情况（例如 `/quit` 被延后到 idle）不管：
   没有可观测信号，看守不会被武装。
+- 线程层依赖 worker 构造成功（资源枯竭时降级为加线程层之前的行为）；watchdog 判活
+  粒度 = 心跳 1 s + 采样窗 1.5 s，即主线程在 deadline 前死锁的最坏确认延迟约
+  `timeoutMs + 2 s`；心跳还在跳就绝不杀（误杀防护归主循环 fire 路径的 raw-mode 探测）。
+  worker 的 `Atomics.wait` 只等 signal cell（值恒 0）——**不能等心跳 cell**：wait 的第三参是
+  期望值，心跳每 tick 都变，会立即 not-equal 返回伪造死锁判定（实测误杀过 vitest fork）。
 - 触发即跳过剩余扩展清理（挂住的就是它）；不判断「哪个扩展」——报告只给进程状态。
 - `/reload` + `-e` TypeScript 扩展在 tmux 夹具里表现不稳定（换掉本包、甚至完全不加包装也
   一样），属宿主/夹具噪声，不是本功能的回归；真实会话里 `/reload` 后看守仍按单例接线工作。

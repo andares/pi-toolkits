@@ -73,13 +73,26 @@ export const TEARDOWN_MARKERS = ["\x1b[?2004l", "\x1b[?1049l"] as const;
 export const SHUTDOWN_EVENT_MARKER = "session_shutdown";
 
 /**
- * Terminal restore written before a forced exit that never reached
- * `ui.stop()`: leave the alternate screen, disable bracketed paste, show the
- * cursor, reset attributes. Harmless when the TUI already restored (the
- * marker-armed path never writes it) and the only thing that makes the shell
- * usable when it did not.
+ * Terminal restore written before every forced exit (writeSync(1, …), which
+ * bypasses our own stdout wrapper and cannot re-arm the guard).
+ *
+ * The shutdown-event path needs it because nothing restored the terminal:
+ * without it the prompt comes back on the alternate screen, with bracketed
+ * paste on and the cursor hidden. The marker path gets it too (since
+ * 2026-11-13): `ui.stop()` can also hang between its two sequences —
+ * `?2004l` written, `?1049l` never — and an already-restored terminal
+ * simply ignores the extra sequences. Idempotent, unlike a frozen screen.
  */
 export const TERMINAL_RESTORE = "\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m\r\n";
+
+/**
+ * Grace period for the kill fallbacks that run AFTER the report is on disk
+ * and "forcing exit" has been printed: `process.exit(0)` first, then, in
+ * layers, a same-loop `setTimeout` SIGKILL and the independent-thread
+ * SIGKILL from killer.ts (see there for why the timer alone is not enough:
+ * the main thread can deadlock inside `process.exit`, where no timer runs).
+ */
+export const HARD_KILL_DELAY_MS = 500;
 
 /** Sequences that mean a TUI is starting (mode switch or suspend/resume). */
 export const RESTART_MARKERS = ["\x1b[?2004h", "\x1b[?1049h"] as const;

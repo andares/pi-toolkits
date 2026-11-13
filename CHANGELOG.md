@@ -9,6 +9,9 @@ renames that heading to the version being published and refuses an empty section
 (`--skip-changelog` bypasses the gate).
 ## Unreleased
 
+- **quit-guard** — a forced exit can no longer be defeated by a deadlock inside `process.exit` itself: after the report is written, a same-loop SIGKILL timer and then an independent worker thread guarantee the process ends (real hang observed 2026-11-13, process stuck 18 min with the pty already deleted).
+- **quit-guard** — a new arm-time watchdog thread covers shutdown deadlocks that kill the main event loop *before* the fire deadline: the main loop beats a 1 Hz heartbeat, and a worker that sees it stop restores the terminal, writes a `quit-hang-*-thread.json` report and SIGKILLs; healthy quits, TUI restarts and Ctrl+Z resume are unaffected.
+
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
 ## 0.14.0 — 2026-11-13
