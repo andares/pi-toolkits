@@ -6,6 +6,7 @@
  * control are fakes.
  */
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -154,6 +155,56 @@ describe("ask-plan command", () => {
 		await handler("off", h.ctx);
 		expect(h.control.restore).toHaveBeenCalled();
 		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
+	});
+
+	it("refuses to start while ask-uat is open", async () => {
+		const h = harness();
+		h.pi.setActiveTools([...h.activeTools(), "uat_item"]);
+		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		expect(h.sendUserMessage).not.toHaveBeenCalled();
+		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("ask-uat"), "warning");
+	});
+
+	it("refuses to start while the agent is still running", async () => {
+		const h = harness();
+		const busy = { ...h.ctx, isIdle: () => false } as ExtensionContext;
+		await h.commands.get(PLAN_COMMAND)!.handler("topic", busy);
+		expect(h.sendUserMessage).not.toHaveBeenCalled();
+		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("still running"), "warning");
+	});
+
+	it("reads framework readiness from the main checkout in a linked worktree", async () => {
+		const main = mkdtempSync(join(tmpdir(), "plan-main-"));
+		const parent = mkdtempSync(join(tmpdir(), "plan-worktrees-"));
+		const linked = join(parent, "linked");
+		const git = (cwd: string, args: string[]) =>
+			execFileSync("git", ["-C", cwd, ...args], { stdio: "ignore" });
+		try {
+			git(main, ["init", "-q"]);
+			writeFileSync(join(main, "tracked.txt"), "one\n", "utf8");
+			git(main, ["add", "tracked.txt"]);
+			git(main, ["-c", "user.email=test@example.com", "-c", "user.name=test", "commit", "-qm", "init"]);
+			git(main, ["worktree", "add", "-qb", "plan-review", linked]);
+			mkdirSync(join(main, ".agents/framework"), { recursive: true });
+			writeFileSync(join(main, ".agents/framework/state.toml"), 'version = 1\ntool = "test"\n', "utf8");
+			writeFileSync(join(main, "AGENTS.md"), "# demo\n", "utf8");
+			mkdirSync(join(main, ".agents/memory"), { recursive: true });
+			writeFileSync(join(main, ".agents/memory/README.md"), "# contract\n", "utf8");
+			mkdirSync(join(main, ".agents/implementations"), { recursive: true });
+
+			const h = harness();
+			const linkedCtx = { ...h.ctx, cwd: linked } as ExtensionContext;
+			const handler = h.commands.get(PLAN_COMMAND)!.handler;
+			await handler("topic", linkedCtx);
+			expect(h.notify).not.toHaveBeenCalledWith(
+				expect.stringContaining("no complete agent framework"),
+				"info",
+			);
+			await handler("off", linkedCtx);
+		} finally {
+			rmSync(main, { recursive: true, force: true });
+			rmSync(parent, { recursive: true, force: true });
+		}
 	});
 });
 

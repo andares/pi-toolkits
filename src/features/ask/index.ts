@@ -33,6 +33,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { GateHub } from "../../lib/gates.js";
 import { setAskControl } from "../../lib/ask-control.js";
+import { activePhases, describePhases } from "../../lib/phases.js";
 // The jailed-tool registry lives here too: ask marks `scratchpad` while the mode
 // is active so the boundary gate (`permission`) knows it has no path to judge.
 import {
@@ -192,6 +193,22 @@ export function registerAsk(
 	pi.registerCommand("ask", {
 		description: "Toggle ask mode (consult mode: no project writes, scratch notes allowed)",
 		handler: async (_args, ctx) => {
+			if (!enabled) {
+				if (ctx.isIdle?.() === false) {
+					ctx.ui.notify("Ask mode: the agent is still running — wait for it to finish.", "warning");
+					return;
+				}
+				// A phase already owns a write surface; entering a read-only mode on top
+				// would be a promise the other phase's before_agent_start can break.
+				const phases = activePhases(pi).filter((phase) => phase !== "ask");
+				if (phases.length > 0) {
+					ctx.ui.notify(
+						`Ask mode cannot start while ${describePhases(phases)} is active — leave it first.`,
+						"warning",
+					);
+					return;
+				}
+			}
 			toggle(ctx);
 		},
 	});

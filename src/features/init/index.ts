@@ -19,7 +19,8 @@
  *  - never while the agent is streaming (a plan needs a stable tree);
  *  - never without `write`/`edit` in the active tool set (`/ask` mode would
  *    reject the model's own work);
- *  - never writes without an explicit decision (TUI panel; no UI ⇒ report only).
+ *  - never performs a migration without an explicit decision (TUI panel; no UI ⇒ report only);
+ *    the safe, already-installed refresh path still runs when `/ask-init` is invoked.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -47,7 +48,10 @@ import {
 import { FRAMEWORK_AUDIT_TOOL } from "./tool.js";
 import { confirmPlan, showReport } from "./ui.js";
 import { describeRefresh, refreshFramework } from "./refresh.js";
-import type { ApplyResult, Plan } from "./types.js";
+import type { RefreshResult } from "./refresh.js";
+import { inspectFramework, describeParity } from "./parity.js";
+import { activePhases, describePhases } from "../../lib/phases.js";
+import type { ApplyResult, Facts, Plan } from "./types.js";
 import { registerAuditTool } from "./tool.js";
 
 export interface InitOptions {
@@ -65,6 +69,8 @@ export interface ParsedInitArgs {
 	readonly dryRun: boolean;
 	readonly deep: boolean;
 	readonly yes: boolean;
+	/** Take ownership of legacy managed files that have no template anchor. */
+	readonly adopt: boolean;
 	readonly lang?: ProjectLanguage;
 	/** Unknown arguments are an error, never a silent full run. */
 	readonly error?: string;
@@ -76,6 +82,7 @@ const USAGE = [
 	"/ask-init check           audit the installed framework (read-only)",
 	"/ask-init roots           sync pi-add-dir roots into the framework state",
 	"/ask-init refresh         refresh framework-owned files and the AGENTS.md workflow block",
+	"/ask-init refresh --adopt take ownership of legacy files without an anchor, then refresh",
 	"/ask-init --dry-run       report only, write nothing (same as plan)",
 	"/ask-init --yes           skip the confirmation panel",
 	"/ask-init --lang zh|en    rendering language for framework-generated files",
@@ -87,6 +94,7 @@ export function parseInitArgs(input: string): ParsedInitArgs {
 	let dryRun = false;
 	let deep = false;
 	let yes = false;
+	let adopt = false;
 	let lang: ProjectLanguage | undefined;
 	const unknown: string[] = [];
 	for (let index = 0; index < tokens.length; index += 1) {
@@ -115,6 +123,10 @@ export function parseInitArgs(input: string): ParsedInitArgs {
 			yes = true;
 			continue;
 		}
+		if (token === "--adopt") {
+			adopt = true;
+			continue;
+		}
 		if (token === "--lang") {
 			const value = tokens[index + 1];
 			if (value === "zh" || value === "en") {
@@ -140,6 +152,7 @@ export function parseInitArgs(input: string): ParsedInitArgs {
 		dryRun,
 		deep,
 		yes,
+		adopt,
 		lang,
 		error:
 			unknown.length > 0
@@ -236,7 +249,7 @@ function writeRuntimeReport(root: string, name: string, text: string): string | 
 	return rel;
 }
 
-function planText(plan: Plan): string {
+function planText(plan: Plan, facts: Facts): string {
 	const lines = [
 		`/ask-init — ${plan.mode}`,
 		`root: ${plan.root}`,
@@ -248,6 +261,7 @@ function planText(plan: Plan): string {
 	if (plan.warnings.length > 0) {
 		lines.push("", "## warnings", ...plan.warnings.map((line) => `- ${line}`));
 	}
+	lines.push(...parityLines(plan, facts));
 	if (plan.actions.length > 0) {
 		lines.push("", "## mechanical actions");
 		for (const action of plan.actions) {
@@ -283,6 +297,12 @@ function planText(plan: Plan): string {
 		for (const task of plan.tasks) lines.push(`- ${task.id}${task.targets ? ` [${task.targets.join(", ")}]` : ""}`);
 	}
 	return lines.join("\n");
+}
+
+/** The parity section of the plan and of a no-op run. */
+function parityLines(plan: Plan, facts: Facts): string[] {
+	if (!facts.state) return ["", "## framework parity", "- framework not installed yet"];
+	return ["", "## framework parity", ...describeParity(inspectFramework(plan.root, facts.state))];
 }
 
 function appliedText(applied: ApplyResult): string {
@@ -370,7 +390,10 @@ async function reportAudit(
 	now: Date,
 ): Promise<void> {
 	const findings = audit(facts);
-	const text = renderFindings(findings, { root, frameworkVersion: FRAMEWORK_VERSION });
+	const parity = facts.state
+		? ["", "## framework parity", ...describeParity(inspectFramework(root, facts.state))]
+		: [];
+	const text = [renderFindings(findings, { root, frameworkVersion: FRAMEWORK_VERSION }), ...parity].join("\n");
 	const rel = writeRuntimeReport(root, `audit-${runStamp(iso(now))}.md`, text);
 	const counts = countFindings(findings);
 	ctx.ui.notify(
@@ -381,9 +404,11 @@ async function reportAudit(
 }
 
 /**
- * Apply the deterministic half, record it, then hand the prose work to the
- * model. Activation of the audit tool happens here and is asserted again in
- * `before_agent_start`, because pi rebuilds the tool loadout for the new run.
+ * Apply the deterministic half, refresh framework-owned text, record the run,
+ * then hand the prose work to the model. Activation of the audit tool happens
+ * here and is asserted again in `before_agent_start`, because pi rebuilds the
+ * tool loadout for the new run. A run with no model tasks stops after the
+ * mechanical repair; there is nothing for a model to decide.
  */
 async function applyAndDispatch(
 	pi: ExtensionAPI,
@@ -391,14 +416,17 @@ async function applyAndDispatch(
 	plan: Plan,
 	runtime: { auditActive: boolean },
 	now: Date,
+	adoptLegacy = false,
 ): Promise<ApplyResult> {
 	const applied = applyPlan(plan, { now });
-	runtime.auditActive = true;
-	activateAuditTool(pi);
+	const refreshed = runRefresh(plan.root, { now, toolVersion: plan.toolVersion, adoptLegacy });
+	const refreshLine = refreshed.result
+		? describeRefresh(refreshed.result)
+		: `refresh failed: ${refreshed.error ?? "unknown error"}`;
 
 	pi.appendEntry("ask-init:run", {
 		mode: plan.mode,
-		summary: [...plan.summary, ...applied.summary],
+		summary: [...plan.summary, ...applied.summary, refreshLine],
 		at: plan.createdAt,
 	});
 
@@ -406,10 +434,23 @@ async function applyAndDispatch(
 		`ask-init: ${plan.mode} applied — ${applied.summary.slice(0, 2).join(" · ")}`,
 		"info",
 	);
-	await showReport(ctx, `ask-init ${plan.mode}`, appliedText(applied), {
-		path: applied.planPath,
-	});
+	await showReport(
+		ctx,
+		`ask-init ${plan.mode}`,
+		`${appliedText(applied)}\n\n## refresh\n- ${refreshLine}`,
+		{ path: applied.planPath },
+	);
+	if (refreshed.result?.block === "inserted" || refreshed.result?.block === "updated") {
+		ctx.ui.notify("ask-init: AGENTS.md workflow block updated — /reload after this run.", "info");
+	}
 
+	if (plan.tasks.length === 0) {
+		ctx.ui.notify("ask-init: mechanical repair applied — no model turn needed.", "info");
+		return applied;
+	}
+
+	runtime.auditActive = true;
+	activateAuditTool(pi);
 	pi.sendUserMessage(buildWorkOrder({ plan, applied, planPath: applied.planPath }), {
 		expandPromptTemplates: false,
 	});
@@ -418,6 +459,22 @@ async function applyAndDispatch(
 		"info",
 	);
 	return applied;
+}
+
+interface RefreshAttempt {
+	readonly result?: RefreshResult;
+	readonly error?: string;
+}
+
+function runRefresh(
+	root: string,
+	options: { now: Date; toolVersion: string; dryRun?: boolean; adoptLegacy?: boolean },
+): RefreshAttempt {
+	try {
+		return { result: refreshFramework(root, options) };
+	} catch (error) {
+		return { error: error instanceof Error ? error.message : String(error) };
+	}
 }
 
 /**
@@ -452,6 +509,20 @@ function createRunHandler(
 			return;
 		}
 
+		// Mutating subcommands need a stable tree: a plan under review or an open
+		// UAT page must not be rewritten under the operator's feet. Read-only
+		// subcommands (`check`, `plan`, `help`) stay available.
+		const phases = activePhases(pi);
+		const mutating =
+			parsed.sub === "run" ||
+			parsed.sub === "refresh" ||
+			parsed.sub === "roots" ||
+			parsed.sub === "scrub";
+		if (mutating && phases.length > 0) {
+			ctx.ui.notify(`ask-init: ${describePhases(phases)} is active — leave it first.`, "warning");
+			return;
+		}
+
 		// Hidden maintenance subcommand (not in USAGE): removes retired fields
 		// from an installed framework. Documented in AGENTS.md only; obeys
 		// `--dry-run` because that flag promises "nothing is written".
@@ -478,40 +549,59 @@ function createRunHandler(
 
 		// Framework-owned text is refreshable without an upgrade recipe: managed
 		// files are rewritten only while the disk still equals the bytes we wrote,
-		// and AGENTS.md is touched only between the workflow markers.
+		// and AGENTS.md is touched only between a valid workflow marker pair.
 		if (parsed.sub === "refresh") {
-			try {
-				const result = refreshFramework(root, {
-					dryRun: parsed.dryRun,
-					now,
-					toolVersion,
-				});
-				ctx.ui.notify(
-					`ask-init refresh: ${describeRefresh(result)}${parsed.dryRun ? " — nothing was written." : ""}`,
-					result.skipped.length > 0 ? "warning" : "info",
-				);
-				if (result.skipped.length > 0) {
-					await showReport(
-						ctx,
-						"ask-init refresh — left untouched",
-						[
-							"These framework files were edited by hand, so refresh did not overwrite them.",
-							"Move your additions out of the managed file, or re-apply them after refreshing.",
-							"",
-							...result.skipped.map((entry) => `- ${entry.path}: ${entry.reason}`),
-						].join("\n"),
-					);
-				}
-			} catch (error) {
-				ctx.ui.notify(
-					`ask-init refresh: ${error instanceof Error ? error.message : String(error)}`,
-					"error",
+			const attempt = runRefresh(root, {
+				dryRun: parsed.dryRun,
+				now,
+				toolVersion,
+				adoptLegacy: parsed.adopt,
+			});
+			if (!attempt.result) {
+				ctx.ui.notify(`ask-init refresh: ${attempt.error ?? "unknown error"}`, "error");
+				return;
+			}
+			const result = attempt.result;
+			const warning =
+				result.skipped.length > 0 ||
+				result.block === "malformed" ||
+				result.block === "hand-written" ||
+				result.block === "missing-agents";
+			ctx.ui.notify(
+				`ask-init refresh: ${describeRefresh(result)}${parsed.dryRun ? " — nothing was written." : ""}`,
+				warning ? "warning" : "info",
+			);
+			if (!parsed.dryRun && (result.block === "inserted" || result.block === "updated")) {
+				ctx.ui.notify("ask-init: run /reload so the new AGENTS.md enters the prompt.", "info");
+			}
+			if (warning) {
+				await showReport(
+					ctx,
+					"ask-init refresh — left untouched",
+					[
+						"These framework files were left untouched.",
+						"Hand edits stay yours; a file written by an older version without an anchor cannot be told apart from a hand edit.",
+						"",
+						...(result.block === "malformed"
+							? [
+									"AGENTS.md: the workflow markers are inconsistent — fix the marker pair, then rerun refresh.",
+									"",
+								]
+							: []),
+						...(result.block === "hand-written"
+							? [
+									"AGENTS.md: a hand-written Ask workflow section exists without markers — add markers or remove it; refresh will not add a second one.",
+									"",
+								]
+							: []),
+						...result.skipped.map((entry) => `- ${entry.path}: ${entry.reason}`),
+					].join("\n"),
 				);
 			}
 			return;
 		}
 		const addedRoots = options.addedRoots ?? addedRootsFromBranch(ctx);
-		const facts = detect(root, { addedRoots, lang: parsed.lang });
+		let facts = detect(root, { addedRoots, lang: parsed.lang });
 
 		const doCheck = (): Promise<void> => reportAudit(ctx, root, facts, now);
 
@@ -532,7 +622,7 @@ function createRunHandler(
 		});
 
 		if (parsed.sub === "plan") {
-			await showReport(ctx, "ask-init plan", planText(plan));
+			await showReport(ctx, "ask-init plan", planText(plan, facts));
 			if (plan.warnings.length > 0) {
 				ctx.ui.notify(`ask-init plan: ${plan.warnings.length} warning(s) — see the panel.`, "warning");
 			}
@@ -546,13 +636,13 @@ function createRunHandler(
 					"ask-init: this project's framework is newer than this tool.",
 				"error",
 			);
-			await showReport(ctx, "ask-init", planText(plan));
+			await showReport(ctx, "ask-init", planText(plan, facts));
 			return;
 		}
 		if (plan.mode === "upgrade") {
 			// There is no v1 upgrade recipe. Reporting is safe; applying a scaffold
 			// over an older state file would be a guess, not a migration.
-			await showReport(ctx, "ask-init upgrade", planText(plan));
+			await showReport(ctx, "ask-init upgrade", planText(plan, facts));
 			ctx.ui.notify(
 				"ask-init: no automatic upgrade recipe for this state version — nothing was written. Migrate by hand after reviewing .agents/memory/README.md.",
 				"warning",
@@ -560,6 +650,25 @@ function createRunHandler(
 			return;
 		}
 		if (plan.mode === "audit-only") {
+			// A repeated run answers "are we on par?" before it checks content:
+			// refresh repairs missing/stale framework text when safe, leaves hand
+			// edits alone, and reports what it did. The audit then runs against
+			// the refreshed tree.
+			const attempt = runRefresh(root, { now, toolVersion, adoptLegacy: parsed.adopt });
+			if (attempt.result) {
+				const result = attempt.result;
+				const warning =
+					result.skipped.length > 0 ||
+					result.block === "malformed" ||
+					result.block === "hand-written";
+				ctx.ui.notify(`ask-init: ${describeRefresh(result)}`, warning ? "warning" : "info");
+				if (result.block === "inserted" || result.block === "updated") {
+					ctx.ui.notify("ask-init: run /reload so the new AGENTS.md enters the prompt.", "info");
+				}
+				facts = detect(root, { addedRoots, lang: parsed.lang });
+			} else {
+				ctx.ui.notify(`ask-init refresh: ${attempt.error ?? "unknown error"}`, "error");
+			}
 			await doCheck();
 			return;
 		}
@@ -576,12 +685,12 @@ function createRunHandler(
 			return;
 		}
 		if (decision === "dry-run") {
-			await showReport(ctx, "ask-init plan", planText(plan));
+			await showReport(ctx, "ask-init plan", planText(plan, facts));
 			ctx.ui.notify("ask-init: report only — nothing was written.", "info");
 			return;
 		}
 
-		await applyAndDispatch(pi, ctx, plan, runtime, now);
+		await applyAndDispatch(pi, ctx, plan, runtime, now, parsed.adopt);
 	};
 }
 
@@ -624,6 +733,7 @@ export function registerInit(pi0: ExtensionAPI, options: InitOptions = {}): void
 				{ value: "check", label: "check", description: "audit the installed framework" },
 				{ value: "roots", label: "roots", description: "sync pi-add-dir roots into state" },
 				{ value: "refresh", label: "refresh", description: "refresh framework-owned files (safe, idempotent)" },
+				{ value: "--adopt", label: "--adopt", description: "take ownership of legacy framework files without an anchor" },
 				{ value: "--dry-run", label: "--dry-run", description: "report only, write nothing" },
 				{ value: "--deep", label: "--deep", description: "allow structural rewrites" },
 				{ value: "--yes", label: "--yes", description: "skip the confirmation panel" },

@@ -65,6 +65,7 @@ export function installedProject(extra: Record<string, string> = {}): string {
 			"| --- | --- | --- |",
 			"| `specs/PLAN.md` | route | before work |",
 			"| `.agents/memory/FINISHED.md` | closed work | closing |",
+			"| `.agents/implementations/` | change records | after work |",
 			"",
 		].join("\n"),
 		"specs/PLAN.md": "# Plan (open work)\n\n## Route\n\n_None._\n",

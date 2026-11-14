@@ -11,6 +11,11 @@ renames that heading to the version being published and refuses an empty section
 
 - **quit-guard** — a forced exit can no longer be defeated by a deadlock inside `process.exit` itself: after the report is written, a same-loop SIGKILL timer and then an independent worker thread guarantee the process ends (real hang observed 2026-11-13, process stuck 18 min with the pty already deleted).
 - **quit-guard** — a new arm-time watchdog thread covers shutdown deadlocks that kill the main event loop *before* the fire deadline: the main loop beats a 1 Hz heartbeat, and a worker that sees it stop restores the terminal, writes a `quit-hang-*-thread.json` report and SIGKILLs; healthy quits, TUI restarts and Ctrl+Z resume are unaffected.
+- **ask-init** — re-running it now compares the project's framework text with the installed version, repairs missing or stale framework-owned files when safe, and says explicitly when nothing needs changing; hand-edited files stay untouched.
+- **ask-init** — the workflow marker matcher no longer mistakes inline examples or fenced snippets for the managed block; ambiguous marker pairs are reported and left untouched.
+- **ask-init** — `refresh --adopt` takes ownership of framework files written by an older tool without a template anchor, after you review them; a normal refresh still leaves them alone.
+- **ask** — phase guards: ask refuses to start on top of a plan review or the UAT page, a review exits ask mode and refuses while a plan is under review, and `/ask-init` refuses mutating runs while another phase owns the tree.
+- **init** — the audit now distinguishes a stale framework file from a hand edit, reports a missing workflow block, and treats bare legacy paths as a warning once the legacy directories are gone.
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 

@@ -45,6 +45,7 @@ import {
 	type AvailableModel,
 } from "../../lib/model-config.js";
 import { REVIEW_PROMPT } from "./prompt.js";
+import { setAskControl } from "../../lib/ask-control.js";
 import {
 	ReviewStore,
 	getReviewStore,
@@ -122,10 +123,14 @@ function fakeCtx(
 	return { ctx, notify, custom, select };
 }
 
-function fakePi(switched = true) {
+function fakePi(switched = true, tools: string[] = []) {
 	const setModel = vi.fn(async () => switched);
 	const sendUserMessage = vi.fn();
-	const pi = { setModel, sendUserMessage } as unknown as ExtensionAPI;
+	const pi = {
+		setModel,
+		sendUserMessage,
+		getActiveTools: () => tools,
+	} as unknown as ExtensionAPI;
 	return { pi, setModel, sendUserMessage };
 }
 
@@ -408,6 +413,33 @@ describe("createReviewRunner", () => {
 		expect(setModel).not.toHaveBeenCalled();
 		expect(sendUserMessage).not.toHaveBeenCalled();
 		expect(getReviewStore().getModel()).toBeUndefined();
+	});
+
+	it("refuses to review while a plan is under review", async () => {
+		getReviewStore().setModel("anthropic/claude-sonnet-4");
+		const { pi, sendUserMessage } = fakePi(true, ["read", "plan_submit"]);
+		const { ctx, notify, custom } = fakeCtx({ customResult: MODELS[0] });
+		await createReviewRunner(pi)(ctx);
+		expect(custom).not.toHaveBeenCalled();
+		expect(sendUserMessage).not.toHaveBeenCalled();
+		expect(notify).toHaveBeenCalledWith(
+			expect.stringContaining("ask-plan"),
+			"warning",
+		);
+	});
+
+	it("exits read-only ask mode before a check-and-fix review", async () => {
+		const exit = vi.fn();
+		setAskControl({ isActive: () => true, exit });
+		try {
+			const { pi, sendUserMessage } = fakePi(true, ["read", "write"]);
+			const { ctx } = fakeCtx({ customResult: MODELS[0] });
+			await createReviewRunner(pi)(ctx);
+			expect(exit).toHaveBeenCalledWith(ctx);
+			expect(sendUserMessage).toHaveBeenCalledWith(REVIEW_PROMPT);
+		} finally {
+			setAskControl(undefined);
+		}
 	});
 
 	it("reports and aborts when switching to the review model fails", async () => {

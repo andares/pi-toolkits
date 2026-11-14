@@ -80,8 +80,9 @@ compaction plan is.
 
 `/ask-init check` (or the `framework_audit` tool during an init run) reports:
 
-- structure: missing files, index ↔ file mismatches, `AGENTS.override.md` shadowing
-- paths: references to `memory` or `implementations` without the `.agents/` prefix (a move would break them)
+- structure: missing required files, index ↔ file mismatches, `AGENTS.override.md` shadowing
+- framework files: managed text that is missing or behind the installed template, a missing or malformed `AGENTS.md` workflow block, and hand edits (`/ask-init` refreshes only what is safe)
+- paths: references to `memory` or `implementations` without the `.agents/` prefix; an error while a legacy directory still exists (`E-PATH-01`), a warning once it is gone (`W-PATH-01`)
 - duplication: the same section heading in two files (one fact, two homes)
 - order: sections appended after the historical appendix
 - budgets: `AGENTS.md` and memory-file sizes
@@ -97,3 +98,9 @@ version is newer than the state file, `/ask-init` plans an upgrade: deterministi
 steps run in code, prose changes are handed to the model as tasks. A project whose
 state version is newer than the installed tool is never migrated — upgrade the
 tool instead.
+
+Text-only changes (the workflow block, the signpost, this contract) do not bump
+the framework version. Run `/ask-init` (or `/ask-init refresh`) after upgrading
+the package to bring them up to date, then `/reload` if `AGENTS.md` changed.
+Re-running `/ask-init` is safe: it reports `current` when nothing drifted and
+leaves files you edited by hand alone.

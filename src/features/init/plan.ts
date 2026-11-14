@@ -41,6 +41,7 @@ import {
 } from "./spec.js";
 import { duplicateHeadings, largestSections, sectionsAfterAppendix, tombstones } from "./analyze.js";
 import { countBareRefs } from "./detect.js";
+import { missingRequired } from "./parity.js";
 import { indexBlock, rootsBlock } from "./render.js";
 import { renderTemplate } from "./templates.js";
 import type {
@@ -181,7 +182,10 @@ function selectMode(facts: Facts): PlanMode {
 			!facts.retiredTodos &&
 			// A PLAN.md left in memory is pre-v1 layout, not an installed plan home.
 			!existsSync(join(facts.root, MEMORY_DIR, "PLAN.md")) &&
-			existsSync(join(facts.root, CONTRACT_FILE));
+			existsSync(join(facts.root, CONTRACT_FILE)) &&
+			// AGENTS.md and the core memory seeds are what make the loop readable;
+			// missing ones are mechanical repairs, not a reason to audit only.
+			missingRequired(facts.root).length === 0;
 		return layoutOk ? "audit-only" : "reconcile";
 	}
 	const anyContent =
@@ -329,6 +333,7 @@ function editAgentsTask(facts: Facts, deep: boolean): Task | undefined {
 		acceptance: [
 			"no fact was dropped: every removed sentence is either still present verbatim in the destination or listed in the coverage table",
 			`AGENTS.md stays under ${BUDGETS.agentsMdHardChars} characters (soft: ${BUDGETS.agentsMdSoftChars})`,
+			"the ask workflow markers (`<!-- ask-init:begin workflow … -->` … `<!-- ask-init:end workflow -->`) stay intact; the block inside them is framework-owned",
 		],
 	};
 }
@@ -566,6 +571,10 @@ export function buildPlan(facts: Facts, options: PlanOptions): Plan {
 	const snapshotPaths = [
 		AGENTS_FILE,
 		CLAUDE_FILE,
+		CONTRACT_FILE,
+		SIGNPOST_FILE,
+		UAT_CONTRACT_FILE,
+		STATE_GITIGNORE,
 		facts.deprecated.memory ? "memory" : "",
 		facts.deprecated.implementations ? "implementations" : "",
 		facts.deprecated.prompts ? "prompts" : "",
@@ -738,7 +747,6 @@ export function buildPlan(facts: Facts, options: PlanOptions): Plan {
 	}
 
 	/* Tasks. */
-	if (mode !== "upgrade") tasks.push(surveyTask(facts));
 	const edit = editAgentsTask(facts, deep);
 	if (edit) tasks.push(edit);
 	else if (!facts.context.agents) {
@@ -808,8 +816,19 @@ export function buildPlan(facts: Facts, options: PlanOptions): Plan {
 	if (roots) tasks.push(roots);
 	const budget = budgetTask(facts);
 	if (budget) tasks.push(budget);
-	const coverage = coverageTask(facts, now);
+	const needsCoverage =
+		mode === "adopt" ||
+		facts.legacyMemory.length > 0 ||
+		facts.legacyDocs.length > 0 ||
+		facts.todos.length > 0;
+	const coverage = needsCoverage ? coverageTask(facts, now) : undefined;
 	if (coverage) tasks.push(coverage);
+
+	// A reconcile caused only by missing files/directories is mechanical: no
+	// survey and no model turn. A survey is only worth paying for when there is
+	// prose work to decide; fresh/adopt always need it.
+	const mechanicalOnly = mode === "reconcile" && tasks.length === 0;
+	if (!mechanicalOnly) tasks.unshift(surveyTask(facts));
 
 	/* State last: it records what this run created and moved. */
 	actions.push({ kind: "write-state", state: buildState(facts, now, options.toolVersion, mode) });
@@ -836,6 +855,9 @@ export function buildPlan(facts: Facts, options: PlanOptions): Plan {
 	}
 	if (creates.length > 0) {
 		summary.push(`create ${creates.length} files (contract, signpost, seeds, state)`);
+	}
+	if (mechanicalOnly) {
+		summary.push("mechanical repair only — no model tasks");
 	}
 	if (tasks.length > 0) {
 		summary.push(`hand ${tasks.length} tasks to the model: ${tasks.map((task) => task.id).join(", ")}`);

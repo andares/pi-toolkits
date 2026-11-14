@@ -510,7 +510,7 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 32 个文件 / 660 测试全绿；`pnpm check:compat` 在强制窗口
+- 测试：`pnpm test` 53 个文件 / 943 测试全绿；`pnpm check:compat` 在强制窗口
   1.2.0–1.5.1 全绿，向后探针 1.1.x / 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive`
   停探（不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
 - 真实 pi 1.5.1 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
@@ -682,9 +682,11 @@ design/ docs/ legal/          # 人看的东西（可选模块）
 `W-BUDGET-01/02` AGENTS.md / 记忆文件超预算 · `W-DUP-01` 同章节出现在两个文件 ·
 `W-ORDER-01` 附录后又追加 · `W-COV-01` 覆盖表有 OPEN · `W-META-01` FUTURE 缺触发条件 ·
 `W-EVID-01` FINISHED 条目无证据指针 · `W-PLAN-01` spec 全勾却仍在 PLAN ·
-`W-ROOT-01/02` 根下 agent-only 目录 / 零字节文件 · `W-TODO-01` todos 仍在 ·
+`W-ROOT-01/02` 根下 agent-only 目录 / 零字节文件 · `W-ROOT-03/04` 登记的 root 缺失 / scope card 过大 · `W-TODO-01` todos 仍在 ·
 `W-OVERRIDE-01` `AGENTS.override.md` 顶替入口 · `W-SCAFFOLD-01` 未填的 ask-init 模板标记（`TODO` 占位） ·
 `I-AGENTS-01` `.agents/skills` 存在（pi 会要求项目信任） · `I-INSTALL-01` 尚未安装框架。
+
+框架文件对等：`W-PATH-01` 旧目录已不存在时的裸旧路径 · `W-FW-02` 受管文件缺失/落后 · `W-FW-03` 工作流块缺失/落后/malformed/手写无 marker · `W-FW-04` 必需框架文件缺失 · `I-FW-01` 无模板锚。
 
 ### 多仓库
 
@@ -696,20 +698,36 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 刷新机制（`/ask-init refresh`，2026-11-12）
 
-`/ask-init` 的既有规则是「已存在就不覆盖」，所以它永远刷不新框架自己的文字；而每加一个功能
+`/ask-init` 的既有规则是「已存在就不覆盖」，所以脚本/种子只在缺失时创建；而每加一个功能
 都要往项目里补合同、补 `AGENTS.md` 的工作流段。`refresh` 就是唯一被允许重写**框架拥有字节**
-的入口：
+的入口，**`/ask-init` 每次运行都会调用它**：audit-only 先 refresh 再 audit；全量 run 在 apply
+之后、派发工作单之前 refresh。
 
 - **受管文件**（`.agents/memory/README.md`、`.agents/README.md`、`.agents/uat/README.md`、
   `.agents/framework/.gitignore`）只有当磁盘仍等于「我们上次写出的字节」时才重写。
   锚是 `state.toml` 的 `managed[].template_sha256`（渲染结果的哈希），不是磁盘哈希——
   后者会在每次 run 末尾被回填，证明不了「没被人改过」。旧 state 没有锚时，只有磁盘与当前模板
-  逐字节相同才补锚；其余一律跳过（旧磁盘哈希不构成覆盖许可）。
-- **`AGENTS.md` 只动 workflow 标记块**：`<!-- ask-init:begin workflow … -->` …
-  `<!-- ask-init:end workflow -->`，块外一个字节不动；标记缺失时确定性插入（有 `## 附录`
-  就插在它前面，否则追加到末尾）。
+  逐字节相同才补锚；其余一律跳过（旧磁盘哈希不构成覆盖许可）。`refresh --adopt`
+  是显式例外：核对过旧文件后，把它当前的字节认作框架拥有并接管，下一次 refresh 才
+  会正常更新；`/ask-init` 的 `I-FW-01` 文案会指到这条命令。
+- **`AGENTS.md` 只动 workflow 标记块**：marker 必须**独占一行**、不在 fenced 代码块里，且
+  `begin`/`end` 恰好成对；`<!-- ask-init:begin workflow … -->` … `<!-- ask-init:end workflow -->`，
+  块外一个字节不动；标记缺失时确定性插入（有 `## 附录` 就插在它前面，否则追加到末尾）；
+  不配对/重复时标 `malformed`，**不写** AGENTS.md。文档里内联引用 marker 不会再被误认成块。
 - **缺失的可选件会补建**（`.agents/uat/README.md`），所以早期采纳的项目能原地补齐验收台账。
 - 幂等：第二次运行报 `current`；`--dry-run` 只报告不写盘。
+- **对等检查**：`inspectFramework` 区分 `current` / `stale`（磁盘 == 锚但锚 != 当前模板）/
+  `hand-edited` / `missing` / `unverifiable`（旧 state 无锚）；workflow 块分
+  `current/stale/missing/malformed/hand-written/missing-agents`。`check` 报告这些码，
+  `plan` 预览它们；`/ask-init` 安全时自动补，手工改过的跳过并报告。
+- **机械修复**：`layoutOk` 现在也要求 `AGENTS.md`、核心 seed（FINISHED/FUTURE/ARCHITECTURE）、
+  `specs/PLAN.md`；只缺文件/目录的 `reconcile` 只产生 create/move 动作，不派模型
+  （`applyAndDispatch` 在 `tasks.length === 0` 时只应用并提示 mechanical repair）。
+- **ask 循环的「已安装」判定**：`frameworkReadiness` 只查 `state.toml`、`AGENTS.md`、
+  `.agents/memory/README.md`、`.agents/implementations/` 是否存在；文件内容小改不挡
+  `/ask-uat` / `record_change`，缺失时拒绝并列出缺失项。
+- **相位互斥**：`ask` 拒绝叠在 plan/uat 上；`ask-plan` 退出 ask、拒绝 uat、加 `isIdle`；
+  `ask-review` 退出 ask、拒绝 plan；`ask-init` 的 mutating 子命令在任一相位下拒绝。
 - **不升 `FRAMEWORK_VERSION`**：UAT 目录是可选增量，`I-UAT-01` 表示「尚未安装」；
   升版本号会要求迁移配方，反而挡住用户。
 
@@ -719,9 +737,9 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **32 文件 / 660 测试**全绿（init 新增 7 个测试文件 / 79 用例）；
+- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 943 测试**全绿（init 11 个测试文件 / 122 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
-- `pnpm check:compat`：窗口 1.2.0–1.5.1 全绿（每版 660 passed），探针 1.1.x / 1.0.x / 0.99.x 全绿、
+- `pnpm check:compat`：窗口 1.2.0–1.5.1 全绿（当时每版 660 passed；本轮测试数变了，矩阵未重跑），探针 1.1.x / 1.0.x / 0.99.x 全绿、
   0.87.x 因 `defaultActive` 停探，floor 0.99.0。
 - 测试稳定性（2026-11-04）：矩阵并发四沙箱时，vitest 默认 worker 数（22 核 → 21）会因内存
   压力让**不同的**测试偶发超时（1.0.2 的 git fixture、1.0.1 的动态 import），把 floor 拖到噪声上。
@@ -872,7 +890,7 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 32 个文件 / 660 测试全绿；`pnpm check:compat` 强制窗口
+- 测试：`pnpm test` 53 个文件 / 943 测试全绿；`pnpm check:compat` 强制窗口
   1.2.0–1.5.1 + 向后探针 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
   真实 pi 1.5.1 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
@@ -946,7 +964,7 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 
 **已验证**
 
-- `pnpm test` 32 个文件 / 660 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+- `pnpm test` 53 个文件 / 943 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
   `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
 - 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
   单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、
@@ -1094,7 +1112,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck`、`pnpm test`：**52 文件 / 919 测试**全绿（quit-guard 55 例，含 killer 4 例）。
+- `pnpm typecheck`、`pnpm test`：**53 文件 / 943 测试**全绿（quit-guard 55 例，含 killer 4 例）。
 - **2026-11-13 真实事故与修复验证**：真实会话里 guard 已 fire、报告已落盘、"forcing exit"
   已打印，但 `process.exit(0)` 卡死在宿主 exit 路径（主线程 `futex_wait`，18 分钟未退，
   pty 被用户关窗口删掉，fd 0/1/2 → `/dev/pts/N (deleted)`；宿主 chunk 里确认 pi-tui
@@ -1201,7 +1219,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **42 文件 / 776 测试**全绿（plan 109 例）；
+- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 943 测试**全绿（plan 106 例）；
   `pnpm ui:typecheck` / `pnpm ui:check` 绿。
 - 计划期写入边界：`echo x > src/a.ts` / `cp a.ts b.ts` 被 gate 拒；写入 `specs/` 下的
   `.md`、项目外临时文件与纯读命令放行（`plan/index.test.ts` 的 write-boundary 用例）。
@@ -1283,7 +1301,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm test` 48 文件 / 841 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
+- `pnpm test` 53 文件 / 943 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
 - 真实 pi 1.5.2 冒烟：`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`、无 Extension 警告。
 - 覆盖：记录解析/命名/同分钟防覆盖、账本坏行与重复 id、自愈换行、N:M、link 重开、
   merge/drop/amend、命令开页与聚类派发、页面勾选往返、未知项 404。
@@ -1292,7 +1310,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 - 一个进程只有一个 UAT 页面；多进程靠端口池（3401+20）并存，页面靠 ledger mtime 轮询收敛。
 - 关页面不关服（`/ask-uat off` 或 2h 空闲才关）；`/reload` 后需重开。
-- `record_change` 只在装了框架的项目激活；没有框架时 `/ask-uat` 直接拒绝。
+- `record_change` 只在框架完备的项目激活（`state.toml` + `AGENTS.md` + 记忆合同 + `.agents/implementations/`）；缺失时 `/ask-uat` 直接拒绝并列出缺失项。
 - 聚类质量由实施侧行为句决定；`hint` 允许写 `none: <理由>`，让「这次不用测」也是明确记录。
 
 ## Feature: whats-new（升级后首次启动的版本变更提示，2026-11-12 实现）
@@ -1349,7 +1367,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证与边界
 
-- `pnpm typecheck` 绿；`pnpm test` **50 文件 / 898 测试**全绿。真实 pi 1.5.2 复验：
+- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 943 测试**全绿。真实 pi 1.5.2 复验：
   预置旧版本后首启展示，第二次启动不再展示；单元测试断言不注册任何命令。
 - print 模式不消费提示。最新修复与复验证据见本轮后续实施记录。
 - 只在交互式 TUI 展示；多进程同时首启可能各展示一次（无锁）。提示文本与 changelog 用英文。

@@ -31,6 +31,10 @@ beforeEach(() => {
 	sessionId = `s-${Math.random().toString(36).slice(2, 8)}`;
 	mkdirSync(join(root, ".agents/framework"), { recursive: true });
 	writeFileSync(join(root, ".agents/framework/state.toml"), 'version = 1\ntool = "test"\n', "utf8");
+	writeFileSync(join(root, "AGENTS.md"), "# demo\n", "utf8");
+	mkdirSync(join(root, ".agents/memory"), { recursive: true });
+	writeFileSync(join(root, ".agents/memory/README.md"), "# contract\n", "utf8");
+	mkdirSync(join(root, ".agents/implementations"), { recursive: true });
 });
 
 afterEach(() => {
@@ -165,6 +169,17 @@ describe("ask-uat command", () => {
 		const h = harness();
 		await h.commands.get(UAT_COMMAND)!.handler("", h.ctx);
 		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("run /ask-init first"), "error");
+		expect(h.openBrowser).not.toHaveBeenCalled();
+	});
+
+	it("refuses a half-installed framework and names the missing piece", async () => {
+		rmSync(join(root, ".agents/memory/README.md"));
+		const h = harness();
+		await h.commands.get(UAT_COMMAND)!.handler("", h.ctx);
+		expect(h.notify).toHaveBeenCalledWith(
+			expect.stringContaining(".agents/memory/README.md"),
+			"error",
+		);
 		expect(h.openBrowser).not.toHaveBeenCalled();
 	});
 

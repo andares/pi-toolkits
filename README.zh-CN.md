@@ -77,10 +77,10 @@ pi -e ./src/index.ts
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/ask-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 | 🧭 **plan** 浏览器内计划评审 | `/ask-plan` | 先调研、写 plan、在浏览器里逐段评审并逐块批注,批准之后才动代码 |
-| ✅ **uat** 验收台账 | `/ask-uat` | 把待归类的实施记录聚成用户视角的验收项，在页面里勾选（只追加、无提交），看清哪些已交付但还没验过 |
+| ✅ **uat** 验收台账 | `/ask-uat` | `/ask-init` 之后：把待归类的实施记录聚成用户视角的验收项，在页面里勾选（只追加、无提交），看清哪些已交付但还没验过 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
-| 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计漂移、预算与重复事实 |
+| 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计/刷新漂移、预算与重复事实 |
 | 🧯 **quit-guard** 退出看门狗 | `/quit-guard` | 交互式退出卡死时，无论发生在 TUI 收尾之后、还是信号触发路径的收尾之前，超时后写诊断报告并强制退出，把命令行提示符还给你；TUI 重启与 Ctrl+Z 恢复都会解除看守 |
 | 🆕 **whats-new** 升级后的版本变更提示 | 自动 | 升级后的首次 `pi` 启动展示「从你上次运行的版本到现在改了什么」，只展示一次；不注册斜杠命令，不占用宿主的全局命令命名空间 |
 
@@ -91,6 +91,8 @@ pi -e ./src/index.ts
 <a name="ask"></a>
 
 用 `/ask` 进入(再按一次退出)。适合只想要「问问题、读代码」的场景:模型不能改项目,但不会被剥夺思考的落点。
+
+ask 是独立的（不需要 `/ask-init`）。计划评审或 UAT 页面开着时先退出它们——ask 不会叠在另一个相位上启动，因为那个相位的 `before_agent_start` 会把写工具重新加回来。
 
 **进入后**:
 
@@ -279,6 +281,7 @@ run = ["/ask-perm allow allow allow ask"]
 
 - **未配置 / 配置的模型已不可用**(如在 pi 的 models.json 里删掉了该模型)→ 提示后照常弹出列表(此时无默认项)
 - 任务仍在进行中(agent 未空闲)时触发 → 提示等待,不执行;同一时间只允许一个评审
+- 计划期 → 拒绝(评审中的计划不能被改);ask 模式会自动退出,因为查+修需要完整工具集
 - footer 出现灰色 `review` 状态 = 已配置评审模型
 
 ---
@@ -304,7 +307,9 @@ run = ["/ask-perm allow allow allow ask"]
 /ask-plan off            # 退出计划期(草稿留在原处)
 ```
 
-spec 落在 `specs/<slug>.md`,与 `/ask-init` 的计划同一个位置。
+spec 落在 `specs/<slug>.md`,与 `/ask-init` 的计划同一个位置。没有 agent 框架时计划仍能用，
+但 `record_change` 与 `/ask-uat` 要等 `/ask-init` 之后才可用；进入计划期时会提示。
+UAT 页面开着时先 `/ask-uat off`——两个相位不会叠着跑。
 
 ---
 
@@ -319,6 +324,10 @@ spec 落在 `specs/<slug>.md`,与 `/ask-init` 的计划同一个位置。
 验收的单位是**行为**，不是提交。实施会话每轮用 `record_change` 写一条实施记录，
 附一句「用户视角能做什么」；UAT 侧把多条记录聚成少数验收项——一条行为可能要十条记录，
 一条记录也可能碰到多个行为。
+
+**需要框架。** 项目缺少框架状态、`AGENTS.md`、记忆合同或 `.agents/implementations/` 时，
+`/ask-uat` 直接拒绝；先跑 `/ask-init`。此时 `record_change` 也不可用。判定按特征而非字节：
+你对这些文件的小改不会挡住页面。
 
 ```text
 record_change（实施）→ /ask-uat（聚类）→ 浏览器（勾选）→ 台账
@@ -475,13 +484,28 @@ run = [
 
 | 命令 | 作用 |
 | --- | --- |
-| `/ask-init` | 检测 → 出计划 → 确认 → 移动/脚手架/快照 → 把正文工作派发给模型 |
-| `/ask-init plan [--deep]` | 只打印计划,不写任何盘(`--dry-run` 同义) |
-| `/ask-init check` | 审计已装的框架(只读;只在 `.agents/framework/reports/` 留下运行期报告) |
+| `/ask-init` | 首次：检测 → 出计划 → 确认 → 移动/脚手架/快照 → 派发；已安装：先刷新框架文字，再审计（不派模型） |
+| `/ask-init plan [--deep]` | 只打印计划，不写任何盘（`--dry-run` 同义），含框架对等检查段 |
+| `/ask-init check` | 审计已装的框架，含框架文字与模板的对等检查（只读；只在 `.agents/framework/reports/` 留下运行期报告） |
 | `/ask-init roots` | 把 `pi-add-dir` 添加的目录同步进框架状态 |
-| `/ask-init refresh` | 刷新框架拥有的文件（合同、门牌、验收合同）与 `AGENTS.md` 里的工作流块；手工改过的文件一概不动 |
+| `/ask-init refresh [--adopt]` | 单独执行刷新（`/ask-init` 也会跑）：框架拥有文件 + `AGENTS.md` 里的工作流块；手工改过的文件一概不动。`--adopt` 在你核对过之后，把没有锚的旧文件认作框架拥有并接管 |
 | `/ask-init --yes` | 跳过确认面板 |
-| `/ask-init --lang zh\|en` | 框架生成文件的渲染语言(单次生效;默认按项目自身文档判定) |
+| `/ask-init --lang zh\|en` | 框架生成文件的渲染语言（单次生效；默认按项目自身文档判定） |
+
+**重复运行是安全的。** 已安装框架时，`/ask-init` 先对比项目里的框架文字与当前版本：
+缺失或落后的框架拥有文件会刷新，手工改过的保持原状，然后跑审计。没有任何漂移时
+会明确说「已是最新」，不修改框架文件——也不会派模型回合（审计仍写运行期报告）。升级包之后运行 `/ask-init`
+（或 `/ask-init refresh`），工作流块变了再 `/reload`。
+
+**ask 循环说的「已安装」**：`.agents/framework/state.toml`、`AGENTS.md`、
+`.agents/memory/README.md`、`.agents/implementations/` 存在。内容是用户的——小改
+不会让 `/ask-uat` 或 `record_change` 拒绝；需要框架的命令会把缺失项列出来。
+mutating 运行（含 `refresh`、`roots`）在 `/ask`、计划评审或 UAT 页面开着时拒绝；
+`check` 与 `plan` 仍可用。
+
+旧工具写的项目没有模板锚。`/ask-init` 把这些文件报成 `I-FW-01` 并保持原状——它分不清
+旧模板和你的手改。核对一份之后运行 `/ask-init refresh --adopt` 接管当前字节；之后的
+refresh 就会正常更新它。
 
 **机械那一半保证什么**:
 
@@ -504,11 +528,15 @@ run = [
 装框架、修机械漂移(墓碑、重复章节、附录顺序),超预算的 `AGENTS.md` 只登记成债务;
 `--deep` 才允许结构性改写。
 
-**审计码**(稳定,可跨次对比):`E-PATH-01` 裸旧路径、`E-STATE-01` 记忆被 gitignore、`W-STATE-01` 记忆尚未提交、`E-INDEX-01` 索引与实际文件不一致、`E-LINK-01` 内部链接失效、
-`W-BUDGET-01` `AGENTS.md` 超预算、`W-DUP-01` 同一章节出现在两个文件、
-`W-ORDER-01` 附录之后又追加章节、`W-COV-01` 覆盖表仍有 OPEN、
-`W-TODO-01` 仍存在退役的 `todos/`、`W-ROOT-02` 根下零字节文件、
-`W-SCAFFOLD-01` 未填的 `TODO(ask-init)` 标记、`I-INSTALL-01` 尚未安装框架。
+**审计码**（稳定，可跨次对比）：
+
+- **路径** —— `E-PATH-01` 旧目录仍存在时的裸旧路径（移动会断）；`W-PATH-01` 旧目录已不存在时的同类引用。
+- **结构与状态** —— `E-STATE-01` 记忆被 gitignore、`W-STATE-01` 记忆尚未提交、`E-STATE-02` 状态版本不符、`E-INDEX-01` 索引与实际文件不一致、`E-LINK-01` 内部链接失效、`E-CONTRACT-01` 缺记忆合同。
+- **记忆卫生** —— `W-BUDGET-01/02` `AGENTS.md` / 记忆文件超预算、`W-DUP-01` 同一章节出现在两个文件、`W-ORDER-01` 附录之后又追加章节、`W-COV-01` 覆盖表仍有 OPEN、`W-META-01` `FUTURE.md` 条目缺触发条件、`W-EVID-01` `FINISHED.md` 条目缺证据、`W-PLAN-01` spec / 计划漂移、`W-OVERRIDE-01` `AGENTS.override.md` 顶替入口、`W-SCAFFOLD-01` 未填的 `TODO(ask-init)` 标记。
+- **根与退役目录** —— `W-ROOT-01` 根下 agent-only 目录、`W-ROOT-02` 根下零字节文件、`W-ROOT-03` 登记的 root 缺失、`W-ROOT-04` scope card 过大、`W-TODO-01` 仍存在退役的 `todos/`。
+- **框架文件** —— `W-FW-01` 受管文件被手工改过、`W-FW-02` 受管文件缺失或落后于当前模板、`W-FW-03` 工作流块缺失/落后/marker 不一致/手写无 marker、`W-FW-04` 必需框架文件缺失、`I-FW-01` 无模板锚（无法区分手工编辑与旧模板；核对是框架原文后跑 `refresh --adopt`）。
+- **验收** —— `E-UAT-01` 台账行不可解析、`W-UAT-01` 项指向不存在的记录、`W-UAT-02` 候选等待过久、`W-UAT-03` 项超 30 天未勾、`W-REC-01` 近期记录首行/文件名不合规、`I-UAT-01` 验收台账未安装。
+- **信息** —— `I-AGENTS-01` `.agents/skills` 存在、`I-INSTALL-01` 尚未安装框架。
 
 **多仓库工作区**:记忆只住主仓。`pi-add-dir` 会把每个 added root 的 `AGENTS.md`
 全文注入每次请求,所以根里的入口只能是 **scope card**(≤30 行:这里放什么、它的命令、
@@ -610,14 +638,21 @@ src/
     │                     #           /compact-model、配置存储、prompt、测试
     ├── favorites/        # 模型收藏:选择器与循环 patch、
     │                     #           持久化存储、测试
+    ├── init/             # agent 记忆框架:检测/计划/应用/审计、
+    │                     #           模板对等检查 + refresh、工作流 marker、
+    │                     #           模板、测试
     ├── permission/       # 会话级边界权限:模式、面板、bash 拆解、
     │                     #           策略、会话授权、确认对话框、
     │                     #           审计 payload、测试
+    ├── plan/             # 浏览器内计划评审:相位、块级 diff、
+    │                     #           评审服务器、UI、测试
     ├── quit-guard/       # 退出看门狗:TUI 收尾 + quit 事件双触发、
     │                     #           配置存储、诊断报告、测试
-    ├── review/           # 第三方评审:输入/指令触发、
+    ├── review/           # 第三方评审:指令触发、
     │                     #           评审模型配置存储、提示词、测试
     ├── stash/            # 提示词暂存:热键状态机 + 测试
+    ├── uat/              # 验收台账:记录/台账、页面服务器、
+    │                     #           record_change + uat_item、UI、测试
     └── whats-new/        # 升级后的版本变更提示:CHANGELOG 解析、
                           #           已见版本存储、启动提示、测试
 ```

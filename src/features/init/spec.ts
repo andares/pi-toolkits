@@ -287,6 +287,9 @@ export const SCAN = {
 
 export const AUDIT_CODES = {
 	pathBareRef: "E-PATH-01",
+	// Bare legacy references while no legacy directory exists: nothing a move
+	// would break, so this is stale documentation, not a migration blocker.
+	pathBareRefStale: "W-PATH-01",
 	stateUntracked: "E-STATE-01",
 	stateUncommitted: "W-STATE-01",
 	stateVersion: "E-STATE-02",
@@ -318,6 +321,14 @@ export const AUDIT_CODES = {
 	recordHeader: "W-REC-01",
 	// Framework-owned file edited by hand: a refresh will not overwrite it.
 	managedEdited: "W-FW-01",
+	// Managed file is missing or behind the installed template: refresh fixes it.
+	managedStale: "W-FW-02",
+	// The AGENTS.md workflow block is absent, behind, hand-written or malformed.
+	workflowBlock: "W-FW-03",
+	// A required framework file is missing: /ask-init can rebuild it mechanically.
+	frameworkFileMissing: "W-FW-04",
+	// Legacy state has no template anchor: cannot tell a hand edit from old bytes.
+	legacyAnchor: "I-FW-01",
 	uatNotInstalled: "I-UAT-01",
 } as const;
 

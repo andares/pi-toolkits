@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { stateToToml } from "./apply.js";
 import { loadState } from "./detect.js";
-import { applyWorkflowBlock, refreshFramework } from "./refresh.js";
+import { applyWorkflowBlock, describeRefresh, refreshFramework } from "./refresh.js";
 import { CONTRACT_FILE, UAT_CONTRACT_FILE, UAT_DIR, WORKFLOW_BLOCK_BEGIN, WORKFLOW_BLOCK_END } from "./spec.js";
 import { installedProject, remove } from "./test-helpers.js";
 
@@ -80,6 +80,62 @@ describe("workflow block", () => {
 		const appended = applyWorkflowBlock("# demo\n\n## Body\n\ntext\n", block);
 		expect(appended.text.trimEnd().endsWith(WORKFLOW_BLOCK_END)).toBe(true);
 	});
+
+	it("never treats inline marker examples as the managed block", () => {
+		const text = [
+			"# demo",
+			"",
+			"- docs: `<!-- ask-init:begin workflow v1 -->`",
+			"  `<!-- ask-init:end workflow -->`，块外文字保持原样",
+			"",
+			"## Body",
+			"",
+			"tail",
+		].join("\n");
+		const block = `${WORKFLOW_BLOCK_BEGIN} v1 -->\n## Ask workflow\n${WORKFLOW_BLOCK_END}`;
+		const result = applyWorkflowBlock(text, block);
+		expect(result.status).toBe("inserted");
+		expect(result.text).toContain("`<!-- ask-init:begin workflow v1 -->`");
+		expect(result.text).toContain("块外文字保持原样");
+	});
+
+	it("ignores markers inside fenced code blocks", () => {
+		const text = [
+			"# demo",
+			"",
+			"```md",
+			"<!-- ask-init:begin workflow v1 -->",
+			"## example",
+			"<!-- ask-init:end workflow -->",
+			"```",
+			"",
+		].join("\n");
+		const block = `${WORKFLOW_BLOCK_BEGIN} v1 -->\n## Ask workflow\n${WORKFLOW_BLOCK_END}`;
+		const result = applyWorkflowBlock(text, block);
+		expect(result.status).toBe("inserted");
+		expect(result.text).toContain("## example");
+	});
+
+	it("does not add a second block when a hand-written Ask workflow section exists", () => {
+		const text = "# demo\n\n## Ask workflow\n\nDo it by hand.\n";
+		const block = `${WORKFLOW_BLOCK_BEGIN} v1 -->\n## Ask workflow\n${WORKFLOW_BLOCK_END}`;
+		const result = applyWorkflowBlock(text, block);
+		expect(result.status).toBe("hand-written");
+		expect(result.text).toBe(text);
+	});
+
+	it("reports malformed marker layouts without touching the file", () => {
+		const block = `${WORKFLOW_BLOCK_BEGIN} v1 -->\n## Ask workflow\n${WORKFLOW_BLOCK_END}`;
+		const beginOnly = `# demo\n\n${WORKFLOW_BLOCK_BEGIN} v1 -->\n## old\n`;
+		const first = applyWorkflowBlock(beginOnly, block);
+		expect(first.status).toBe("malformed");
+		expect(first.text).toBe(beginOnly);
+
+		const endFirst = `# demo\n\n${WORKFLOW_BLOCK_END}\n## old\n${WORKFLOW_BLOCK_BEGIN} v1 -->\n`;
+		const second = applyWorkflowBlock(endFirst, block);
+		expect(second.status).toBe("malformed");
+		expect(second.text).toBe(endFirst);
+	});
 });
 
 describe("refreshFramework", () => {
@@ -142,7 +198,16 @@ describe("refreshFramework", () => {
 		const result = refreshFramework(root);
 		expect(result.updated).not.toContain(CONTRACT_FILE);
 		expect(result.skipped.map((entry) => entry.path)).toContain(CONTRACT_FILE);
+		expect(result.skipped.find((entry) => entry.path === CONTRACT_FILE)?.reason).toMatch(/edited by hand/);
 		expect(readFileSync(join(root, CONTRACT_FILE), "utf8")).toBe("my own contract\n");
+	});
+
+	it("reports a missing AGENTS.md instead of calling the framework current", () => {
+		const root = installed();
+		remove(join(root, "AGENTS.md"));
+		const result = refreshFramework(root, { dryRun: true });
+		expect(result.block).toBe("missing-agents");
+		expect(describeRefresh(result)).toContain("AGENTS.md is missing");
 	});
 
 	it("writes nothing in a dry run", () => {
@@ -173,6 +238,28 @@ describe("refreshFramework", () => {
 		expect(result.updated).not.toContain(CONTRACT_FILE);
 		expect(result.skipped.map((entry) => entry.path)).toContain(CONTRACT_FILE);
 		expect(readFileSync(join(root, CONTRACT_FILE), "utf8")).toBe(edited);
+	});
+
+	it("adopts a legacy file only when --adopt is explicit", () => {
+		const root = installed();
+		const legacy = "legacy contract from an older version\n";
+		writeFileSync(join(root, CONTRACT_FILE), legacy, "utf8");
+		writeState(root, [
+			{
+				path: CONTRACT_FILE,
+				sha256: sha256(legacy),
+				template: "memory-readme",
+				templateSha256: undefined,
+			},
+		]);
+		const skipped = refreshFramework(root);
+		expect(skipped.updated).not.toContain(CONTRACT_FILE);
+		expect(skipped.skipped.map((entry) => entry.path)).toContain(CONTRACT_FILE);
+
+		const adopted = refreshFramework(root, { adoptLegacy: true });
+		expect(adopted.adopted).toContain(CONTRACT_FILE);
+		expect(adopted.updated).toContain(CONTRACT_FILE);
+		expect(readFileSync(join(root, CONTRACT_FILE), "utf8")).not.toBe(legacy);
 	});
 
 	it("persists missing template anchors even when no file content changes", () => {

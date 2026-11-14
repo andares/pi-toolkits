@@ -77,10 +77,10 @@ After installing, verify in any pi session:
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/ask-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
 | 🧭 **plan** browser-reviewed planning | `/ask-plan` | research first, write a spec, review it in your browser paragraph by paragraph, annotate block by block, then implement only after approval |
-| ✅ **uat** acceptance ledger | `/ask-uat` | cluster pending change records into user-facing acceptance items, tick them off on a page (append-only ledger, no submit), and see what shipped without being verified |
+| ✅ **uat** acceptance ledger | `/ask-uat` | after `/ask-init`: cluster pending change records into user-facing acceptance items, tick them off on a page (append-only ledger, no submit), and see what shipped without being verified |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
-| 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, and audit it later for drift, budgets and duplicated facts |
+| 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, then audit/refresh it for drift, budgets and duplicated facts |
 | 🧯 **quit-guard** quit watchdog | `/quit-guard` | force-exit when an interactive shutdown hangs, whether after the TUI teardown or before it on a signal-triggered quit; write a hang report and give the shell prompt back; TUI restarts and Ctrl+Z resume disarm it |
 | 🆕 **whats-new** release notes after an upgrade | automatic | the first `pi` start after an upgrade shows what changed since the version you last ran, once; no slash command or other global namespace is claimed |
 
@@ -91,6 +91,8 @@ After installing, verify in any pi session:
 <a name="ask"></a>
 
 Enter with `/ask` (press it again to exit). Meant for the case where you only want to "ask questions and read code": the model may not change the project, but it is not starved of a place to think.
+
+Ask is standalone (no `/ask-init` needed). If a plan review or the UAT page is active, leave it first — ask refuses to start on top of another phase rather than promise a read-only surface another feature will re-open.
 
 **While active**:
 
@@ -279,6 +281,7 @@ After a development task is done, type the `/ask-review` command to summon **a d
 
 - **Unconfigured / the configured model is no longer available** (e.g. it was deleted from pi's models.json) → a notice is shown and the list opens as usual (with no default entry in that case)
 - Triggered while a task is still in progress (the agent is not idle) → you are told to wait and nothing runs; only one review may be active at a time
+- Planning phase → refused (a plan under review must not be edited); ask mode is exited automatically because check + fix needs the full tool set
 - A grey `review` status in the footer means a review model is configured
 
 ---
@@ -304,7 +307,10 @@ After a development task is done, type the `/ask-review` command to summon **a d
 /ask-plan off                          # leave the phase (the draft stays where it is)
 ```
 
-The spec lands in `specs/<slug>.md` — the same place `/ask-init` puts plans.
+The spec lands in `specs/<slug>.md` — the same place `/ask-init` puts plans. Without an
+agent framework the plan still works, but `record_change` and `/ask-uat` stay unavailable
+until `/ask-init`; the command says so when planning starts. Leave an open UAT page first:
+the two phases do not run on top of each other.
 
 ---
 
@@ -320,6 +326,11 @@ The unit of acceptance is a **behaviour**, not a commit. An implementation sessi
 change record per finished round plus a one-sentence, user-facing description of that behaviour
 (`record_change`); the UAT side clusters many records into a few acceptance items — one
 behaviour may need ten records, and one record may touch several behaviours.
+
+**Requires the framework.** `/ask-uat` refuses unless the project has the framework state,
+`AGENTS.md`, the memory contract and `.agents/implementations/`; run `/ask-init` first.
+`record_change` is inactive in that state too. The check is feature-based, not byte-based:
+your own edits to those files do not block the page.
 
 ```text
 record_change (implementation)  →  /ask-uat (cluster)  →  browser (tick)  →  ledger
@@ -482,13 +493,32 @@ repository root stays readable: `AGENTS.md`, `specs/`, `design/`, `docs/`,
 
 | Command | What it does |
 | --- | --- |
-| `/ask-init` | detect → show the plan → (confirm) → move/scaffold/snapshot → dispatch the prose work to the model |
-| `/ask-init plan [--deep]` | print the plan and write nothing (`--dry-run` is the same) |
-| `/ask-init check` | audit the installed framework (read-only; writes only a runtime report under `.agents/framework/reports/`) |
+| `/ask-init` | first run: detect → plan → confirm → move/scaffold/snapshot → dispatch; installed framework: refresh framework-owned text, then audit (no model turn) |
+| `/ask-init plan [--deep]` | print the plan and write nothing (`--dry-run` is the same), including the framework-parity section |
+| `/ask-init check` | audit the installed framework, including framework-vs-template parity (read-only; writes only a runtime report under `.agents/framework/reports/`) |
 | `/ask-init roots` | sync the directories added with `pi-add-dir` into the framework state |
-| `/ask-init refresh` | refresh framework-owned files (contract, signpost, acceptance contract) and the workflow block in `AGENTS.md`; files you edited by hand are left untouched |
+| `/ask-init refresh [--adopt]` | the refresh step on its own (also run by `/ask-init`): framework-owned files + the `AGENTS.md` workflow block; hand-edited files are left untouched. `--adopt` takes ownership of a legacy file that has no anchor, after you reviewed it |
 | `/ask-init --yes` | skip the confirmation panel |
 | `/ask-init --lang zh\|en` | rendering language for framework-generated files (per run; default: detected from the project's own docs) |
+
+**Re-running is safe.** On an installed framework `/ask-init` first compares the
+project's framework text with the version you are running: missing or behind
+framework-owned files are refreshed, hand-edited files are left untouched, and
+then the audit runs. If nothing drifted it says so and leaves framework files unchanged — no model
+turn; the audit still writes its runtime report. After a package upgrade run `/ask-init` (or `/ask-init refresh`) and
+`/reload` when the workflow block changed.
+
+**What “installed” means for the ask loop**: `.agents/framework/state.toml`,
+`AGENTS.md`, `.agents/memory/README.md` and `.agents/implementations/` exist. The
+content is yours — small edits do not stop `/ask-uat` or `record_change`. Commands
+that need the framework refuse with the missing list instead of guessing.
+Mutating runs (including `refresh` and `roots`) refuse while `/ask`, a plan review
+or the UAT page is active; `check` and `plan` stay available.
+
+A project written by an older tool has no template anchor. `/ask-init` reports those
+files as `I-FW-01` and leaves them alone because it cannot tell an old template from
+your edit. Review one, then run `/ask-init refresh --adopt` to take ownership of the
+current bytes; the next refresh updates them normally.
 
 **What the mechanical half guarantees**:
 
@@ -520,13 +550,15 @@ unit spec verbatim. The default pass is conservative: install, fix mechanical
 drift (tombstones, duplicated sections, appendix order), and record an over-budget
 `AGENTS.md` as debt instead of rewriting prose; `--deep` opts into structural edits.
 
-**Audit codes** (stable, so reports compare across runs): `E-PATH-01` bare legacy
-paths, `E-STATE-01` memory gitignored, `W-STATE-01` memory not yet committed, `E-INDEX-01` index ↔ file
-mismatch, `E-LINK-01` broken internal links, `W-BUDGET-01` `AGENTS.md` over budget,
-`W-DUP-01` the same section in two files, `W-ORDER-01` sections appended after the
-appendix, `W-COV-01` open coverage rows, `W-TODO-01` retired `todos/` still present,
-`W-ROOT-02` zero-byte root files, `W-SCAFFOLD-01` unfilled `TODO(ask-init)` markers,
-`I-INSTALL-01` framework not installed yet.
+**Audit codes** (stable, so reports compare across runs):
+
+- **paths** — `E-PATH-01` bare legacy paths while a legacy directory still exists (a move would break them); `W-PATH-01` the same references once the legacy directories are gone.
+- **structure and state** — `E-STATE-01` memory gitignored, `W-STATE-01` memory not yet committed, `E-STATE-02` state version mismatch, `E-INDEX-01` index ↔ file mismatch, `E-LINK-01` broken internal links, `E-CONTRACT-01` missing memory contract.
+- **memory hygiene** — `W-BUDGET-01/02` `AGENTS.md` / memory file over budget, `W-DUP-01` the same section in two files, `W-ORDER-01` sections appended after the appendix, `W-COV-01` open coverage rows, `W-META-01` `FUTURE.md` entry without a trigger, `W-EVID-01` `FINISHED.md` entry without evidence, `W-PLAN-01` spec/spec-plan drift, `W-OVERRIDE-01` `AGENTS.override.md` shadowing the entry, `W-SCAFFOLD-01` unfilled `TODO(ask-init)` markers.
+- **roots and retired dirs** — `W-ROOT-01` agent-only directory at the root, `W-ROOT-02` zero-byte root file, `W-ROOT-03` missing registered root, `W-ROOT-04` scope card too large, `W-TODO-01` retired `todos/` still present.
+- **framework files** — `W-FW-01` managed file edited by hand, `W-FW-02` managed file missing or behind the installed template, `W-FW-03` workflow block missing/behind/malformed or hand-written without markers, `W-FW-04` required framework file missing, `I-FW-01` no template anchor (cannot tell a hand edit from older bytes; review and `refresh --adopt` if it is the framework’s own text).
+- **acceptance** — `E-UAT-01` unparseable ledger line, `W-UAT-01` item points at a missing record, `W-UAT-02` candidate waiting too long, `W-UAT-03` item open too long, `W-REC-01` non-canonical change record, `I-UAT-01` acceptance ledger not installed.
+- **info** — `I-AGENTS-01` `.agents/skills` present, `I-INSTALL-01` framework not installed yet.
 
 **Multi-repository workspaces**: memory lives in the main repository only.
 `pi-add-dir` injects each added root's `AGENTS.md` verbatim into every request, so a
@@ -710,14 +742,21 @@ src/
     │                     #           tests
     ├── favorites/        # model favorites: selector + cycle patches,
     │                     #           persisted store, tests
+    ├── init/             # agent memory framework: detect/plan/apply/audit,
+    │                     #           template parity + refresh, workflow markers,
+    │                     #           templates, tests
     ├── permission/       # session-scoped boundary permission: modes, panel,
     │                     #           bash units, policy, session grants, prompt,
     │                     #           audit payload, tests
+    ├── plan/             # browser-reviewed planning: phases, block diff,
+    │                     #           review server, UI, tests
     ├── quit-guard/       # quit watchdog: TUI teardown + quit-event triggers,
     │                     #           settings store, hang report, tests
-    ├── review/           # third-party review: input/command triggers,
+    ├── review/           # third-party review: command trigger,
     │                     #           review model config store, prompt, tests
     ├── stash/            # prompt stash: hotkey state machine + tests
+    ├── uat/              # acceptance ledger: records/ledger, page server,
+    │                     #           record_change + uat_item, UI, tests
     └── whats-new/        # release notes after an upgrade: CHANGELOG parser,
                           #           last-seen store, startup notice, tests
 ```

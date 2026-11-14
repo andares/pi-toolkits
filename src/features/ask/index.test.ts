@@ -95,6 +95,9 @@ function makeHarness(options: { scratchBaseDir?: string } = {}) {
 		notes,
 		activeTools: () => activeTools,
 		registeredTool: () => registeredTool,
+		setActiveTools: (names: string[]) => {
+			activeTools = [...names];
+		},
 		setSessionId: (id: string) => {
 			sessionId = id;
 		},
@@ -120,6 +123,18 @@ beforeEach(() => {
 });
 
 describe("ask gate", () => {
+	it("refuses to enter while a plan or UAT phase is active", async () => {
+		const h = makeHarness({ scratchBaseDir: tempBase() });
+		h.setActiveTools(["read", "write", "edit", "bash", "plan_submit"]);
+		await h.toggle();
+		expect(h.notes.some((note) => /ask-plan/.test(note.message))).toBe(true);
+		expect(h.activeTools()).not.toContain(ASK_SCRATCH_TOOL);
+
+		h.setActiveTools(["read", "write", "edit", "bash", "uat_item"]);
+		await h.toggle();
+		expect(h.notes.some((note) => /ask-uat/.test(note.message))).toBe(true);
+		expect(h.activeTools()).not.toContain(ASK_SCRATCH_TOOL);
+	});
 	it("has no opinion while ask mode is off", async () => {
 		const h = makeHarness({ scratchBaseDir: tempBase() });
 		expect(await h.evaluate("write", { path: "x" })).toBeUndefined();

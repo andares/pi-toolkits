@@ -19,6 +19,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAskControl } from "../../lib/ask-control.js";
+import { PLAN_PHASE_TOOL } from "../../lib/phases.js";
 import { openInBrowser } from "../../lib/opener.js";
 import {
 	MAX_CANDIDATES_PER_RUN,
@@ -26,6 +27,7 @@ import {
 	RECORD_CHANGE_TOOL,
 	UAT_COMMAND,
 	UAT_IDLE_CLOSE_MS,
+	UAT_ITEM_TOOL,
 } from "./constants.js";
 import { registerUatItemTool } from "./item-tool.js";
 import { deriveState, ledgerPath, readEvents, appendEvent, newEventId } from "./ledger.js";
@@ -33,7 +35,7 @@ import { listRecords } from "./records.js";
 import { buildUatKickoff, describeCounts, UAT_MODE_BANNER } from "./prompt.js";
 import { registerRecordTool } from "./record-tool.js";
 import { startUatServer, type UatServerHandle } from "./server.js";
-import { frameworkInstalled, loadSnapshot, resolveProjectRoot } from "./state.js";
+import { frameworkInstalled, frameworkMissing, loadSnapshot, resolveProjectRoot } from "./state.js";
 
 export interface UatOptions {
 	/** Opening the browser is injectable so tests never spawn one. */
@@ -75,7 +77,7 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 	// `plan_submit` is the owning feature's phase marker. Detecting the active
 	// tool avoids a second global control registry while still keeping the two
 	// phases' write surfaces disjoint.
-	const planningTool = "plan_submit";
+	const planningTool = PLAN_PHASE_TOOL;
 
 	function recordChangeAllowed(tools: readonly string[] = pi.getActiveTools()): boolean {
 		return !getAskControl()?.isActive() && !tools.includes(planningTool);
@@ -129,7 +131,7 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 		batch = undefined;
 		clearIdle();
 		closeServer();
-		pi.setActiveTools(toolsWith([], ["uat_item"]));
+		pi.setActiveTools(toolsWith([], [UAT_ITEM_TOOL]));
 		ctx.ui.notify(`ask-uat: ${reason}`, "info");
 	}
 
@@ -186,8 +188,9 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 	async function start(ctx: ExtensionContext): Promise<void> {
 		const projectRoot = rootOf(ctx.cwd || process.cwd());
 		if (!frameworkInstalled(projectRoot)) {
+			const missing = frameworkMissing(projectRoot);
 			ctx.ui.notify(
-				"ask-uat: this project has no agent framework (.agents/framework/state.toml) — run /ask-init first.",
+				`ask-uat: the agent framework is incomplete (missing: ${missing.join(", ")}) — run /ask-init first.`,
 				"error",
 			);
 			return;
@@ -234,7 +237,7 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 		startIdleTimer();
 		// The framework is installed here, so both tools belong in the request:
 		// clustering writes items, and the same turn may need to record a change.
-		pi.setActiveTools(toolsWith(["record_change", "uat_item"]));
+		pi.setActiveTools(toolsWith(["record_change", UAT_ITEM_TOOL]));
 		open(server.url);
 
 		const pending = snapshot.state.pending;
@@ -292,7 +295,7 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 		syncRecordTool(frameworkInstalled(projectRoot));
 		if (active) {
 			const current = pi.getActiveTools();
-			if (!current.includes("uat_item")) pi.setActiveTools([...current, "uat_item"]);
+			if (!current.includes(UAT_ITEM_TOOL)) pi.setActiveTools([...current, UAT_ITEM_TOOL]);
 		}
 		if (!active) return undefined;
 		return { systemPrompt: `${event.systemPrompt}\n\n${UAT_MODE_BANNER}` };
@@ -310,7 +313,7 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 		closeServer();
 		// Session state never leaks: remove the phase tool unconditionally, then
 		// recompute the record tool from the new project's framework and phase.
-		pi.setActiveTools(toolsWith([], ["uat_item"]));
+		pi.setActiveTools(toolsWith([], [UAT_ITEM_TOOL]));
 		root = rootOf(ctx.cwd || process.cwd());
 		syncRecordTool(frameworkInstalled(root));
 	});

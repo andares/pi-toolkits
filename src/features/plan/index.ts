@@ -18,14 +18,17 @@
  *     plannotator's habit of switching models silently is the reason this one
  *     is written from scratch.
  */
-import { readFileSync, existsSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { isAbsolute, relative, resolve } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import type { GateHub } from "../../lib/gates.js";
 import { getPermissionControl, type PermissionSnapshot } from "../../lib/permission-control.js";
 import { getAskControl } from "../../lib/ask-control.js";
+import { PLAN_PHASE_TOOL, UAT_PHASE_TOOL } from "../../lib/phases.js";
+import { frameworkReadiness } from "../init/parity.js";
+import { resolveProjectRoot } from "../uat/state.js";
 import { canonicalize, isWithin } from "../permission/paths.js";
 import { parseCommandUnits } from "../permission/units.js";
 import { buildFeedbackMarkdown } from "./feedback.js";
@@ -43,7 +46,7 @@ import {
 } from "./store.js";
 
 export const PLAN_COMMAND = "ask-plan";
-export const PLAN_SUBMIT_TOOL = "plan_submit";
+export const PLAN_SUBMIT_TOOL = PLAN_PHASE_TOOL;
 
 /** Files the planning phase may write: project markdown, nothing else. */
 function isMarkdownPath(path: string): boolean {
@@ -173,7 +176,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 			// approval only when the project has the framework and the tool exists.
 			recordTool:
 				pi.getAllTools().some((tool) => tool.name === "record_change") &&
-				existsSync(join(cwd, ".agents/framework/state.toml")),
+				frameworkReadiness(resolveProjectRoot(cwd)).ready,
 		});
 	}
 
@@ -238,6 +241,23 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 			if (active) {
 				ctx.ui.notify("ask-plan: already planning. Use `off` to leave the phase.", "warning");
 				return;
+			}
+
+			if (!ctx.isIdle()) {
+				ctx.ui.notify("ask-plan: the agent is still running — finish or abort first.", "warning");
+				return;
+			}
+			if (pi.getActiveTools().includes(UAT_PHASE_TOOL)) {
+				ctx.ui.notify("ask-plan: ask-uat is open — /ask-uat off first.", "warning");
+				return;
+			}
+
+			const readiness = frameworkReadiness(resolveProjectRoot(cwd));
+			if (!readiness.ready) {
+				ctx.ui.notify(
+					`ask-plan: no complete agent framework (missing: ${readiness.missing.join(", ")}). The spec still works, but record_change and /ask-uat stay unavailable until /ask-init.`,
+					"info",
+				);
 			}
 
 			const slug = planSlug(arg || "plan");

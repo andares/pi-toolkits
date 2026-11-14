@@ -17,6 +17,11 @@
  *  3. **Missing optional pieces are created** (the UAT contract), so a project
  *     that adopted the framework before the ledger existed can catch up.
  *
+ * `/ask-init` runs this on every invocation: on an installed project the first
+ * step is now the same comparison, so a repeat run either reports "current" or
+ * repairs what is safe before the audit. Marker matching lives in `workflow.ts`
+ * and refuses to touch ambiguous layouts.
+ *
  * The command is idempotent: a second run reports "current" everywhere.
  */
 import { createHash } from "node:crypto";
@@ -24,46 +29,38 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import {
 	AGENTS_FILE,
-	BUDGETS,
-	CONTRACT_FILE,
-	FRAMEWORK_VERSION,
-	IMPLEMENTATIONS_DIR,
-	SIGNPOST_FILE,
 	STATE_FILE,
-	STATE_GITIGNORE,
-	UAT_CONTRACT_FILE,
-	WORKFLOW_BLOCK_BEGIN,
-	WORKFLOW_BLOCK_END,
 } from "./spec.js";
 import { loadState } from "./detect.js";
 import { iso } from "./plan.js";
 import { stateToToml } from "./apply.js";
-import { renderTemplate } from "./templates.js";
+import { MANAGED_SPECS, renderManaged, workflowBlockText } from "./parity.js";
 import type { FrameworkState } from "./types.js";
+import {
+	applyWorkflowBlock,
+	type BlockStatus,
+} from "./workflow.js";
+
+export { applyWorkflowBlock } from "./workflow.js";
 
 export interface RefreshOptions {
 	readonly dryRun?: boolean;
 	readonly now?: Date;
 	readonly toolVersion?: string;
+	/** Treat a legacy managed file with no anchor as ours and update it. */
+	readonly adoptLegacy?: boolean;
 }
-
-export type BlockStatus = "current" | "updated" | "inserted" | "missing-agents";
 
 export interface RefreshResult {
 	readonly created: string[];
 	readonly updated: string[];
+	/** Legacy files taken over because `--adopt` was explicit. */
+	readonly adopted: string[];
 	readonly skipped: Array<{ path: string; reason: string }>;
 	readonly block: BlockStatus;
 	readonly stateUpdated: boolean;
 	readonly dryRun: boolean;
 }
-
-const MANAGED_TEMPLATES: ReadonlyArray<{ path: string; template: string; tokens: Record<string, string> }> = [
-	{ path: CONTRACT_FILE, template: "memory-readme", tokens: {} },
-	{ path: SIGNPOST_FILE, template: "signpost", tokens: {} },
-	{ path: UAT_CONTRACT_FILE, template: "uat-readme", tokens: { implementationsDir: IMPLEMENTATIONS_DIR } },
-	{ path: STATE_GITIGNORE, template: "state-gitignore", tokens: {} },
-];
 
 function sha256(text: string): string {
 	return createHash("sha256").update(text).digest("hex");
@@ -78,43 +75,6 @@ function inside(root: string, rel: string): string {
 	return absolute;
 }
 
-function baseTokens(): Record<string, string> {
-	return {
-		frameworkVersion: String(FRAMEWORK_VERSION),
-		softBudget: String(BUDGETS.agentsMdSoftChars),
-		hardBudget: String(BUDGETS.agentsMdHardChars),
-		memoryBudget: String(BUDGETS.memoryFileChars),
-		implementationsBudget: String(BUDGETS.implementationsFiles),
-		implementationsDir: IMPLEMENTATIONS_DIR,
-		statePath: STATE_FILE,
-		contractPath: CONTRACT_FILE,
-		uatLedger: ".agents/uat/ledger.jsonl",
-	};
-}
-
-/** Replace or insert the managed workflow block; never touches anything else. */
-export function applyWorkflowBlock(
-	text: string,
-	block: string,
-): { text: string; status: Exclude<BlockStatus, "missing-agents"> } {
-	const begin = text.indexOf(WORKFLOW_BLOCK_BEGIN);
-	const end = text.indexOf(WORKFLOW_BLOCK_END);
-	if (begin >= 0 && end > begin) {
-		const endLine = text.indexOf("\n", end);
-		const stop = endLine === -1 ? text.length : endLine;
-		const next = `${text.slice(0, begin)}${block.trimEnd()}${text.slice(stop)}`;
-		return { text: next, status: next === text ? "current" : "updated" };
-	}
-	const appendix = /^##[ \t]+(?:附录|appendix)/im.exec(text);
-	if (appendix?.index !== undefined) {
-		return {
-			text: `${text.slice(0, appendix.index)}${block.trimEnd()}\n\n${text.slice(appendix.index)}`,
-			status: "inserted",
-		};
-	}
-	return { text: `${text.trimEnd()}\n\n${block.trimEnd()}\n`, status: "inserted" };
-}
-
 export function refreshFramework(root: string, options: RefreshOptions = {}): RefreshResult {
 	const loaded = loadState(root);
 	if (!loaded.state) {
@@ -127,13 +87,14 @@ export function refreshFramework(root: string, options: RefreshOptions = {}): Re
 	const dryRun = options.dryRun === true;
 	const created: string[] = [];
 	const updated: string[] = [];
+	const adopted: string[] = [];
 	const skipped: RefreshResult["skipped"] = [];
 	const previous = new Map(state.managed.map((entry) => [entry.path, entry]));
 	const nextManaged = new Map(state.managed.map((entry) => [entry.path, { ...entry }]));
 
-	for (const spec of MANAGED_TEMPLATES) {
+	for (const spec of MANAGED_SPECS) {
 		const absolute = inside(root, spec.path);
-		const rendered = renderTemplate(spec.template, { ...baseTokens(), ...spec.tokens }, "en");
+		const rendered = renderManaged(spec);
 		const exists = existsSync(absolute);
 		const disk = exists ? readFileSync(absolute, "utf8") : undefined;
 		const entry = previous.get(spec.path);
@@ -145,7 +106,7 @@ export function refreshFramework(root: string, options: RefreshOptions = {}): Re
 		const safe = exists
 			? entry?.templateSha256 !== undefined
 				? diskHash === entry.templateSha256
-				: diskHash === sha256(rendered)
+				: diskHash === sha256(rendered) || options.adoptLegacy === true
 			: true;
 
 		if (!exists) {
@@ -166,7 +127,10 @@ export function refreshFramework(root: string, options: RefreshOptions = {}): Re
 		if (!safe) {
 			skipped.push({
 				path: spec.path,
-				reason: "edited by hand since the framework last wrote it — left untouched",
+				reason:
+					entry?.templateSha256 !== undefined
+						? "edited by hand since the framework last wrote it — left untouched"
+						: "no template anchor and the bytes differ from the current template — cannot tell a hand edit from an older template; left untouched",
 			});
 			continue;
 		}
@@ -181,6 +145,9 @@ export function refreshFramework(root: string, options: RefreshOptions = {}): Re
 			continue;
 		}
 
+		if (entry?.templateSha256 === undefined && options.adoptLegacy === true) {
+			adopted.push(spec.path);
+		}
 		if (!dryRun) writeFileSync(absolute, rendered, "utf8");
 		updated.push(spec.path);
 		nextManaged.set(spec.path, {
@@ -191,15 +158,16 @@ export function refreshFramework(root: string, options: RefreshOptions = {}): Re
 		});
 	}
 
-	// The one block this tool owns inside a file it does not own.
+	// The one block this tool owns inside a file it does not own. A malformed
+	// marker layout is reported, never rewritten.
 	let block: BlockStatus = "missing-agents";
 	const agentsPath = inside(root, AGENTS_FILE);
 	if (existsSync(agentsPath)) {
 		const text = readFileSync(agentsPath, "utf8");
-		const rendered = renderTemplate("workflow-block", {}, "en");
+		const rendered = workflowBlockText();
 		const result = applyWorkflowBlock(text, rendered);
 		block = result.status;
-		if (result.status !== "current" && !dryRun) {
+		if ((result.status === "inserted" || result.status === "updated") && !dryRun) {
 			writeFileSync(agentsPath, result.text, "utf8");
 		}
 	}
@@ -234,6 +202,7 @@ export function refreshFramework(root: string, options: RefreshOptions = {}): Re
 	return {
 		created,
 		updated,
+		adopted,
 		skipped,
 		block,
 		stateUpdated: !dryRun && stateChanged,
@@ -247,9 +216,19 @@ export function describeRefresh(result: RefreshResult): string {
 	const verb = result.dryRun ? "would refresh" : "refreshed";
 	if (result.created.length > 0) parts.push(`${verb} ${result.created.length} created file(s)`);
 	if (result.updated.length > 0) parts.push(`${result.updated.length} framework file(s)`);
+	if (result.adopted.length > 0) parts.push(`${result.adopted.length} legacy file(s) adopted`);
 	if (result.block === "inserted") parts.push("workflow block inserted into AGENTS.md");
 	if (result.block === "updated") parts.push("workflow block updated");
+	if (result.block === "malformed") {
+		parts.push("workflow markers in AGENTS.md are inconsistent — left untouched");
+	}
+	if (result.block === "hand-written") {
+		parts.push("a hand-written Ask workflow section exists without markers — left untouched");
+	}
+	if (result.block === "missing-agents") {
+		parts.push("AGENTS.md is missing — run /ask-init to rebuild it");
+	}
 	if (parts.length === 0) parts.push("framework files are already current");
-	if (result.skipped.length > 0) parts.push(`${result.skipped.length} left untouched (hand edits)`);
+	if (result.skipped.length > 0) parts.push(`${result.skipped.length} left untouched (hand edits or no anchor)`);
 	return parts.join(" · ");
 }

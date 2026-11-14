@@ -22,7 +22,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { RECORD_CHANGE_TOOL } from "./constants.js";
 import { appendEvent, ledgerPath, newEventId } from "./ledger.js";
 import { createRecord } from "./records.js";
-import { frameworkInstalled, resolveProjectRoot } from "./state.js";
+import { frameworkInstalled, frameworkMissing, resolveProjectRoot } from "./state.js";
 
 const PARAMS = Type.Object({
 	title: Type.String({
@@ -109,8 +109,9 @@ export function registerRecordTool(pi: ExtensionAPI, options: RecordToolOptions 
 			}
 			const root = rootOf(ctx.cwd || process.cwd());
 			if (!frameworkInstalled(root)) {
+				const missing = frameworkMissing(root);
 				return errorResult(
-					"record_change: this project has no agent framework (.agents/framework/state.toml). Run /ask-init first, or write the record by hand.",
+					`record_change: the agent framework is incomplete (missing: ${missing.join(", ")}). Run /ask-init first, or write the record by hand.`,
 				);
 			}
 			const title = params.title.trim();

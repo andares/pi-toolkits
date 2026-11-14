@@ -9,10 +9,10 @@
  * It is read-only and never "fixes" anything itself.
  */
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, posix } from "node:path";
 import {
+	AGENTS_FILE,
 	AUDIT_CODES,
 	BUDGETS,
 	CONTRACT_FILE,
@@ -36,6 +36,7 @@ import {
 import { parseCoverage } from "./coverage.js";
 import { deriveState, ledgerPath, readEvents } from "../uat/ledger.js";
 import { listRecords } from "../uat/records.js";
+import { inspectFramework } from "./parity.js";
 import { staleRoots } from "./plan.js";
 import type { DocInfo, Facts, Finding, Severity } from "./types.js";
 
@@ -213,11 +214,21 @@ function checkRefs(facts: Facts): Finding[] {
 		.slice(0, 6)
 		.map(([area, bucket]) => `${area} (${bucket.files} files / ${bucket.hits})`);
 	const example = facts.refs.examples[0];
+	// The message says "would break on a move". That is only an error while a
+	// legacy directory is still there to be moved; otherwise the references are
+	// stale documentation and a warning is the honest severity (the init feature
+	// itself, and test fixtures, often quote the old names deliberately).
+	const legacyPresent = facts.deprecated.memory || facts.deprecated.implementations;
+	const code = legacyPresent ? AUDIT_CODES.pathBareRef : AUDIT_CODES.pathBareRefStale;
+	const severity: Severity = legacyPresent ? "error" : "warning";
+	const note = legacyPresent
+		? "would break on a move"
+		: "the legacy directories are already gone, so nothing breaks; update them when convenient";
 	return [
 		finding(
-			AUDIT_CODES.pathBareRef,
-			"error",
-			`${facts.refs.hits} bare path references in ${facts.refs.paths.length} files would break on a move: ${areas.join(", ")}${example ? `; e.g. ${example.path}:${example.line}` : ""}`,
+			code,
+			severity,
+			`${facts.refs.hits} bare path references in ${facts.refs.paths.length} files ${note}: ${areas.join(", ")}${example ? `; e.g. ${example.path}:${example.line}` : ""}`,
 			example?.path,
 			example?.line,
 		),
@@ -538,23 +549,114 @@ const DAY_MS = 86_400_000;
  * instead.
  */
 function checkFrameworkFiles(facts: Facts): Finding[] {
-	const state = facts.state;
-	if (!state) return [];
+	if (!facts.state) return [];
+	const parity = inspectFramework(facts.root, facts.state);
 	const out: Finding[] = [];
-	for (const entry of state.managed) {
-		if (entry.path === "" || entry.templateSha256 === undefined) continue;
-		const absolute = join(facts.root, entry.path);
-		if (!existsSync(absolute)) continue;
-		const hash = createHash("sha256").update(readFileSync(absolute)).digest("hex");
-		if (hash === entry.templateSha256) continue;
+	for (const entry of parity.managed) {
+		switch (entry.status) {
+			case "hand-edited":
+				out.push(
+					finding(
+						AUDIT_CODES.managedEdited,
+						"warning",
+						"framework file was edited by hand: /ask-init refresh will not overwrite it — keep your additions outside the framework-owned text, or re-apply them after a refresh",
+						entry.path,
+					),
+				);
+				break;
+			case "stale":
+				out.push(
+					finding(
+						AUDIT_CODES.managedStale,
+						"warning",
+						"framework file is behind the installed template: /ask-init (or refresh) will update it",
+						entry.path,
+					),
+				);
+				break;
+			case "missing":
+				// The UAT contract is optional and additive; `checkUat` reports it as
+				// I-UAT-01. Do not double-report it as a broken managed file.
+				if (entry.path === UAT_CONTRACT_FILE) break;
+				out.push(
+					finding(
+						AUDIT_CODES.managedStale,
+						"warning",
+						"framework file is missing: /ask-init (or refresh) will create it",
+						entry.path,
+					),
+				);
+				break;
+			case "unverifiable":
+				out.push(
+					finding(
+						AUDIT_CODES.legacyAnchor,
+						"info",
+						`framework file cannot be compared with the installed template (${entry.reason ?? "no anchor"}): if the bytes are the framework's own text, run /ask-init refresh --adopt to take ownership`,
+						entry.path,
+					),
+				);
+				break;
+			case "current":
+				break;
+		}
+	}
+
+	for (const rel of parity.requiredMissing) {
 		out.push(
 			finding(
-				AUDIT_CODES.managedEdited,
+				AUDIT_CODES.frameworkFileMissing,
 				"warning",
-				"framework file was edited by hand: /ask-init refresh will not overwrite it — keep your additions outside the framework-owned text, or re-apply them after a refresh",
-				entry.path,
+				"required framework file is missing: /ask-init can rebuild it from the seed/template",
+				rel,
 			),
 		);
+	}
+
+	switch (parity.workflow) {
+		case "missing":
+			out.push(
+				finding(
+					AUDIT_CODES.workflowBlock,
+					"warning",
+					"AGENTS.md has no ask workflow block: /ask-init will insert it",
+					AGENTS_FILE,
+				),
+			);
+			break;
+		case "stale":
+			out.push(
+				finding(
+					AUDIT_CODES.workflowBlock,
+					"warning",
+					"the ask workflow block in AGENTS.md is behind the installed template: /ask-init will update it",
+					AGENTS_FILE,
+				),
+			);
+			break;
+		case "hand-written":
+			out.push(
+				finding(
+					AUDIT_CODES.workflowBlock,
+					"warning",
+					"AGENTS.md has a hand-written 'Ask workflow' section without the managed markers: /ask-init will not add a second one; add the markers or remove the section",
+					AGENTS_FILE,
+				),
+			);
+			break;
+		case "malformed":
+			out.push(
+				finding(
+					AUDIT_CODES.workflowBlock,
+					"warning",
+					"the ask workflow markers in AGENTS.md are inconsistent: fix the marker pair before /ask-init can refresh the block",
+					AGENTS_FILE,
+				),
+			);
+			break;
+		case "missing-agents":
+		case "current":
+			break;
 	}
 	return out;
 }

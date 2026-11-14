@@ -11,9 +11,8 @@
  * changed in between. The cache is the reason a UI refresh does not spawn git.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { STATE_FILE } from "../init/spec.js";
+import { resolve } from "node:path";
+import { frameworkReadiness } from "../init/parity.js";
 import { deriveState, ledgerPath, readEvents, type UatState } from "./ledger.js";
 import { listRecords, type RecordEntry } from "./records.js";
 
@@ -47,9 +46,18 @@ export function resetProjectRootCache(): void {
 	rootCache.clear();
 }
 
-/** The UAT flow only exists in a project that installed the framework. */
+/**
+ * The ask loop needs a usable framework, not byte-identical files: state,
+ * AGENTS.md, the memory contract and the evidence directory. Small edits to any
+ * of them are the operator's business and do not block acceptance.
+ */
 export function frameworkInstalled(root: string): boolean {
-	return existsSync(join(root, STATE_FILE));
+	return frameworkReadiness(root).ready;
+}
+
+/** Missing pieces, for a refusal message that tells the operator what to fix. */
+export function frameworkMissing(root: string): string[] {
+	return frameworkReadiness(root).missing;
 }
 
 export interface UatSnapshot {

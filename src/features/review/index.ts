@@ -32,6 +32,8 @@ import type {
 	SessionStartEvent,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
+import { getAskControl } from "../../lib/ask-control.js";
+import { PLAN_PHASE_TOOL } from "../../lib/phases.js";
 import {
 	modelKey,
 	resolveConfiguredModel,
@@ -138,6 +140,13 @@ export function createReviewRunner(
 			);
 			return;
 		}
+		if (pi.getActiveTools?.().includes(PLAN_PHASE_TOOL)) {
+			ctx.ui.notify(
+				`${REVIEW_COMMAND}: ask-plan is active — approve or /ask-plan off first; a review needs write access.`,
+				"warning",
+			);
+			return;
+		}
 		running = true;
 		try {
 			const store = getReviewStore();
@@ -172,6 +181,11 @@ export function createReviewRunner(
 				`${REVIEW_COMMAND}: switched to the review model "${model.name}" for this review (check + fix); the session stays on it afterwards.`,
 				"info",
 			);
+			// A review promises check AND fix, so it needs the full tool set. Ask
+			// mode's read-only surface is restored on every before_agent_start; exit
+			// it here rather than silently running a review that cannot edit.
+			const ask = getAskControl();
+			if (ask?.isActive()) ask.exit(ctx);
 			pi.sendUserMessage(REVIEW_PROMPT);
 		} finally {
 			running = false;

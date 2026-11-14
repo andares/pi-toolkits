@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { addedRootsFromBranch, parseInitArgs, registerInit } from "./index.js";
+import { stateToToml } from "./apply.js";
+import { MANAGED_SPECS, renderManaged } from "./parity.js";
+import { CONTRACT_FILE } from "./spec.js";
+import { setAskControl } from "../../lib/ask-control.js";
 import { installedProject, project, remove } from "./test-helpers.js";
+import type { FrameworkState } from "./types.js";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 interface HarnessOptions {
@@ -85,6 +91,8 @@ describe("parseInitArgs", () => {
 		expect(parseInitArgs("roots").sub).toBe("roots");
 		expect(parseInitArgs("scrub").sub).toBe("scrub");
 		expect(parseInitArgs("plan --deep").sub).toBe("plan");
+		expect(parseInitArgs("refresh --adopt").adopt).toBe(true);
+		expect(parseInitArgs("refresh").adopt).toBe(false);
 	});
 
 	it("treats --dry-run as the plan subcommand", () => {
@@ -216,6 +224,120 @@ describe("/ask-init", () => {
 			expect(h.sent).toHaveLength(0);
 			expect(h.messages.some((item) => /ask-init check/.test(item.message))).toBe(true);
 		} finally {
+			remove(root);
+		}
+	});
+
+	it("does not recommend reload after a dry-run refresh", async () => {
+		const root = installedProject();
+		try {
+			const h = harness(root);
+			registerInit(h.pi, { now: NOW, toolVersion: "test" });
+			await h.run("refresh --dry-run");
+			expect(h.messages.some((item) => item.message.includes("/reload"))).toBe(false);
+			expect(existsSync(join(root, ".agents/uat/README.md"))).toBe(false);
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("refreshes framework-owned text on a repeated run and then reports current", async () => {
+		const root = installedProject();
+		const rendered = renderManaged(MANAGED_SPECS.find((spec) => spec.path === CONTRACT_FILE)!);
+		const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+		writeFileSync(join(root, CONTRACT_FILE), rendered, "utf8");
+		const state: FrameworkState = {
+			version: 1,
+			tool: "0.0.0-test",
+			created: "2026-01-01T00:00:00+08:00",
+			updated: "2026-01-01T00:00:00+08:00",
+			profile: "core",
+			modules: [],
+			roots: [],
+			managed: [
+				{
+					path: CONTRACT_FILE,
+					sha256: hash(rendered),
+					template: "memory-readme",
+					templateSha256: hash(rendered),
+				},
+			],
+			migrations: [],
+		};
+		writeFileSync(join(root, ".agents/framework/state.toml"), stateToToml(state), "utf8");
+		try {
+			const first = harness(root);
+			registerInit(first.pi, { now: NOW, toolVersion: "test" });
+			await first.run("--yes");
+			expect(first.sent).toHaveLength(0);
+			expect(existsSync(join(root, ".agents/uat/README.md"))).toBe(true);
+			expect(first.messages.some((item) => /created|refreshed/.test(item.message))).toBe(true);
+
+			const second = harness(root);
+			registerInit(second.pi, { now: NOW, toolVersion: "test" });
+			await second.run("--yes");
+			expect(second.sent).toHaveLength(0);
+			expect(second.messages.some((item) => /already current|no framework files changed/.test(item.message))).toBe(true);
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("rebuilds a missing AGENTS.md through the normal model work order", async () => {
+		const root = installedProject();
+		rmSync(join(root, "AGENTS.md"));
+		try {
+			const h = harness(root);
+			registerInit(h.pi, { now: NOW, toolVersion: "test" });
+			await h.run("--yes");
+			expect(existsSync(join(root, "AGENTS.md"))).toBe(true);
+			expect(h.sent.length).toBeGreaterThan(0);
+			expect(h.sent[0]).toContain("fill-agents");
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("rebuilds a missing core memory seed without a model turn", async () => {
+		const root = installedProject();
+		rmSync(join(root, ".agents/memory/FINISHED.md"));
+		try {
+			const h = harness(root);
+			registerInit(h.pi, { now: NOW, toolVersion: "test" });
+			await h.run("--yes");
+			expect(existsSync(join(root, ".agents/memory/FINISHED.md"))).toBe(true);
+			expect(h.sent).toHaveLength(0);
+			expect(h.messages.some((item) => /mechanical repair/.test(item.message))).toBe(true);
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("refuses mutating runs while a phase owns the tree", async () => {
+		const root = installedProject();
+		try {
+			const plan = harness(root);
+			plan.tools.push("plan_submit");
+			registerInit(plan.pi, { now: NOW, toolVersion: "test" });
+			await plan.run("--yes");
+			expect(plan.sent).toHaveLength(0);
+			expect(plan.messages.some((item) => /ask-plan/.test(item.message))).toBe(true);
+
+			const uat = harness(root);
+			uat.tools.push("uat_item");
+			registerInit(uat.pi, { now: NOW, toolVersion: "test" });
+			await uat.run("--yes");
+			expect(uat.sent).toHaveLength(0);
+			expect(uat.messages.some((item) => /ask-uat/.test(item.message))).toBe(true);
+
+			setAskControl({ isActive: () => true, exit: () => {} });
+			const ask = harness(root);
+			registerInit(ask.pi, { now: NOW, toolVersion: "test" });
+			await ask.run("--yes");
+			expect(ask.sent).toHaveLength(0);
+			expect(ask.messages.some((item) => /\/ask is active/.test(item.message))).toBe(true);
+		} finally {
+			setAskControl(undefined);
 			remove(root);
 		}
 	});

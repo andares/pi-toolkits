@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { audit, countFindings, latestCoverageReport, renderFindings } from "./audit.js";
 import { detect } from "./detect.js";
 import { AUDIT_CODES, REPORTS_DIR } from "./spec.js";
+import { workflowBlockText } from "./parity.js";
 import { gitProject, installedProject, project, remove } from "./test-helpers.js";
 
 function codes(root: string): string[] {
@@ -26,8 +27,11 @@ const CLEAN: Record<string, string> = {
 		"| `.agents/memory/FUTURE.md` | deferred |",
 		"| `.agents/memory/ARCHITECTURE.md` | decisions |",
 		"",
+		workflowBlockText(),
 	].join("\n"),
 	"specs/PLAN.md": "# Plan\n\n## Route\n\n- next\n",
+	".agents/README.md": "# `.agents/` — agent-facing material\n",
+	".agents/framework/.gitignore": "reports/\n",
 	".agents/memory/README.md": "# Agent memory framework v1\n",
 	".agents/memory/FINISHED.md":
 		"# Finished\n\n## Summary\n\n- init — `.agents/implementations/2026-01-01_init.md`\n",
@@ -58,8 +62,21 @@ describe("audit", () => {
 		}
 	});
 
-	it("reports bare legacy references", () => {
+	it("reports bare legacy references as a warning when there is nothing to move", () => {
 		const root = project({ ...CLEAN, "src/a.ts": "// see memory/DESIGN.md\n" });
+		try {
+			expect(codes(root)).toContain(AUDIT_CODES.pathBareRefStale);
+		} finally {
+			remove(root);
+		}
+	});
+
+	it("keeps bare references an error while a legacy directory still exists", () => {
+		const root = project({
+			...CLEAN,
+			"memory/PLAN.md": "# old plan\n",
+			"src/a.ts": "// see memory/DESIGN.md\n",
+		});
 		try {
 			expect(codes(root)).toContain(AUDIT_CODES.pathBareRef);
 		} finally {
@@ -225,7 +242,7 @@ describe("audit", () => {
 			expect(findings.map((item) => item.code)).toContain(AUDIT_CODES.scaffoldLeftover);
 			const text = renderFindings(findings, { root, frameworkVersion: 1 });
 			expect(text).toMatch(/errors/);
-			expect(text).toContain(AUDIT_CODES.pathBareRef);
+			expect(text).toContain(AUDIT_CODES.pathBareRefStale);
 		} finally {
 			remove(root);
 		}
