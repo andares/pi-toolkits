@@ -9,6 +9,10 @@ renames that heading to the version being published and refuses an empty section
 (`--skip-changelog` bypasses the gate).
 ## Unreleased
 
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
+## 1.0.0 — 2026-11-15
+
 - **quit-guard** — a forced exit can no longer be defeated by a deadlock inside `process.exit` itself: after the report is written, a same-loop SIGKILL timer and then an independent worker thread guarantee the process ends (real hang observed 2026-11-13, process stuck 18 min with the pty already deleted).
 - **quit-guard** — a new arm-time watchdog thread covers shutdown deadlocks that kill the main event loop *before* the fire deadline: the main loop beats a 1 Hz heartbeat, and a worker that sees it stop restores the terminal, writes a `quit-hang-*-thread.json` report and SIGKILLs; healthy quits, TUI restarts and Ctrl+Z resume are unaffected.
 - **ask-init** — re-running it now compares the project's framework text with the installed version, repairs missing or stale framework-owned files when safe, and says explicitly when nothing needs changing; hand-edited files stay untouched.
@@ -48,4 +52,5 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
