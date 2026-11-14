@@ -59,7 +59,7 @@
 最老版本。使用者不需要知道 4 版强制政策，只需要知道 `pi >= <floor>`。它写进
 `peerDependencies`（`>=<floor>`，**不写上界**）和 README 的 Requirements / badge。
 
-（当前：强制窗口 1.2 / 1.3 / 1.4 / 1.5，1.5 线含 1.5.0 与 1.5.1；向后探针 1.1 / 1.0 / 0.99 / 0.87，
+（当前：强制窗口 1.2 / 1.3 / 1.4 / 1.5，1.5 线含 1.5.0、1.5.1 与 1.5.2；向后探针 1.1 / 1.0 / 0.99 / 0.87，
 **停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`（`ask/scratch-tool` 与
 `init/tool` 两处），且 `ToolCallEvent` 上没有 `parentToolCallId`（2026-10-24 审批日志、
 2026-10-26 init 新增的依赖），typecheck 红属探测结论、不改代码；**public floor = 0.99.0**，peer 写 `>=0.99.0`。）
@@ -228,14 +228,14 @@ Windows/WSL 上解析为 `ctrl+f` —— 于是选择器永远收不到按键。
 `agent-session.js` 逐文件 diff，有变化就同步代码或改正注释里的版本声明。
 两类区间声明要分开写：**支持声明**（「supported window」等）必须与 peer 下限一致 /
 或注明是强制窗口；**逐版本事实**（某函数在哪个区间字节级一致）按实际 diff 结果写，
-不得为了对齐下限而外扩（例如 `compaction.js` 只在这里说 1.4.0 变过一次）。当前 1.2.0 → 1.5.1：
+不得为了对齐下限而外扩（例如 `compaction.js` 只在这里说 1.4.0 变过一次）。当前 1.2.0 → 1.5.2（1.5.2 未改这些文件）：
 `usage-totals.js` 在窗口内只变过一次（1.5.0 给 `cost` 加了 `totalFromProvider` 合并规则，
 已镜像；数值字段未动），`utils.js` 最后一次变化是 1.5.1（`truncateText` 换 `sliceHead`，
 只影响我们从宿主导入的序列化器），`agent-session.js` 在 1.2.0（prompt 处理
 重构成 `_prepareRun`/`_startRun`）、1.3.0（tool-restore 路径）、1.4.0（溢出恢复与
 tool-restore）、1.5.0（摘要请求的 auth 解析改走 stream 函数自带的 runtime；`_applyToolLoadout`
 按「保留顺序 + 追加新增」稳定下来，#11495）、1.5.1（五处，见下）各变一次，
-但 `cycleModel` 在 1.2.0 → 1.5.1 字节级一致，`compaction.js`
+但 `cycleModel` 在 1.2.0 → 1.5.2 字节级一致，`compaction.js`
 只在 1.4.0 变了一次点——摘要不再按 `reserveTokens` 设 `maxTokens` 上限（#9512），
 且 `/compact <instructions>` 也追加到 split-turn 前缀（#11058）；两处都按 1.4.0 语义
 镜像到全窗口，注释里写明了为何不做按版本分支。`model-selector.js` 在 1.5.0 变过一次
@@ -511,9 +511,9 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 ### 已验证
 
 - 测试：`pnpm test` 53 个文件 / 943 测试全绿；`pnpm check:compat` 在强制窗口
-  1.2.0–1.5.1 全绿，向后探针 1.1.x / 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive`
+  1.2.0–1.5.2 全绿，向后探针 1.1.x / 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive`
   停探（不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
-- 真实 pi 1.5.1 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
+- 真实 pi 1.5.2 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
   历史冒烟（1.4.0，项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）：
   第一轮的工具集里就含 `scratchpad`，`plan.md` 写入 `/tmp/pi-ask/<session>/` 成功。
   **冒烟发现并修掉两处**：① 在 `session_start` 里 `setActiveTools` 会被该轮 loadout
@@ -739,7 +739,7 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 - `pnpm typecheck` 绿；`pnpm test` **53 文件 / 943 测试**全绿（init 11 个测试文件 / 122 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
-- `pnpm check:compat`：窗口 1.2.0–1.5.1 全绿（当时每版 660 passed；本轮测试数变了，矩阵未重跑），探针 1.1.x / 1.0.x / 0.99.x 全绿、
+- `pnpm check:compat`：窗口 1.2.0–1.5.2 全绿（每版 943 passed），探针 1.1.x / 1.0.x / 0.99.x 全绿、
   0.87.x 因 `defaultActive` 停探，floor 0.99.0。
 - 测试稳定性（2026-11-04）：矩阵并发四沙箱时，vitest 默认 worker 数（22 核 → 21）会因内存
   压力让**不同的**测试偶发超时（1.0.2 的 git fixture、1.0.1 的动态 import），把 floor 拖到噪声上。
@@ -891,8 +891,8 @@ src/features/permission/
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
 - 测试：`pnpm test` 53 个文件 / 943 测试全绿；`pnpm check:compat` 强制窗口
-  1.2.0–1.5.1 + 向后探针 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
-  真实 pi 1.5.1 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
+  1.2.0–1.5.2 + 向后探针 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
+  真实 pi 1.5.2 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
 ### 补充：同一会话的 `session_start` 可能发多次
 
