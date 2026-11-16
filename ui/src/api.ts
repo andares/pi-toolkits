@@ -24,7 +24,7 @@ export interface Annotations {
 	blocks: BlockAnnotations[];
 }
 
-export interface PlanItem {
+export interface SpecItem {
 	status: BlockStatus;
 	id: string;
 	prevId?: string;
@@ -32,13 +32,13 @@ export interface PlanItem {
 	label: string;
 }
 
-export interface PlanState {
+export interface SpecState {
 	slug: string;
 	version: number;
 	totalVersions: number;
 	at: string;
 	source?: string;
-	items: PlanItem[];
+	items: SpecItem[];
 	annotations: Annotations;
 	decision?: { action: Decision; at: string };
 	decided: boolean;
@@ -62,8 +62,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 	return (await response.json()) as T;
 }
 
-export function fetchState(version?: number): Promise<PlanState> {
-	return request<PlanState>(version === undefined ? "/api/state" : `/api/state?version=${version}`);
+export function fetchState(version?: number): Promise<SpecState> {
+	return request<SpecState>(version === undefined ? "/api/state" : `/api/state?version=${version}`);
 }
 
 export function postAnnotations(version: number, annotations: Annotations): Promise<{ ok: true }> {

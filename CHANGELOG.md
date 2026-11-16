@@ -9,6 +9,11 @@ renames that heading to the version being published and refuses an empty section
 (`--skip-changelog` bypasses the gate).
 ## Unreleased
 
+- **ask-spec** — the browser review command is now `/ask-spec` (`/ask-plan` still works as an alias), the submit tool is `spec_submit`, and an untitled review defaults to `specs/spec.md` instead of `specs/plan.md`.
+- **spec review page** — a new two-column page: warm paper/rose palette, the spec on the left, revision stats and a clickable annotation index on the right; global notes stay visible above the blocks.
+- **spec review page** — the decision bar now carries *Only changed* and *Global notes* on the left and the total note count in the middle, with the explanatory footer text removed.
+- **ask-spec** — existing `<agent-dir>/ask-plan/` review histories are migrated to `<agent-dir>/ask-spec/` on first use.
+
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
 ## 1.0.0 — 2026-11-15

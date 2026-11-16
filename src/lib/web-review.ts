@@ -1,5 +1,5 @@
 /**
- * Shared web-review server — the HTTP shell used by `/ask-plan` and `/ask-uat`.
+ * Shared web-review server — the HTTP shell used by `/ask-spec` and `/ask-uat`.
  *
  * Both features do the same thing: serve a small Vite page from inside the pi
  * process, hand it a token, and let it read/write state over HTTP + SSE. The

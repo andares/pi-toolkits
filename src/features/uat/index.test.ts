@@ -240,7 +240,7 @@ describe("ask-uat command", () => {
 		h.shutdown();
 	});
 
-	it("exits consult mode deliberately and refuses to start during planning", async () => {
+	it("exits consult mode deliberately and refuses to start during spec review", async () => {
 		let consulting = true;
 		setAskControl({ isActive: () => consulting, exit: () => { consulting = false; } });
 		const h = harness();
@@ -249,14 +249,14 @@ describe("ask-uat command", () => {
 		expect(h.openBrowser).toHaveBeenCalledTimes(1);
 		await h.commands.get(UAT_COMMAND)!.handler("off", h.ctx);
 
-		h.pi.setActiveTools([...h.activeTools(), "plan_submit"]);
+		h.pi.setActiveTools([...h.activeTools(), "spec_submit"]);
 		await h.commands.get(UAT_COMMAND)!.handler("", h.ctx);
-		expect(h.notify).toHaveBeenLastCalledWith(expect.stringContaining("finish or approve the plan"), "warning");
+		expect(h.notify).toHaveBeenLastCalledWith(expect.stringContaining("finish or approve the spec"), "warning");
 		expect(h.openBrowser).toHaveBeenCalledTimes(1);
 		h.shutdown();
 	});
 
-	it("keeps record_change out of read-only consult and planning phases", async () => {
+	it("keeps record_change out of read-only consult and spec-review phases", async () => {
 		setAskControl({ isActive: () => true, exit: () => {} });
 		const h = harness();
 		for (const handler of h.handlers.before_agent_start ?? []) handler({ systemPrompt: "base" }, h.ctx);
@@ -272,7 +272,7 @@ describe("ask-uat command", () => {
 		expect(existsSync(join(root, ".agents/implementations/2026-11-13_2107_forbidden.md"))).toBe(false);
 
 		setAskControl(undefined);
-		h.pi.setActiveTools([...h.activeTools(), "plan_submit"]);
+		h.pi.setActiveTools([...h.activeTools(), "spec_submit"]);
 		for (const handler of h.handlers.before_agent_start ?? []) handler({ systemPrompt: "base" }, h.ctx);
 		expect(h.activeTools()).not.toContain(RECORD_CHANGE_TOOL);
 		h.shutdown();

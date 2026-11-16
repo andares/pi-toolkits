@@ -43,7 +43,7 @@ const PARAMS = Type.Object({
 		}),
 	),
 	area: Type.Optional(
-		Type.String({ description: 'Short area label used for clustering, e.g. "ask-plan", "auth".' }),
+		Type.String({ description: 'Short area label used for clustering, e.g. "ask-spec", "auth".' }),
 	),
 	files: Type.Optional(
 		Type.Array(Type.String({ description: "File touched by this change." }), {
@@ -83,7 +83,7 @@ export interface RecordToolOptions {
 	/** Resolve the project root (main worktree). Injectable for tests. */
 	root?: (cwd: string) => string;
 	/**
-	 * Phase guard, not just a registration guard: read-only consult and planning
+	 * Phase guard, not just a registration guard: read-only consult and spec review
 	 * must not acquire a project-writing tool merely because the framework exists.
 	 */
 	canRecord?: () => boolean;
@@ -104,7 +104,7 @@ export function registerRecordTool(pi: ExtensionAPI, options: RecordToolOptions 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx: ExtensionContext) {
 			if (options.canRecord && !options.canRecord()) {
 				return errorResult(
-					"record_change: disabled during read-only consult or planning — exit /ask, or approve the plan and finish the implementation first.",
+					"record_change: disabled during read-only consult or spec review — exit /ask, or approve the spec and finish the implementation first.",
 				);
 			}
 			const root = rootOf(ctx.cwd || process.cwd());

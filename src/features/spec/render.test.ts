@@ -23,8 +23,8 @@ describe("renderBlockHtml", () => {
 	});
 
 	it("renders inline code, bold, italic and links", () => {
-		const html = render("use `plan_submit` and **never** *skip* [the spec](https://example.com/x)");
-		expect(html).toContain("<code>plan_submit</code>");
+		const html = render("use `spec_submit` and **never** *skip* [the spec](https://example.com/x)");
+		expect(html).toContain("<code>spec_submit</code>");
 		expect(html).toContain("<strong>never</strong>");
 		expect(html).toContain("<em>skip</em>");
 		expect(html).toContain('href="https://example.com/x"');

@@ -43,6 +43,19 @@
 - 中文只保留在：源码注释、`README.zh-CN.md`、`AGENTS.md` 与本仓内部维护脚本；以及 init 按
   `--lang` 渲染的框架生成文件（见 Feature: init）。
 
+## 设计稿（`design/`）
+
+界面设计稿的唯一目录是仓库根的 `design/`（没有就建），格式一律 `.ptr`，文件名 `<feature>.ptr`
+（一块 board 一个界面）。`design/` 与其中的设计系统文件一起进 git，但不进构建产物。
+
+- **只走 paintress**（MCP `paintress_*` / CLI `paintress`）。`design/__preset.ptr` 与
+  `design/__components.ptr` 是 paintress 维护的项目设计系统（token / 组件库），**不手写、不挪走、
+  不改成 `.pen`**；画之前先 `preset list` + `component list`，能用 token 就不贴裸值。
+- 开工先 `paintress web`（幂等）；改完 `validate`（errors 必须 0）并 `screenshot` 自己看一眼；
+  收工 `paintress_clear_changes`。
+- **设计稿不是运行时资产**：先给崔总看截图/查看器，他确认后才改 `ui/` 下的实际代码。
+- board 内文案用英文（与运行时文案同语言），中文只放在看板的说明注释里。
+
 ## pi 宿主兼容
 
 **核心纪律：兼容区间是实测结论，不是愿望——而且只能往回测。** 上游只会向前发版，
@@ -510,7 +523,7 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 53 个文件 / 943 测试全绿；`pnpm check:compat` 在强制窗口
+- 测试：`pnpm test` 53 个文件 / 947 测试全绿；`pnpm check:compat` 在强制窗口
   1.2.0–1.5.2 全绿，向后探针 1.1.x / 1.0.x / 0.99.x 也全绿、0.87.x 因 `defaultActive`
   停探（不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
 - 真实 pi 1.5.2 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
@@ -726,8 +739,8 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 - **ask 循环的「已安装」判定**：`frameworkReadiness` 只查 `state.toml`、`AGENTS.md`、
   `.agents/memory/README.md`、`.agents/implementations/` 是否存在；文件内容小改不挡
   `/ask-uat` / `record_change`，缺失时拒绝并列出缺失项。
-- **相位互斥**：`ask` 拒绝叠在 plan/uat 上；`ask-plan` 退出 ask、拒绝 uat、加 `isIdle`；
-  `ask-review` 退出 ask、拒绝 plan；`ask-init` 的 mutating 子命令在任一相位下拒绝。
+- **相位互斥**：`ask` 拒绝叠在 spec/uat 上；`ask-spec` 退出 ask、拒绝 uat、加 `isIdle`；
+  `ask-review` 退出 ask、拒绝 spec；`ask-init` 的 mutating 子命令在任一相位下拒绝。
 - **不升 `FRAMEWORK_VERSION`**：UAT 目录是可选增量，`I-UAT-01` 表示「尚未安装」；
   升版本号会要求迁移配方，反而挡住用户。
 
@@ -737,7 +750,7 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 943 测试**全绿（init 11 个测试文件 / 122 用例）；
+- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 947 测试**全绿（init 11 个测试文件 / 122 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
 - `pnpm check:compat`：窗口 1.2.0–1.5.2 全绿（每版 943 passed），探针 1.1.x / 1.0.x / 0.99.x 全绿、
   0.87.x 因 `defaultActive` 停探，floor 0.99.0。
@@ -890,7 +903,7 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 53 个文件 / 943 测试全绿；`pnpm check:compat` 强制窗口
+- 测试：`pnpm test` 53 个文件 / 947 测试全绿；`pnpm check:compat` 强制窗口
   1.2.0–1.5.2 + 向后探针 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
   真实 pi 1.5.2 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
@@ -964,7 +977,7 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 
 **已验证**
 
-- `pnpm test` 53 个文件 / 943 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+- `pnpm test` 53 个文件 / 947 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
   `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
 - 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
   单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、
@@ -1112,7 +1125,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck`、`pnpm test`：**53 文件 / 943 测试**全绿（quit-guard 55 例，含 killer 4 例）。
+- `pnpm typecheck`、`pnpm test`：**53 文件 / 947 测试**全绿（quit-guard 55 例，含 killer 4 例）。
 - **2026-11-13 真实事故与修复验证**：真实会话里 guard 已 fire、报告已落盘、"forcing exit"
   已打印，但 `process.exit(0)` 卡死在宿主 exit 路径（主线程 `futex_wait`，18 分钟未退，
   pty 被用户关窗口删掉，fd 0/1/2 → `/dev/pts/N (deleted)`；宿主 chunk 里确认 pi-tui
@@ -1178,66 +1191,78 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   一样），属宿主/夹具噪声，不是本功能的回归；真实会话里 `/reload` 后看守仍按单例接线工作。
 - 这是对宿主缺口的权宜之计：pi 若给 `session_shutdown` 加上限，本功能可整体删除。
 
-## Feature: plan（`/ask-plan` 浏览器批注式计划评审，2026-11-11 实现）
+## Feature: spec（`/ask-spec` 浏览器批注式规格评审，2026-11-11 实现；2026-11-16 由 `/ask-plan` 改名）
 
-`/ask` 讨论 → `/ask-plan` 调研 → 写 `specs/<slug>.md` → 浏览器逐段批注 → 多轮 → 批准 → 实施。
+`/ask` 讨论 → `/ask-spec` 调研 → 写 `specs/<slug>.md` → 浏览器逐段批注 → 多轮 → 批准 → 实施。
+`/ask-plan` 保留为别名；工具是 `spec_submit`；不带主题时默认 `specs/spec.md`（不再生成 `specs/plan.md`）。
 
 ### 不变量
 
-- **绝不切模型**：`src/features/plan/` 下不出现 `pi.setModel`；计划期用什么模型就是会话当前模型。
+- **绝不切模型**：`src/features/spec/` 下不出现 `pi.setModel`；评审期用什么模型就是会话当前模型。
   （plannotator 会在计划流里自动换模型，2026-09 因此烧掉崔总 100+ 元现金额度。）
-- **`plan_submit` 立即返回**，回合当场结束；决定稍后以 `pi.sendUserMessage` 作为新消息回来。
-- **批注与决策解耦**：approve/deny 都携带批注，只决定"实施 / 改计划"；批准额外把
+- **`spec_submit` 立即返回**，回合当场结束；决定稍后以 `pi.sendUserMessage` 作为新消息回来。
+- **批注与决策解耦**：approve/deny 都携带批注，只决定「实施 / 改 spec」；批准额外把
   **被批准版本的原文**贴回去（文件可能在提交后被改过），并要求模型把实施任务记进 `todo`。
 - **块 = 空行分隔的段落**（围栏代码块不切分），diff 用 同 id → LIS 锚点 → moved，其余按字符二元组
   Jaccard ≥ 0.5 配对为 modified，最后才是 added/removed。改三行不该看起来像整篇重写。
 - **WSL 打开器**：绑 `0.0.0.0`、URL 用 eth0 IP、优先 `wslview`/`cmd.exe start`/`powershell`，
   WSL 下不先试 `xdg-open`（本机 `/usr/bin/google-chrome` 存在，xdg-open 会开出看不见的浏览器）。
-- **计划期只写 markdown**：gate 拦 write/edit 的非 `.md` 目标；bash 用 permission 的
+- **评审期只写 markdown**：gate 拦 write/edit 的非 `.md` 目标；bash 用 permission 的
   `parseCommandUnits` 再拦一道「工作区内、非 `.md` 的确认写入目标」（`echo x > src/a.ts`、`cp a.ts b.ts`）。
   opaque 单位不重复拦（permission 已 fail-closed），项目外临时文件照放。
 - **访谈协议**：`INTERVIEW_GUIDE` 要求「一轮 1–4 问、先问再写、能读的不问」；
   提问工具按 `pi.getAllTools()` 探测，装了就点名 `ask_user_question`，没装就说「用纯文本问」——
   那个工具是第三方扩展（`@juicesharp/rpiv-ask-user-question`），不是宿主内建。
-- **闸门复用 permission**：进入计划期用 `src/lib/permission-control.ts`（registry，与 startup.ts 同款）
+- **闸门复用 permission**：进入评审期用 `src/lib/permission-control.ts`（registry，与 startup.ts 同款）
   调用 `enableDefaults`，退出/批准 `restore`；用户中途手动改过以他的手改为准。
+- **评审页只保留有用的东西（2026-11-16 重做）**：暖纸底 + 玫瑰/珊瑚色的双栏页面（左阅读列、
+  右「本版统计 + 可点击批注索引」）；全局批注卡片即使编辑框关着也常显；底部决策栏左侧是
+  `Only changed` / `Global notes`，中间只放笔记总数，右侧 `Send feedback` / `Approve spec`。
+  「How review works」「Approve means go」「Two ways out」这类解释性卡片不再实现，顶部红字提示已删。
+- **命名**：命令 `/ask-spec`（别名 `/ask-plan`）、工具 `spec_submit`、默认文件 `specs/spec.md`；
+  相位标记 `SPEC_PHASE_TOOL`，同时识别旧的 `plan_submit`（升级前已打开的会话）；评审历史
+  `<agent-dir>/ask-plan/` 在首次使用时迁移到 `<agent-dir>/ask-spec/`，迁移失败就继续用旧目录。
 
 ### 落位
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/features/plan/blocks.ts` | 段落切分（围栏感知）、归一化哈希、重复段落出现序号 |
-| `src/features/plan/diff.ts` | 块级 diff 三态 + moved |
-| `src/features/plan/render.ts` | markdown 子集 → HTML（先转义，无原始 HTML 透传） |
-| `src/features/plan/feedback.ts` | 批注 → 固定模板的模型消息（英文） |
-| `src/features/plan/prompt.ts` | 计划期横幅 + spec 骨架（12 段）+ 段落书写纪律 |
-| `src/features/plan/store.ts` | `<agent-dir>/ask-plan/<slug>/vNNN.md` + `state.json`（原子写、50 版上限） |
-| `src/features/plan/server.ts` | 计划路由（`/api/state`、`/api/annotate`、`/api/decide`）；HTTP 壳在 `src/lib/web-review.ts` |
-| `src/lib/opener.ts` | WSL 探测、绑定地址、打开器选择（plan 与 uat 共用） |
-| `src/features/plan/index.ts` | 命令、`plan_submit`、gate、系统提示注入、决策回投 |
-| `ui/` | Solid 1.9 + Vite 8 单页，产物 44 KB 落 `src/features/plan/assets/`（`pnpm ui:check` 防过期） |
+| `src/features/spec/blocks.ts` | 段落切分（围栏感知）、归一化哈希、重复段落出现序号 |
+| `src/features/spec/diff.ts` | 块级 diff 三态 + moved |
+| `src/features/spec/render.ts` | markdown 子集 → HTML（先转义，无原始 HTML 透传） |
+| `src/features/spec/feedback.ts` | 批注 → 固定模板的模型消息（英文） |
+| `src/features/spec/prompt.ts` | 评审横幅 + spec 骨架（12 段）+ 段落书写纪律 |
+| `src/features/spec/store.ts` | `<agent-dir>/ask-spec/<slug>/vNNN.md` + `state.json`（原子写、50 版上限、旧目录迁移） |
+| `src/features/spec/server.ts` | 评审路由（`/api/state`、`/api/annotate`、`/api/decide`）；HTTP 壳在 `src/lib/web-review.ts` |
+| `src/lib/opener.ts` | WSL 探测、绑定地址、打开器选择（spec 与 uat 共用） |
+| `src/features/spec/index.ts` | `/ask-spec` + `/ask-plan` 别名、`spec_submit`、gate、系统提示注入、决策回投 |
+| `src/lib/phases.ts` | `SPEC_PHASE_TOOL` + 旧 `plan_submit` 识别；phase 名 `spec` |
+| `ui/` | Solid 1.9 + Vite 8 单页，产物落 `src/features/spec/assets/`（`pnpm ui:check` 防过期） |
+| `design/ask-spec.ptr` | 已确认的评审页设计稿（暖纸/玫瑰、双栏、批注索引、底部决策栏） |
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 943 测试**全绿（plan 106 例）；
-  `pnpm ui:typecheck` / `pnpm ui:check` 绿。
-- 计划期写入边界：`echo x > src/a.ts` / `cp a.ts b.ts` 被 gate 拒；写入 `specs/` 下的
-  `.md`、项目外临时文件与纯读命令放行（`plan/index.test.ts` 的 write-boundary 用例）。
-- 访谈协议：未装提问扩展时用“ask in plain text”，装了才点名 `ask_user_question`；
-  `INTERVIEW_GUIDE` 断言“一轮 1–4 问 / 能读的不问”。
-- 真实宿主探针：`ask-plan[extension]` 已注册，`plan_submit` 默认不在工具集里（进入计划期才激活）。
-- `pnpm check:compat --skip-tests`：强制窗口 1.2.0–1.5.2 全绿（install/typecheck/键位/dist 哈希），
-  探针 1.1/1.0/0.99 全绿、0.87 按既有原因停探，public floor 仍为 0.99.0。
-- 真实浏览器（Playwright）复核：第一版所有块可见、旧版只读、块批注落盘、deny 后关服并显示关闭提示。
+- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 950 测试**全绿（spec 113 例）；`pnpm ui:typecheck` 绿；`pnpm ui:build` 已更新 assets（`ui:check` 的 git-clean 断言需在提交 assets 后成立）。
+- 命令：`/ask-spec` 与 `/ask-plan` 指向同一个 handler；不带主题默认 `specs/spec.md`；
+  `spec_submit` 默认不在工具集里，进入评审期才激活；旧 `plan_submit` 仍被相位判定识别。
+- 评审期写入边界：`echo x > src/a.ts` / `cp a.ts b.ts` 被 gate 拒；写入 `specs/` 下的
+  `.md`、项目外临时文件与纯读命令放行（`spec/index.test.ts` 的 write-boundary 用例）。
+- 访谈协议：未装提问扩展时用 "ask in plain text"，装了才点名 `ask_user_question`；
+  `INTERVIEW_GUIDE` 断言「一轮 1–4 问 / 能读的不问」。
+- 真实宿主探针：`ask-spec[extension]` 已注册，`spec_submit` 默认不在工具集里（进入评审期才激活）。
+- 页面：Playwright + mock state 复核双栏、全局批注卡片、批注索引跳转、编辑器、底部
+  `Only changed` / `Global notes` / 笔记计数 / 决策按钮；真实 pi 1.5.2 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ...`）回 `OK`。
 - WSL 实测（2026-11-11）：`cmd.exe /c start "" "http://<wsl-ip>:port/"` 能从 Windows 打开到 WSL 内的服务器；
   绑 `127.0.0.1` 或访问 `localhost` 均连不上。
-- 评审后修正记录：`.agents/implementations/2026-11-11_ask-plan-review.md`。
+- 历史评审记录：`.agents/implementations/2026-11-11_ask-plan-review.md`（改名前的实现轮）。
+- 本轮实施记录：`.agents/implementations/2026-11-17_0144_ask-spec-review-page.md`。
 
 ### 已知边界
 
-- 服务器与 pi 同进程：`/reload` 或会话结束即关端口；不支持"关掉 pi 后网页还活着"。
+- 服务器与 pi 同进程：`/reload` 或会话结束即关端口；不支持「关掉 pi 后网页还活着」。
 - 批注按版本存放：新版本会清空上一版批注（不做跨版本重新锚定，这是块模型换来的简化）。
 - 端口固定从 3401 顺延 20 个，不做配置项（崔总 2026-11-11 定）。
+- `/ask-plan` 别名只保证命令入口；提示语、日志与文档一律以 `/ask-spec` 为准。
 
 ## Feature: uat（`/ask-uat` 验收台账，2026-11-12 实现）
 
@@ -1297,11 +1322,11 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 | `src/features/uat/server.ts` | `/api/state`、`/api/toggle`、`/api/report`、ledger mtime 监听 |
 | `src/features/uat/index.ts` | 命令、相位、工具激活、空闲关服 |
 | `ui/uat/` + `ui/vite.config.uat.ts` | 第二套 Solid 单页（产物 `src/features/uat/assets/`） |
-| `src/lib/web-review.ts` | plan/uat 共用的 HTTP 壳（token、Host/Origin、端口池、静态文件、SSE） |
+| `src/lib/web-review.ts` | spec/uat 共用的 HTTP 壳（token、Host/Origin、端口池、静态文件、SSE） |
 
 ### 已验证
 
-- `pnpm test` 53 文件 / 943 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
+- `pnpm test` 53 文件 / 947 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
 - 真实 pi 1.5.2 冒烟：`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`、无 Extension 警告。
 - 覆盖：记录解析/命名/同分钟防覆盖、账本坏行与重复 id、自愈换行、N:M、link 重开、
   merge/drop/amend、命令开页与聚类派发、页面勾选往返、未知项 404。
@@ -1367,7 +1392,29 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证与边界
 
-- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 943 测试**全绿。真实 pi 1.5.2 复验：
+- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 947 测试**全绿。真实 pi 1.5.2 复验：
   预置旧版本后首启展示，第二次启动不再展示；单元测试断言不注册任何命令。
 - print 模式不消费提示。最新修复与复验证据见本轮后续实施记录。
 - 只在交互式 TUI 展示；多进程同时首启可能各展示一次（无锁）。提示文本与 changelog 用英文。
+
+<!-- ask-init:begin workflow v1 -->
+## Ask workflow
+
+This project uses the `@andares/pi-toolkits` ask workflow. The steps run in this order:
+
+| step | entry | what it does |
+| --- | --- | --- |
+| discuss | `/ask` | read-only consult; `scratchpad` is the only write channel |
+| spec | `/ask-spec <topic>` | research, ask questions, write `specs/<slug>.md`, review it block by block in the browser, implement only after approval |
+| record | `record_change` | after the work: write the change record and one user-visible behaviour sentence |
+| review | `/ask-review` | optional third-party model cross-check (check + fix); it leaves no state behind |
+| accept | `/ask-uat` | cluster pending change records into acceptance items, verify them on the page, tick them off |
+
+Rules that are easy to break:
+
+- Change records live in `.agents/implementations/`; new ones carry the minute in the name (`YYYY-MM-DD_HHMM_slug.md`) and repeat it in the first line (`# YYYY-MM-DDTHH:MM±HH:MM — title`).
+- The acceptance ledger is `.agents/uat/ledger.jsonl`, append-only, committed to git, and belongs to the main checkout. Never edit it by hand: the tools and the page write it.
+- Acceptance items are created by clustering on the UAT side, never by an implementation session.
+- Specs go in `specs`, memory in `.agents/memory/`, evidence in `.agents/implementations/`.
+
+<!-- ask-init:end workflow -->

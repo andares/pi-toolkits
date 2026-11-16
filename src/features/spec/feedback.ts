@@ -2,7 +2,7 @@
  * plan feedback — annotations → the message the agent receives.
  *
  * The template is deliberately fixed (and tested byte for byte): the agent
- * reads it, not a human, so a stable shape is what lets the planning prompt say
+ * reads it, not a human, so a stable shape is what lets the spec prompt say
  * "address every block marked (modified)" and have that mean something. It is
  * English like every other runtime string.
  *
@@ -38,9 +38,9 @@ export interface FeedbackInput {
 	global: readonly Annotation[];
 	perBlock: readonly BlockAnnotations[];
 	/** The spec file the operator approved (path shown to the model). */
-	planPath?: string;
+	specPath?: string;
 	/** Approved revision text, quoted back so the model implements exactly this. */
-	planText?: string;
+	specText?: string;
 	/** Whether `record_change` is available in this project (framework installed). */
 	recordTool?: boolean;
 }
@@ -77,7 +77,7 @@ function annotationLines(annotations: readonly Annotation[]): string[] {
 		);
 }
 
-/** Longest block excerpt quoted back — enough to locate it, not a second copy of the plan. */
+/** Longest block excerpt quoted back — enough to locate it, not a second copy of the spec. */
 const QUOTE_LIMIT = 600;
 
 function quoteBlock(text: string): string {
@@ -99,7 +99,7 @@ function quoteBlock(text: string): string {
  */
 export function buildFeedbackMarkdown(input: FeedbackInput): string {
 	const changed = countChanged(input.diff);
-	const header = `## Plan ${input.decision === "approve" ? "approved" : "feedback"} — v${input.version} of ${input.totalVersions} (${summarizeChanged(changed)})`;
+	const header = `## Spec ${input.decision === "approve" ? "approved" : "feedback"} — v${input.version} of ${input.totalVersions} (${summarizeChanged(changed)})`;
 	const byId = new Map(input.blocks.map((block) => [block.id, block]));
 	const prevById = new Map((input.previousBlocks ?? []).map((block) => [block.id, block]));
 	const diffById = new Map(input.diff.map((entry) => [entry.id, entry]));
@@ -107,7 +107,7 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 	const sections: string[] = [];
 	const globalLines = annotationLines(input.global);
 	if (globalLines.length > 0) {
-		sections.push(["### Global notes (apply to the whole plan)", ...globalLines].join("\n"));
+		sections.push(["### Global notes (apply to the whole spec)", ...globalLines].join("\n"));
 	}
 
 	// An annotation may arrive keyed by the block's PREVIOUS id (a tab that has
@@ -149,7 +149,7 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 	const instruction =
 		input.decision === "approve"
 			? [
-				"The plan is approved: start implementing it now.",
+				"The spec is approved: start implementing it now.",
 				"Approval only means \"go\" — every annotation above still applies while you build.",
 				"Record the implementation work in the todo list (`todo` tool) as you go, and update each entry",
 				"as it starts, finishes or gets blocked, so progress stays traceable.",
@@ -161,22 +161,22 @@ export function buildFeedbackMarkdown(input: FeedbackInput): string {
 					: []),
 			]
 				.join("\n")
-			: "Update the plan file to address every annotation above, then submit it again with plan_submit.";
+			: "Update the spec file to address every annotation above, then submit it again with spec_submit.";
 
-	// On approval the model must implement the plan it was shown, not a stale
+	// On approval the model must implement the spec it was shown, not a stale
 	// recollection of it: the file may have been edited after the last submit, so
 	// quote the approved bytes back and name the path explicitly.
-	const approvedPlan =
-		input.decision === "approve" && input.planText !== undefined
+	const approvedSpec =
+		input.decision === "approve" && input.specText !== undefined
 			? [
-					`### Approved plan (${input.planPath ?? "the plan file"})`,
+					`### Approved spec (${input.specPath ?? "the spec file"})`,
 					"",
-					input.planText.trimEnd(),
+					input.specText.trimEnd(),
 				]
 				.join("\n")
 			: undefined;
 
 	const parts = [header, "", body, "", instruction];
-	if (approvedPlan) parts.push("", approvedPlan);
+	if (approvedSpec) parts.push("", approvedSpec);
 	return parts.join("\n");
 }

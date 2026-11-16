@@ -1,22 +1,26 @@
-# SPEC: `/ask-plan` — 浏览器批注式计划评审（简化版 plannotator）
+# SPEC: `/ask-spec` — 浏览器批注式规格评审（简化版 plannotator）
 
 > 状态：**M1–M4 已实现，并通过第三方评审修正**（2026-11-11）。
 > 调研底稿见 git 历史（`85112d7`），第一版方案 `b4c3052`。
+>
+> 2026-11-16：命令改名为 `/ask-spec`（`/ask-plan` 仍是别名），工具改为 `spec_submit`，
+> 评审页重做为暖纸/玫瑰双栏（右栏本版统计 + 批注索引，底部决策栏）；历史存储从
+> `<agent-dir>/ask-plan/` 迁移到 `<agent-dir>/ask-spec/`。本文其余部分是改名前的设计记录。
 
 ## 0. 目标
 
-`/ask` 讨论 → `/ask-plan` 调研 → 模型写计划 → **浏览器里按块批注** → 多轮 → 批准 →
+`/ask` 讨论 → `/ask-spec` 调研 → 模型写 spec → **浏览器里按块批注** → 多轮 → 批准 →
 `specs/<slug>.md` 定稿 → 直接实施。
 
 ## 1. 范围
 
-**做**：计划期状态机、`plan_submit` 工具、块解析与块级 diff、本地 HTTP 服务 + Solid 界面、
+**做**：评审期状态机、`spec_submit` 工具、块解析与块级 diff、本地 HTTP 服务 + Solid 界面、
 两级批注（全局 / 块）、版本落盘与回看、批准后开工、ask-perm 自动开启。
 
 **不做**：
 
 - **绝不切模型**（任何代码路径都不得调用 `pi.setModel`）。plannotator 的自动切模型在 2026-09
-  把崔总的现金额度烧掉 100 多元；我们的计划期用什么模型就是会话当前模型。
+  把崔总的现金额度烧掉 100 多元；我们的评审期用什么模型就是会话当前模型。
 - 不做 live-app 反代批注、代码/PR 评审、Inbox、Ask-AI、浏览器终端、Mermaid/Graphviz、
   Obsidian/reference、多标签租约、remote TLS、VS Code 集成。
 - 不做字符级/行级 diff：diff 粒度就是块。
@@ -29,15 +33,15 @@
 | D2 | 界面用 **Solid 1.9 + Vite 8**（单页 SPA，**不用 SolidStart**，理由见 §7） |
 | D3 | **块 = 空行分隔的段落**；围栏代码块内不切分 |
 | D4 | 批注只有两级：**全局 + 块** |
-| D5 | 历史落盘到 `<agent-dir>/ask-plan/<slug>/` |
+| D5 | 历史落盘到 `<agent-dir>/ask-spec/<slug>/` |
 | D6 | spec 固定落 `specs/<slug>.md`（ask-init 框架） |
 | D7 | 批准后直接开工；批准消息 = 批注 + 被批准版本原文 + 「任务记进 todo 并随时更新」 |
 | D8 | 界面中英双语可切换，`localStorage` 记忆；**框架提示词用英文，但不指定 spec 的书写语言** |
-| D9 | 闸门复用现有 permission；进入计划期自动开默认参数，可手动关 |
+| D9 | 闸门复用现有 permission；进入评审期自动开默认参数，可手动关 |
 | D10 | 服务器要能唤起 **Windows 浏览器**（WSL 内 chrome 不算数） |
 | D11 | 端口从 **3401** 起自增，**不做可配置**（有需要再加） |
 | D12 | 决策（approve/deny）落地后**窗口关闭、服务器停止**；下一轮重开新窗口；直接关，不问、不倒计时 |
-| D13 | 计划期**不按 ask 那么严**，对齐 plannotator：可写工作区内的 markdown，其余靠 permission 闸门 |
+| D13 | 评审期**不按 ask 那么严**，对齐 plannotator：可写工作区内的 markdown，其余靠 permission 闸门 |
 | D14 | 不引入 unix socket：浏览器只能说 HTTP，服务器就在 pi 进程内，信号是同进程的 promise |
 
 ## 3. WSL 打开 Windows 浏览器：已实测
@@ -65,10 +69,10 @@
 ## 4. 用户旅程
 
 ```text
-/ask 讨论 ──▶ /ask-plan ──▶ 计划期(读工具 + ask_user_question + 仅 .md 可写)
+/ask 讨论 ──▶ /ask-spec ──▶ 评审期(读工具 + ask_user_question + 仅 .md 可写)
                               │ 模型调研、提问、写 specs/<slug>.md 草稿
                               ▼
-                        plan_submit({ path })      ← 立即返回，回合结束
+                        spec_submit({ path })      ← 立即返回，回合结束
                               │ 快照 v001、算块、起服务器、开 Windows 浏览器
                               ▼
               浏览器：块级 diff 徽标 + 块批注 + 全局批注
@@ -77,7 +81,7 @@
         deny(带批注)                        approve
               │                               │
    pi.sendUserMessage(反馈 md)          记录批准、复制快照
-   → 模型改草稿 → plan_submit(v002)    → 窗口关闭/服务器停 → 直接开工
+   → 模型改草稿 → spec_submit(v002)    → 窗口关闭/服务器停 → 直接开工
    → 浏览器重开、v1↔v2 块级 diff
 ```
 
@@ -110,9 +114,9 @@
 提交时前端拼固定模板（`feedback.ts`，单测覆盖字节）：
 
 ```text
-## Plan feedback — v2 of 2 (2 blocks changed)
+## Spec feedback — v2 of 2 (2 blocks changed)
 
-### Global notes (apply to the whole plan)
+### Global notes (apply to the whole spec)
 - [suggest] Keep each milestone under a day.
 
 ### Block notes (apply to the quoted block only)
@@ -173,7 +177,7 @@ v2 的版本抖动（`@solidjs/start` 现为 2.2.2，v1 仍以 `v1-latest 1.5.1`
 ```text
 ui/                      # pnpm workspace 成员（packages: ["ui"]）
 ├── package.json         # 私有包：solid-js + vite + vite-plugin-solid（dev）
-├── vite.config.ts       # build.outDir → ../src/features/plan/assets，空目录后重建
+├── vite.config.ts       # build.outDir → ../src/features/spec/assets，空目录后重建
 ├── tsconfig.json
 └── src/
     ├── index.tsx        # 挂载
@@ -186,9 +190,9 @@ ui/                      # pnpm workspace 成员（packages: ["ui"]）
 
 - `pnpm ui:dev`：`vite` 开发服务器 + `server.proxy` 把 `/api` 转到 `127.0.0.1:3401`（我们的服务器），
   改界面不用重装扩展。
-- `pnpm ui:build`：直接产出到 `src/features/plan/assets/`（随包发布，已 `.gitignore` 的 `dist/`
+- `pnpm ui:build`：直接产出到 `src/features/spec/assets/`（随包发布，已 `.gitignore` 的 `dist/`
   不参与）。
-- `pnpm ui:check`：重建 + `git diff --exit-code src/features/plan/assets`（防"源码改了、包里还是旧界面"）。
+- `pnpm ui:check`：重建 + `git diff --exit-code src/features/spec/assets`（防"源码改了、包里还是旧界面"）。
 - **兼容矩阵不受影响**：`scripts/check-compat.mjs` 的沙箱只复制 `src/`、`scripts/`、`tsconfig.json` 与
   `package.json`/`pnpm-workspace.yaml`，`ui/` 不进去；且实测 `packages: ["ui"]` 指向不存在的目录时
   pnpm 照常 `install`（exit 0），沙箱不会因此变红。
@@ -207,14 +211,14 @@ ui/                      # pnpm workspace 成员（packages: ["ui"]）
 
 | 命令 | 作用 |
 | --- | --- |
-| `/ask-plan [标题]` | 进入计划期：自动开 ask-perm 默认参数；若在 ask 模式则自动退出并提示 |
-| `/ask-plan open` | 重开浏览器（或打印 URL） |
-| `/ask-plan off` | 退出计划期（不产生批准记录；草稿留在原处并 notify） |
+| `/ask-spec [标题]` | 进入评审期：自动开 ask-perm 默认参数；若在 ask 模式则自动退出并提示 |
+| `/ask-spec open` | 重开浏览器（或打印 URL） |
+| `/ask-spec off` | 退出评审期（不产生批准记录；草稿留在原处并 notify） |
 
-### 9.2 工具 `plan_submit`
+### 9.2 工具 `spec_submit`
 
 ```text
-plan_submit({ path?: string })   // 默认 specs/<slug>.md；读取磁盘内容
+spec_submit({ path?: string })   // 默认 specs/<slug>.md；读取磁盘内容
 ```
 
 - 快照到 `vNNN.md` → 解析块 → 算 diff → SSE 广播 → **立即返回**
@@ -222,12 +226,12 @@ plan_submit({ path?: string })   // 默认 specs/<slug>.md；读取磁盘内容
 - 批准/驳回从浏览器回会话：`pi.sendUserMessage(feedbackMarkdown)` 作为新消息；批准时追加一句
   「计划已批准，可以开始实施」。
 
-### 9.3 计划期的工具面（对齐 plannotator，不按 ask 那么严）
+### 9.3 评审期的工具面（对齐 plannotator，不按 ask 那么严）
 
-- `write` / `edit`：plan gate 只放行 **`.md` 文件**（工作区内），其余一律拒绝并说明原因。
+- `write` / `edit`：spec gate 只放行 **`.md` 文件**（工作区内），其余一律拒绝并说明原因。
 - `bash`：放行，破坏性操作交给 permission 的危险命令表。
 - 只读工具与 `ask_user_question`：照常。
-- ask-perm：进入计划期若未启用 → 用 `DEFAULT_MODES` 启用并记住原状态；退出/批准时恢复
+- ask-perm：进入评审期若未启用 → 用 `DEFAULT_MODES` 启用并记住原状态；退出/批准时恢复
   （用户中途手动改过则以他为准，不覆盖）。
 
 ### 9.4 模型
@@ -237,7 +241,7 @@ plan_submit({ path?: string })   // 默认 specs/<slug>.md；读取磁盘内容
 ## 10. 落盘
 
 ```text
-<agent-dir>/ask-plan/<slug>/
+<agent-dir>/ask-spec/<slug>/
 ├── v001.md …         # 每版快照（提交时的磁盘内容）
 └── state.json        # 版本元数据、各版批注、决策与时间戳
 ```
@@ -249,7 +253,7 @@ plan_submit({ path?: string })   // 默认 specs/<slug>.md；读取磁盘内容
 
 ## 11. 不切模型的守卫
 
-- 单测：`src/features/plan/` 下全部源码 grep 不到 `setModel`（源码级断言，防回退）。
+- 单测：`src/features/spec/` 下全部源码 grep 不到 `setModel`（源码级断言，防回退）。
 - AGENTS.md 不变量段追加：「除 `/ask-review` 外，任何功能不得切换模型」。
 
 ## 12. 里程碑
@@ -259,7 +263,7 @@ plan_submit({ path?: string })   // 默认 specs/<slug>.md；读取磁盘内容
 | **M1** | `blocks.ts` + `diff.ts` + `feedback.ts`（纯函数） | 单测：围栏/表格/重复段落/三态 diff/模板字节 |
 | **M2** | `store.ts` + `server.ts`（路由、token、SSE、3401 起端口、WSL 打开器、决策后关闭） | 单测 + curl 打全部路由 + 真机 `cmd.exe start` 打开 |
 | **M3** | `ui/`（Solid+Vite）：块卡片、diff 徽标、两级批注、i18n、历史抽屉、决策态 | 手工冒烟；`pnpm ui:dev` 走 proxy |
-| **M4** | `index.ts` 接线：命令、`plan_submit`、plan gate、ask-perm 开关、文档/测试 | 端到端：`/ask-plan` → 提交 → 批注 → 批准 → 开工 |
+| **M4** | `index.ts` 接线：命令、`spec_submit`、spec gate、ask-perm 开关、文档/测试 | 端到端：`/ask-spec` → 提交 → 批注 → 批准 → 开工 |
 
 ## 13. 风险与对策
 
@@ -277,5 +281,5 @@ plan_submit({ path?: string })   // 默认 specs/<slug>.md；读取磁盘内容
 1. 先做 M1/M2（块模型 + 服务器 + 非阻塞提交），界面再漂亮也是后话。
 2. 产物提交进仓库 + `ui:check`，否则一定出现「源码改了、包里还是旧界面」。
 3. token + Origin 守卫别省：为 Windows 浏览器必须绑 `0.0.0.0`。
-4. 计划期只放行 `.md` 写入，比 prompt 里"请求模型别写"可靠一个数量级，又不像 ask 那样断手断脚。
+4. 评审期只放行 `.md` 写入，比 prompt 里"请求模型别写"可靠一个数量级，又不像 ask 那样断手断脚。
 5. 历史抽屉与 i18n 放最后，它们不影响主流程正确性。

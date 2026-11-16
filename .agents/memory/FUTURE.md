@@ -47,3 +47,24 @@
 - 触发条件：旧拼写连续一两个版本无人使用（看登记表/使用记录没有 `/third-review`），或崔总直接说删。
 - 落点：`src/features/review/index.ts` 的 `REVIEW_COMMAND_ALIAS` + 它的 `registerCommand` 块
   + `review.test.ts` 的注册用例（删完记得连断言一起删）。
+
+## F6 — 预约队列（预先排队一串指令，当前回合结束后依次自动执行）
+
+- 是什么：在 AI 还在跑（或刚跑完一轮）时先把后续动作排进队列，队列**每项可以是扩展命令也可以是
+  普通提示词**；等当前回合**完全结束**后按顺序自动逐条送出，一条跑完再送下一条。
+  （诉求原文见 2026-11-13 崔总口述："以后可以加一个预约功能，能事先输一堆预约指令，包括正常提示词也支持，
+  然后在当前 AI 执行完全结束后，自动依次执行"。）
+- 为什么等：宿主没有「排队多条」的公开入口，只有单条投递语义；自己实现要先定清队列的生命周期与
+  失败策略，不是一行接线能收口的。
+- 已知技术锚（pi 1.5.2 `types.d.ts`，2026-11-13 核对）：
+  `pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: true })` ——
+  `followUp` = 当前 run 结束后投递；`expandPromptTemplates` 决定 `/cmd` 是走扩展命令还是发给模型。
+  `sendMessage` 另有 `triggerTurn` / `deliverAs: "nextTurn"`，但那是自定义消息、不产生用户回合。
+- 未定（实现前要跟崔总定）：队列**存在哪**（内存 / 会话条目 / 配置）、`/reload` 与 `/quit` 后是否保留、
+  某条失败（命令不存在、模型报错、用户中断）时**继续还是停**、队列是否在 TUI 可见可编辑、
+  与 autostart（启动即重放）的先后关系。
+- 触发条件：崔总提出「一轮结束后还要接着跑好几步、不想盯着屏幕手动敲下一条」，或已有工作流
+  （如 ask → plan → 实施）反复出现固定串行顺序。
+- 落点：新 feature `src/features/queue/`（命令注册 + 队列状态机 + `before_agent_start`/回合结束钩子），
+  复用 `src/lib/gates.ts` 的闸门与 autostart 的命令预校验（未注册命令名不能发给模型）；
+  AGENTS.md 新增 §Feature: queue 与命令速查行；README / README.zh-CN 同步。

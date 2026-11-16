@@ -1,0 +1,353 @@
+{
+  "version": "2.22",
+  "fileToken": "12eaf2e1-da75-400d-bb7e-e127494c1062",
+  "variables": {
+    "color-text": {
+      "type": "color",
+      "value": "#2B1A24"
+    },
+    "color-text-muted": {
+      "type": "color",
+      "value": "#8A7280"
+    },
+    "color-surface": {
+      "type": "color",
+      "value": "#FFFDFB"
+    },
+    "color-surface-muted": {
+      "type": "color",
+      "value": "#F6E9E2"
+    },
+    "color-border": {
+      "type": "color",
+      "value": "#EAD8D1"
+    },
+    "color-brand": {
+      "type": "color",
+      "value": "#E0446B"
+    },
+    "color-danger": {
+      "type": "color",
+      "value": "#D23B4E"
+    },
+    "color-success": {
+      "type": "color",
+      "value": "#0F8A6A"
+    },
+    "radius-4": {
+      "type": "number",
+      "value": 4
+    },
+    "radius-8": {
+      "type": "number",
+      "value": 8
+    },
+    "radius-12": {
+      "type": "number",
+      "value": 12
+    },
+    "radius-full": {
+      "type": "number",
+      "value": 999
+    },
+    "spacing-4": {
+      "type": "number",
+      "value": 4
+    },
+    "spacing-8": {
+      "type": "number",
+      "value": 8
+    },
+    "spacing-12": {
+      "type": "number",
+      "value": 12
+    },
+    "spacing-16": {
+      "type": "number",
+      "value": 16
+    },
+    "spacing-24": {
+      "type": "number",
+      "value": 24
+    },
+    "spacing-32": {
+      "type": "number",
+      "value": 32
+    },
+    "spacing-48": {
+      "type": "number",
+      "value": 48
+    },
+    "fontSize-12": {
+      "type": "number",
+      "value": 12
+    },
+    "fontSize-14": {
+      "type": "number",
+      "value": 14
+    },
+    "fontSize-16": {
+      "type": "number",
+      "value": 16
+    },
+    "fontSize-20": {
+      "type": "number",
+      "value": 20
+    },
+    "fontSize-24": {
+      "type": "number",
+      "value": 24
+    },
+    "fontSize-32": {
+      "type": "number",
+      "value": 32
+    },
+    "font-sans": {
+      "type": "string",
+      "value": "Ubuntu Sans, Noto Sans, Droid Sans Fallback, system-ui, sans-serif"
+    },
+    "font-mono": {
+      "type": "string",
+      "value": "Noto Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace"
+    },
+    "color-accent": {
+      "type": "color",
+      "value": "#7C5CFC"
+    },
+    "color-warning": {
+      "type": "color",
+      "value": "#C97A15"
+    },
+    "color-code-bg": {
+      "type": "color",
+      "value": "#2A1A22"
+    },
+    "color-blush": {
+      "type": "color",
+      "value": "#FFD9CF"
+    },
+    "font-display": {
+      "type": "string",
+      "value": "P052, Palatino Linotype, Palatino, Iowan Old Style, Georgia, Noto Serif, Songti SC, serif"
+    },
+    "radius-16": {
+      "type": "number",
+      "value": 16
+    },
+    "radius-20": {
+      "type": "number",
+      "value": 20
+    },
+    "fontSize-40": {
+      "type": "number",
+      "value": 40
+    },
+    "spacing-64": {
+      "type": "number",
+      "value": 64
+    },
+    "color-paper": {
+      "type": "color",
+      "value": "#FDF9F5"
+    },
+    "color-paper-deep": {
+      "type": "color",
+      "value": "#F4E7E2"
+    }
+  },
+  "children": [],
+  "x-paintress": {
+    "spec": "1",
+    "presets": {
+      "version": 1,
+      "items": {
+        "color-text": {
+          "type": "color"
+        },
+        "color-text-muted": {
+          "type": "color"
+        },
+        "color-surface": {
+          "type": "color"
+        },
+        "color-surface-muted": {
+          "type": "color"
+        },
+        "color-border": {
+          "type": "color"
+        },
+        "color-brand": {
+          "type": "color"
+        },
+        "color-danger": {
+          "type": "color"
+        },
+        "color-success": {
+          "type": "color"
+        },
+        "radius-4": {
+          "type": "radius"
+        },
+        "radius-8": {
+          "type": "radius"
+        },
+        "radius-12": {
+          "type": "radius"
+        },
+        "radius-full": {
+          "type": "radius"
+        },
+        "spacing-4": {
+          "type": "spacing"
+        },
+        "spacing-8": {
+          "type": "spacing"
+        },
+        "spacing-12": {
+          "type": "spacing"
+        },
+        "spacing-16": {
+          "type": "spacing"
+        },
+        "spacing-24": {
+          "type": "spacing"
+        },
+        "spacing-32": {
+          "type": "spacing"
+        },
+        "spacing-48": {
+          "type": "spacing"
+        },
+        "fontSize-12": {
+          "type": "fontSize"
+        },
+        "fontSize-14": {
+          "type": "fontSize"
+        },
+        "fontSize-16": {
+          "type": "fontSize"
+        },
+        "fontSize-20": {
+          "type": "fontSize"
+        },
+        "fontSize-24": {
+          "type": "fontSize"
+        },
+        "fontSize-32": {
+          "type": "fontSize"
+        },
+        "font-sans": {
+          "type": "font"
+        },
+        "font-mono": {
+          "type": "font"
+        },
+        "color-accent": {
+          "type": "color"
+        },
+        "color-warning": {
+          "type": "color"
+        },
+        "color-code-bg": {
+          "type": "color"
+        },
+        "color-blush": {
+          "type": "color"
+        },
+        "font-display": {
+          "type": "font"
+        },
+        "radius-16": {
+          "type": "radius"
+        },
+        "radius-20": {
+          "type": "radius"
+        },
+        "fontSize-40": {
+          "type": "fontSize"
+        },
+        "spacing-64": {
+          "type": "spacing"
+        },
+        "color-paper": {
+          "type": "color"
+        },
+        "color-paper-deep": {
+          "type": "color"
+        }
+      },
+      "groups": {
+        "text.body": {
+          "target": "text",
+          "props": {
+            "fontSize": "$fontSize-16",
+            "fill": "$color-text"
+          }
+        },
+        "text.muted": {
+          "target": "text",
+          "props": {
+            "fontSize": "$fontSize-14",
+            "fill": "$color-text-muted"
+          }
+        },
+        "text.title": {
+          "target": "text",
+          "props": {
+            "fontSize": "$fontSize-24",
+            "fill": "$color-text"
+          }
+        },
+        "button": {
+          "target": "frame",
+          "props": {
+            "fill": "$color-brand",
+            "cornerRadius": "$radius-8"
+          }
+        },
+        "card": {
+          "target": "frame",
+          "props": {
+            "fill": "$color-surface",
+            "cornerRadius": "$radius-12",
+            "stroke": "$color-border"
+          }
+        },
+        "input": {
+          "target": "frame",
+          "props": {
+            "fill": "$color-surface",
+            "cornerRadius": "$radius-8",
+            "stroke": "$color-border"
+          }
+        }
+      }
+    },
+    "generator": "paintress/0.8.1",
+    "updated_at": "2026-11-16T17:04:14.780Z",
+    "created_at": "2026-11-16T16:45:55.066Z",
+    "fonts": {
+      "default": "Ubuntu Sans",
+      "families": {
+        "Ubuntu Sans": {
+          "source": {
+            "kind": "system"
+          },
+          "preview": "Noto Sans"
+        },
+        "P052": {
+          "source": {
+            "kind": "system"
+          },
+          "preview": "DejaVu Serif"
+        },
+        "Noto Sans Mono": {
+          "source": {
+            "kind": "system"
+          },
+          "preview": "DejaVu Sans Mono"
+        }
+      }
+    }
+  }
+}

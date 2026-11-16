@@ -37,8 +37,9 @@
     "scaffold",
     "init",
     "ask-init",
-    "plan",
-    "ask-plan",
+    "spec",
+    "spec-review",
+    "ask-spec",
     "uat",
     "ask-uat",
     "acceptance",
@@ -82,7 +83,7 @@
     "ui:dev": "pnpm --filter @andares/pi-toolkits-ui dev",
     "ui:build": "pnpm --filter @andares/pi-toolkits-ui build",
     "ui:typecheck": "pnpm --filter @andares/pi-toolkits-ui typecheck",
-    "ui:check": "pnpm ui:build && test -z \"$(git status --porcelain -- src/features/plan/assets src/features/uat/assets)\""
+    "ui:check": "pnpm ui:build && test -z \"$(git status --porcelain -- src/features/spec/assets src/features/uat/assets)\""
   },
   "pi": {
     "extensions": [

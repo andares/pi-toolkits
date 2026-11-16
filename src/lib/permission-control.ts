@@ -1,13 +1,13 @@
 /**
- * permission control — the handle `/ask-plan` uses to turn the boundary checks
- * on for the planning phase and put them back afterwards.
+ * permission control — the handle `/ask-spec` uses to turn the boundary checks
+ * on for the spec-review phase and put them back afterwards.
  *
  * Why a registry instead of an import: `/ask-perm` keeps its state in a closure
  * inside `registerPermission()`, so there is no module-level setter to call.
  * A tiny registry (same pattern as `src/lib/startup.ts` for the autostart
  * handoff) lets the permission feature publish a control handle at registration
- * time and the plan feature look it up — without either feature importing the
- * other's internals, and without the plan feature knowing anything about modes.
+ * time and the spec feature look it up — without either feature importing the
+ * other's internals, and without the spec feature knowing anything about modes.
  */
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { PermissionModes } from "../features/permission/constants.js";

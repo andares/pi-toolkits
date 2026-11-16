@@ -1,5 +1,5 @@
 /**
- * plan server — the review UI, served from inside the pi process.
+ * spec server — the review UI, served from inside the pi process.
  *
  * Shape of the contract:
  *   - one revision is reviewed at a time; the page pulls `/api/state` and then
@@ -12,7 +12,7 @@
  *     shortly after, so a finished review cannot keep a port open.
  *
  * The HTTP shell (token, Host allowlist, Origin refusal, port walk, static
- * files, SSE) lives in `src/lib/web-review.ts`; this file is the plan-specific
+ * files, SSE) lives in `src/lib/web-review.ts`; this file is the spec-specific
  * routes and payload.
  */
 import { fileURLToPath } from "node:url";
@@ -21,16 +21,16 @@ import type { BlockStatus, DiffEntry } from "./diff.js";
 import type { Annotation, BlockAnnotations } from "./feedback.js";
 import {
 	latestVersion,
-	recordPlanDecision,
-	setPlanAnnotations,
-	type PlanAnnotations,
-	type PlanSession,
+	recordSpecDecision,
+	setSpecAnnotations,
+	type SpecAnnotations,
+	type SpecSession,
 } from "./store.js";
 import { bindHost, isWsl, urlHost } from "../../lib/opener.js";
 import { startWebServer, type WebServerHandle } from "../../lib/web-review.js";
 import { renderBlockHtml } from "./render.js";
 
-export interface PlanStateItem {
+export interface SpecStateItem {
 	status: BlockStatus;
 	id: string;
 	prevId?: string;
@@ -40,14 +40,14 @@ export interface PlanStateItem {
 	label: string;
 }
 
-export interface PlanStatePayload {
+export interface SpecStatePayload {
 	slug: string;
 	version: number;
 	totalVersions: number;
 	at: string;
 	source?: string;
-	items: PlanStateItem[];
-	annotations: PlanAnnotations;
+	items: SpecStateItem[];
+	annotations: SpecAnnotations;
 	decision?: { action: "approve" | "deny"; at: string };
 	decided: boolean;
 	/** Earlier revisions, newest first — the history drawer. */
@@ -55,12 +55,12 @@ export interface PlanStatePayload {
 }
 
 /** Compose what the page renders: blocks of one revision, tagged with their diff status. */
-export function buildPlanState(session: PlanSession, versionNumber?: number): PlanStatePayload {
+export function buildSpecState(session: SpecSession, versionNumber?: number): SpecStatePayload {
 	const version =
 		versionNumber === undefined
 			? latestVersion(session)
 			: session.versions.find((candidate) => candidate.n === versionNumber);
-	if (!version) throw new Error(`no plan revision ${versionNumber} in ${session.dir}`);
+	if (!version) throw new Error(`no spec revision ${versionNumber} in ${session.dir}`);
 	const previous = session.versions.find((candidate) => candidate.n === version.n - 1);
 
 	const byId = new Map<string, Block>(version.blocks.map((block) => [block.id, block]));
@@ -73,7 +73,7 @@ export function buildPlanState(session: PlanSession, versionNumber?: number): Pl
 			? version.diff
 			: version.blocks.map((block) => ({ status: "unchanged" as const, id: block.id }));
 
-	const items: PlanStateItem[] = [];
+	const items: SpecStateItem[] = [];
 	for (const entry of entries) {
 		const current = byId.get(entry.id);
 		const source = current ?? previousById.get(entry.id);
@@ -107,8 +107,8 @@ export function buildPlanState(session: PlanSession, versionNumber?: number): Pl
 	};
 }
 
-export interface StartPlanServerOptions {
-	session: PlanSession;
+export interface StartSpecServerOptions {
+	session: SpecSession;
 	/** Directory with the built UI. Defaults to `./assets/` next to this module. */
 	assetsDir?: string;
 	portStart?: number;
@@ -118,13 +118,13 @@ export interface StartPlanServerOptions {
 	/** Render a block to HTML (injected so tests can skip the renderer). */
 	render?: (block: Pick<Block, "kind" | "text">) => string;
 	onDecision?: (decision: { action: "approve" | "deny"; version: number }) => void;
-	onAnnotations?: (annotations: PlanAnnotations, version: number) => void;
+	onAnnotations?: (annotations: SpecAnnotations, version: number) => void;
 	/** Overridable for tests: bind address and host used in the URL. */
 	bindHost?: string;
 	urlHost?: string;
 }
 
-export interface PlanServerHandle {
+export interface SpecServerHandle {
 	url: string;
 	port: number;
 	token: string;
@@ -137,7 +137,7 @@ function isVerdict(value: unknown): value is Annotation["verdict"] {
 }
 
 /** Normalize whatever the page sent into the store's annotation shape. */
-export function normalizeAnnotations(input: unknown): PlanAnnotations {
+export function normalizeAnnotations(input: unknown): SpecAnnotations {
 	const raw = (input ?? {}) as { global?: unknown; blocks?: unknown };
 	const toAnnotation = (value: unknown): Annotation | undefined => {
 		const candidate = value as { verdict?: unknown; comment?: unknown };
@@ -166,7 +166,7 @@ export function normalizeAnnotations(input: unknown): PlanAnnotations {
 	return { global, blocks };
 }
 
-export async function startPlanServer(options: StartPlanServerOptions): Promise<PlanServerHandle> {
+export async function startSpecServer(options: StartSpecServerOptions): Promise<SpecServerHandle> {
 	const assetsDir = options.assetsDir ?? fileURLToPath(new URL("./assets/", import.meta.url));
 	const render = options.render ?? renderBlockHtml;
 	const closeDelayMs = options.closeDelayMs ?? 1500;
@@ -182,7 +182,7 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 		routes: async (ctx) => {
 			if (ctx.url.pathname === "/api/state" && ctx.req.method === "GET") {
 				const versionParam = ctx.url.searchParams.get("version");
-				const state = buildPlanState(
+				const state = buildSpecState(
 					options.session,
 					versionParam ? Number(versionParam) : undefined,
 				);
@@ -212,7 +212,7 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 					ctx.json({ error: "only the latest undecided revision can be annotated" }, 409);
 					return true;
 				}
-				setPlanAnnotations(options.session, version, annotations);
+				setSpecAnnotations(options.session, version, annotations);
 				options.onAnnotations?.(annotations, version);
 				ctx.broadcast("annotations", { version, annotations });
 				ctx.json({ ok: true, version });
@@ -244,7 +244,7 @@ export async function startPlanServer(options: StartPlanServerOptions): Promise<
 					);
 					return true;
 				}
-				recordPlanDecision(options.session, version, action);
+				recordSpecDecision(options.session, version, action);
 				ctx.json({ ok: true, action, version });
 				ctx.broadcast("decided", { action, version });
 				if (!closing) {

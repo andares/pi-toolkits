@@ -186,7 +186,7 @@ export function registerAsk(
 	}
 
 	// Planning is deliberately less restrictive than consult mode (markdown may
-	// be written and bash stays available), so `/ask-plan` exits through the
+	// be written and bash stays available), so `/ask-spec` exits through the
 	// owning feature rather than trying to restore its tool set itself.
 	setAskControl({ isActive: () => enabled, exit });
 

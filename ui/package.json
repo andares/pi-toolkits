@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Browser UIs: ask-plan review page and ask-uat acceptance page (built into their feature asset dirs)",
+  "description": "Browser UIs: ask-spec review page and ask-uat acceptance page (built into their feature asset dirs)",
   "scripts": {
     "dev": "vite",
     "dev:uat": "vite -c vite.config.uat.ts",

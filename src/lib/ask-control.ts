@@ -1,6 +1,6 @@
 /**
- * ask control — lets `/ask-plan` leave consult mode before opening its broader
- * planning phase.
+ * ask control — lets `/ask-spec` leave consult mode before opening its broader
+ * spec-review phase.
  *
  * `/ask` owns its state and its tool-set snapshot, so another feature must not
  * imitate the exit by manipulating tools itself. This small handle is the same

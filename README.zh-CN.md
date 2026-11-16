@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含十二个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内计划评审** `ask-plan`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
+一句话介绍:目前包含十二个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.2 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -76,7 +76,7 @@ pi -e ./src/index.ts
 | ⭐ **favorites** 模型收藏 | `/model` 内 `ctrl+A` / `ctrl+J` | 收藏常用模型(加粗亮黄标记),`ctrl+p` 仅在收藏间循环 |
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/ask-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
-| 🧭 **plan** 浏览器内计划评审 | `/ask-plan` | 先调研、写 plan、在浏览器里逐段评审并逐块批注,批准之后才动代码 |
+| 🧭 **spec** 浏览器内规格评审 | `/ask-spec` | 先调研、写 spec、在浏览器里逐段评审并逐块批注,批准之后才动代码 |
 | ✅ **uat** 验收台账 | `/ask-uat` | `/ask-init` 之后：把待归类的实施记录聚成用户视角的验收项，在页面里勾选（只追加、无提交），看清哪些已交付但还没验过 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
@@ -92,7 +92,7 @@ pi -e ./src/index.ts
 
 用 `/ask` 进入(再按一次退出)。适合只想要「问问题、读代码」的场景:模型不能改项目,但不会被剥夺思考的落点。
 
-ask 是独立的（不需要 `/ask-init`）。计划评审或 UAT 页面开着时先退出它们——ask 不会叠在另一个相位上启动，因为那个相位的 `before_agent_start` 会把写工具重新加回来。
+ask 是独立的（不需要 `/ask-init`）。规格评审或 UAT 页面开着时先退出它们——ask 不会叠在另一个相位上启动，因为那个相位的 `before_agent_start` 会把写工具重新加回来。
 
 **进入后**:
 
@@ -281,35 +281,36 @@ run = ["/ask-perm allow allow allow ask"]
 
 - **未配置 / 配置的模型已不可用**(如在 pi 的 models.json 里删掉了该模型)→ 提示后照常弹出列表(此时无默认项)
 - 任务仍在进行中(agent 未空闲)时触发 → 提示等待,不执行;同一时间只允许一个评审
-- 计划期 → 拒绝(评审中的计划不能被改);ask 模式会自动退出,因为查+修需要完整工具集
+- 规格评审期 → 拒绝(评审中的 spec 不能被改);ask 模式会自动退出,因为查+修需要完整工具集
 - footer 出现灰色 `review` 状态 = 已配置评审模型
 
 ---
 
-## 🧭 plan — 先出计划，浏览器里评审，批准后再动手
+## 🧭 spec — 先写规格，浏览器里评审，批准后再动手
 
-<a name="plan"></a>
+<a name="spec"></a>
 
-`/ask-plan [主题]` 进入计划期:模型先调研、把代码里看不出来的问题问清楚,然后写一份 spec——评审期间不改代码。写完调用 `plan_submit`,评审页在**你的浏览器**里打开,你**逐段**批注:每个空行分隔的块都可以挂批注,批注会作为下一条消息回到模型。
+`/ask-spec [主题]` 进入规格评审期：模型先调研、把代码里看不出来的问题问清楚，然后写一份 spec——评审期间不改代码。写完调用 `spec_submit`，评审页在**你的浏览器**里打开，你**逐段**批注：每个空行分隔的块都可以挂批注，批注会作为下一条消息回到模型。`/ask-plan` 保留为别名。
 
-- **块是评审单位。** 一段一块,带徽标标出与上一版相比的变化:`新增` / `已修改` / `位置移动` / `已删除`。未变的块默认折叠,改三行不会被读成整篇重写;围栏代码块整块保留。
-- **只有两级批注**:块级 + 全局。不做文本选区锚,改版后不需要重新锚定。
-- **批准和提意见都会带上批注**,它们只决定下一步:批准 = 开始实施(批注照做);提意见 = 改完再提交。
-- **历史留档。** 每次提交都存在 `<agent-dir>/ask-plan/<slug>/`,页头可以只读回看任意一版。
-- **计划期走边界闸门**:进入时自动开启 `/ask-perm` 默认参数,退出时恢复;计划期唯一能写的文件是 markdown。
-- **绝不切模型。** 计划评审与实施都用会话当前的模型。(`/ask-review` 是唯一会切模型的命令,那是你要求的。)
+- **块是评审单位。** 每个空行分隔的段落是一块，徽标告诉你相对上一版改了什么：`new`、`modified`、`moved`、`removed`。未变的块会折叠，三行小改不会看起来像整篇重写；围栏代码块保持完整。
+- **两级批注。** 段落级，或全局；没有更细的文本范围批注，改完不需要重新锚定。
+- **评审页一直看得见。** 双栏布局：左边是 spec，右边是本版统计和可点击的批注索引；全局批注即使编辑框关着也常显在正文上方。
+- **批准和提意见都携带批注。** 它们只决定下一步：批准是「开始实施」（所有批注都带上），提意见是「改完 spec 再提交一版」。
+- **历史留档。** 每次提交都存在 `<agent-dir>/ask-spec/<slug>/`，页头可以只读回看任意一版；旧的 `<agent-dir>/ask-plan/` 历史会在第一次使用时迁移。
+- **评审期走边界检查。** `/ask-perm` 在评审开始时按默认值开启，结束时恢复；评审期唯一能写的是 markdown。
+- **绝不切模型。** spec 评审与实施都用会话当前的模型。（`/ask-review` 是唯一会切模型的命令，那是你要求的。）
 
-**WSL 下的浏览器**:评审服务器绑 `0.0.0.0`,打印的 URL 用 WSL 的地址——因为在 WSL 里只绑回环,Windows 根本连不上。打开器优先用 Windows 侧的启动器(`wslview`、`cmd.exe /c start`、`powershell Start-Process`),非 WSL 才用 `xdg-open`——这决定你是"打开了浏览器"还是"在 WSL 里开了个看不见的浏览器"。
+**WSL 下的浏览器**：评审服务器绑 `0.0.0.0`，URL 用 WSL 的地址打印，因为 Windows 连不到 WSL 里只绑 loopback 的服务器。打开器优先用 Windows 侧启动器（`wslview`、`cmd.exe /c start`、`powershell Start-Process`），其它平台才回落到 `xdg-open`——这决定了是「打开你的浏览器」还是「在 WSL 里打开一个你看不见的浏览器」。
 
 ```text
-/ask-plan 做导出功能     # 进入计划期
-/ask-plan open           # 重新打开评审页
-/ask-plan off            # 退出计划期(草稿留在原处)
+/ask-spec 做导出功能     # 进入规格评审
+/ask-spec open           # 重新打开评审页
+/ask-spec off            # 退出评审期（草稿留在原处）
 ```
 
-spec 落在 `specs/<slug>.md`,与 `/ask-init` 的计划同一个位置。没有 agent 框架时计划仍能用，
-但 `record_change` 与 `/ask-uat` 要等 `/ask-init` 之后才可用；进入计划期时会提示。
-UAT 页面开着时先 `/ask-uat off`——两个相位不会叠着跑。
+spec 落在 `specs/<slug>.md`——与 `/ask-init` 放 spec 的地方相同。没有 agent 框架时评审仍可用，
+但 `record_change` 与 `/ask-uat` 不可用，直到 `/ask-init`；命令在评审开始时会说明。
+UAT 页面开着时先退出：两个相位不叠在一起跑。
 
 ---
 
@@ -500,7 +501,7 @@ run = [
 **ask 循环说的「已安装」**：`.agents/framework/state.toml`、`AGENTS.md`、
 `.agents/memory/README.md`、`.agents/implementations/` 存在。内容是用户的——小改
 不会让 `/ask-uat` 或 `record_change` 拒绝；需要框架的命令会把缺失项列出来。
-mutating 运行（含 `refresh`、`roots`）在 `/ask`、计划评审或 UAT 页面开着时拒绝；
+mutating 运行（含 `refresh`、`roots`）在 `/ask`、规格评审或 UAT 页面开着时拒绝；
 `check` 与 `plan` 仍可用。
 
 旧工具写的项目没有模板锚。`/ask-init` 把这些文件报成 `I-FW-01` 并保持原状——它分不清
@@ -644,7 +645,7 @@ src/
     ├── permission/       # 会话级边界权限:模式、面板、bash 拆解、
     │                     #           策略、会话授权、确认对话框、
     │                     #           审计 payload、测试
-    ├── plan/             # 浏览器内计划评审:相位、块级 diff、
+    ├── spec/             # 浏览器内规格评审:相位、块级 diff、
     │                     #           评审服务器、UI、测试
     ├── quit-guard/       # 退出看门狗:TUI 收尾 + quit 事件双触发、
     │                     #           配置存储、诊断报告、测试

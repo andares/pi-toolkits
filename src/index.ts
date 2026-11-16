@@ -30,7 +30,7 @@ import { registerCompact } from "./features/compact/index.js";
 import { registerFavorites } from "./features/favorites/index.js";
 import { registerInit } from "./features/init/index.js";
 import { registerPermission } from "./features/permission/index.js";
-import { registerPlan } from "./features/plan/index.js";
+import { registerSpec } from "./features/spec/index.js";
 import { registerQuitGuard } from "./features/quit-guard/index.js";
 import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
@@ -47,9 +47,9 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	// Permission registers its session_start reset before autostart, so a
 	// project-declared `/ask-perm ...` runs against a freshly reset mode.
 	registerPermission(pi, gates, { audit });
-	// Plan mode drives the permission control that `registerPermission` just
-	// published (it turns checks on while planning and restores them after).
-	registerPlan(pi, gates);
+	// Spec mode drives the permission control that `registerPermission` just
+	// published (it turns checks on while reviewing and restores them after).
+	registerSpec(pi, gates);
 	registerAutostart(pi);
 	registerCompact(pi);
 	registerFavorites(pi);
@@ -57,8 +57,8 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	registerQuitGuard(pi);
 	registerReview(pi);
 	registerStash(pi);
-	// UAT registers after plan so its `before_agent_start` re-assertion runs last
-	// and can add `record_change` to whatever tool set plan installed.
+	// UAT registers after spec so its `before_agent_start` re-assertion runs last
+	// and can add `record_change` to whatever tool set spec installed.
 	registerUat(pi);
 	registerWhatsNew(pi);
 

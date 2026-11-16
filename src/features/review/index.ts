@@ -33,7 +33,7 @@ import type {
 	Theme,
 } from "@earendil-works/pi-coding-agent";
 import { getAskControl } from "../../lib/ask-control.js";
-import { PLAN_PHASE_TOOL } from "../../lib/phases.js";
+import { specPhaseActive } from "../../lib/phases.js";
 import {
 	modelKey,
 	resolveConfiguredModel,
@@ -140,9 +140,9 @@ export function createReviewRunner(
 			);
 			return;
 		}
-		if (pi.getActiveTools?.().includes(PLAN_PHASE_TOOL)) {
+		if (specPhaseActive(pi)) {
 			ctx.ui.notify(
-				`${REVIEW_COMMAND}: ask-plan is active — approve or /ask-plan off first; a review needs write access.`,
+				`${REVIEW_COMMAND}: ask-spec is active — approve or /ask-spec off first; a review needs write access.`,
 				"warning",
 			);
 			return;

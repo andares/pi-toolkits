@@ -55,10 +55,10 @@ describe("header and name shapes", () => {
 			hhmm: "2107",
 			slug: "ask-uat",
 		});
-		expect(parseRecordFileName("2026-11-11_ask-plan.md")).toEqual({
+		expect(parseRecordFileName("2026-11-11_ask-spec.md")).toEqual({
 			date: "2026-11-11",
 			hhmm: undefined,
-			slug: "ask-plan",
+			slug: "ask-spec",
 		});
 	});
 
@@ -71,10 +71,10 @@ describe("header and name shapes", () => {
 
 describe("listRecords", () => {
 	it("accepts old records and marks them non-canonical", () => {
-		writeRaw("2026-11-11_ask-plan.md", "# 2026-11-11T02:55:59+08:00 — plan review\n\nbody\n");
+		writeRaw("2026-11-11_ask-spec.md", "# 2026-11-11T02:55:59+08:00 — spec review\n\nbody\n");
 		const [record] = listRecords(root);
-		expect(record.id).toBe("2026-11-11_ask-plan");
-		expect(record.title).toBe("plan review");
+		expect(record.id).toBe("2026-11-11_ask-spec");
+		expect(record.title).toBe("spec review");
 		expect(record.canonical).toBe(false);
 		expect(record.epochMs).toBeGreaterThan(0);
 	});

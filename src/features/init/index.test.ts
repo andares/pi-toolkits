@@ -317,11 +317,11 @@ describe("/ask-init", () => {
 		const root = installedProject();
 		try {
 			const plan = harness(root);
-			plan.tools.push("plan_submit");
+			plan.tools.push("spec_submit");
 			registerInit(plan.pi, { now: NOW, toolVersion: "test" });
 			await plan.run("--yes");
 			expect(plan.sent).toHaveLength(0);
-			expect(plan.messages.some((item) => /ask-plan/.test(item.message))).toBe(true);
+			expect(plan.messages.some((item) => /ask-spec/.test(item.message))).toBe(true);
 
 			const uat = harness(root);
 			uat.tools.push("uat_item");

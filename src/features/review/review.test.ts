@@ -417,13 +417,13 @@ describe("createReviewRunner", () => {
 
 	it("refuses to review while a plan is under review", async () => {
 		getReviewStore().setModel("anthropic/claude-sonnet-4");
-		const { pi, sendUserMessage } = fakePi(true, ["read", "plan_submit"]);
+		const { pi, sendUserMessage } = fakePi(true, ["read", "spec_submit"]);
 		const { ctx, notify, custom } = fakeCtx({ customResult: MODELS[0] });
 		await createReviewRunner(pi)(ctx);
 		expect(custom).not.toHaveBeenCalled();
 		expect(sendUserMessage).not.toHaveBeenCalled();
 		expect(notify).toHaveBeenCalledWith(
-			expect.stringContaining("ask-plan"),
+			expect.stringContaining("ask-spec"),
 			"warning",
 		);
 	});

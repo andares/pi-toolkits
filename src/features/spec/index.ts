@@ -1,14 +1,14 @@
 /**
- * ask-plan — plan mode with a browser review round.
+ * ask-spec — spec mode with a browser review round.
  *
- * The flow: `/ask-plan` opens a planning phase (read tools, questions, markdown
- * writes only), the agent writes a spec and calls `plan_submit`, the review
+ * The flow: `/ask-spec` opens a spec-review phase (read tools, questions, markdown
+ * writes only), the agent writes a spec and calls `spec_submit`, the review
  * server opens the page in the operator's browser, annotations come back as a
- * message, and the loop repeats until the plan is approved — then the phase ends
+ * message, and the loop repeats until the spec is approved — then the phase ends
  * and the agent implements.
  *
  * Three properties are load-bearing:
- *   - `plan_submit` returns immediately. Waiting for the decision inside the
+ *   - `spec_submit` returns immediately. Waiting for the decision inside the
  *     tool would pin the agent for as long as the operator takes to read; the
  *     decision arrives later as a normal user message instead.
  *   - the decision always carries the annotations. Approve and deny only choose
@@ -26,35 +26,36 @@ import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-wo
 import type { GateHub } from "../../lib/gates.js";
 import { getPermissionControl, type PermissionSnapshot } from "../../lib/permission-control.js";
 import { getAskControl } from "../../lib/ask-control.js";
-import { PLAN_PHASE_TOOL, UAT_PHASE_TOOL } from "../../lib/phases.js";
+import { LEGACY_SPEC_PHASE_TOOL, SPEC_PHASE_TOOL, UAT_PHASE_TOOL } from "../../lib/phases.js";
 import { frameworkReadiness } from "../init/parity.js";
 import { resolveProjectRoot } from "../uat/state.js";
 import { canonicalize, isWithin } from "../permission/paths.js";
 import { parseCommandUnits } from "../permission/units.js";
 import { buildFeedbackMarkdown } from "./feedback.js";
 import { openInBrowser } from "../../lib/opener.js";
-import { buildPlanKickoff, buildPlanSystemPrompt } from "./prompt.js";
+import { buildSpecKickoff, buildSpecSystemPrompt } from "./prompt.js";
 import { renderBlockHtml } from "./render.js";
-import { buildPlanState, startPlanServer, type PlanServerHandle } from "./server.js";
+import { buildSpecState, startSpecServer, type SpecServerHandle } from "./server.js";
 import {
-	appendPlanVersion,
-	createPlanSession,
+	appendSpecVersion,
+	createSpecSession,
 	latestVersion,
-	planSlug,
+	specSlug,
 	readVersionText,
-	type PlanSession,
+	type SpecSession,
 } from "./store.js";
 
-export const PLAN_COMMAND = "ask-plan";
-export const PLAN_SUBMIT_TOOL = PLAN_PHASE_TOOL;
+export const SPEC_COMMAND = "ask-spec";
+export const SPEC_COMMAND_ALIAS = "ask-plan";
+export const SPEC_SUBMIT_TOOL = SPEC_PHASE_TOOL;
 
-/** Files the planning phase may write: project markdown, nothing else. */
+/** Files the spec-review phase may write: project markdown, nothing else. */
 function isMarkdownPath(path: string): boolean {
 	return /\.mdx?$/i.test(path);
 }
 
 /** Resolve a markdown path inside the workspace; anything else is rejected. */
-function planMarkdownPath(path: string, cwd: string): string | undefined {
+function specMarkdownPath(path: string, cwd: string): string | undefined {
 	if (path === "" || !isMarkdownPath(path)) return undefined;
 	const absolute = canonicalize(isAbsolute(path) ? path : resolve(cwd, path));
 	if (absolute === cwd || !isWithin(cwd, absolute)) return undefined;
@@ -79,17 +80,17 @@ function sessionIdOf(ctx: ExtensionContext): string {
 	}
 }
 
-const PLAN_SUBMIT_PARAMS = Type.Object({
+const SPEC_SUBMIT_PARAMS = Type.Object({
 	path: Type.Optional(
 		Type.String({
 			description:
-				'Spec file to submit, relative to the workspace root (default: the file chosen when plan mode started, e.g. "specs/ask-plan.md"). Write the file first — plan_submit reads it from disk.',
+				'Spec file to submit, relative to the workspace root (default: the file chosen when spec mode started, e.g. "specs/ask-spec.md"). Write the file first — spec_submit reads it from disk.',
 		}),
 	),
 });
 
-export interface PlanOptions {
-	/** `<agent-dir>`: review history lives at `<agentDir>/ask-plan/` (default: the host's). */
+export interface SpecOptions {
+	/** `<agent-dir>`: review history lives at `<agentDir>/ask-spec/` (default: the host's). */
 	agentDir?: string;
 	/** Opening the browser is injectable so tests never spawn one. */
 	openBrowser?: (url: string) => unknown;
@@ -99,19 +100,19 @@ export interface PlanOptions {
 	portStart?: number;
 }
 
-export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOptions = {}): void {
+export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOptions = {}): void {
 	const open = options.openBrowser ?? openInBrowser;
 	const agentDir = options.agentDir ?? getAgentDir();
 
 	let active = false;
-	let session: PlanSession | undefined;
-	let server: PlanServerHandle | undefined;
+	let session: SpecSession | undefined;
+	let server: SpecServerHandle | undefined;
 	let permissionBefore: PermissionSnapshot | undefined;
 	let permissionDuring: PermissionSnapshot | undefined;
 	let specPath: string | undefined;
 	let cwd = process.cwd();
 	let ctxRef: ExtensionContext | undefined;
-	let planSessionId: string | undefined;
+	let specSessionId: string | undefined;
 
 	function closeServer(): void {
 		if (!server) return;
@@ -120,12 +121,16 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 	}
 
 	function toolSetWithSubmit(): string[] {
-		const tools = pi.getActiveTools().filter((name) => name !== PLAN_SUBMIT_TOOL);
-		return [...tools, PLAN_SUBMIT_TOOL];
+		const tools = pi
+			.getActiveTools()
+			.filter((name) => name !== SPEC_SUBMIT_TOOL && name !== LEGACY_SPEC_PHASE_TOOL);
+		return [...tools, SPEC_SUBMIT_TOOL];
 	}
 
 	function toolSetWithoutSubmit(): string[] {
-		return pi.getActiveTools().filter((name) => name !== PLAN_SUBMIT_TOOL);
+		return pi
+			.getActiveTools()
+			.filter((name) => name !== SPEC_SUBMIT_TOOL && name !== LEGACY_SPEC_PHASE_TOOL);
 	}
 
 	function leave(ctx: ExtensionContext, reason: string): void {
@@ -135,8 +140,8 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		pi.setActiveTools(toolSetWithoutSubmit());
 		const control = getPermissionControl();
 		const current = control?.snapshot();
-		// Restore only if the operator has not changed the policy mid-plan. A
-		// manual `/ask-perm` during planning is newer intent and must win.
+		// Restore only if the operator has not changed the policy mid-review. A
+		// manual `/ask-perm` during the spec review is newer intent and must win.
 		if (
 			control &&
 			permissionBefore &&
@@ -148,8 +153,8 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		}
 		permissionBefore = undefined;
 		permissionDuring = undefined;
-		planSessionId = undefined;
-		ctx.ui.notify(`ask-plan: ${reason}`, "info");
+		specSessionId = undefined;
+		ctx.ui.notify(`ask-spec: ${reason}`, "info");
 	}
 
 	/** Compose the message the model receives for one decision. */
@@ -170,9 +175,9 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 			perBlock: current.annotations.blocks,
 			// Approval quotes the reviewed snapshot, not the file's current bytes:
 			// the model may have kept editing after submitting this revision.
-			planPath: current.source ?? specPath,
-			planText: readApprovedText(version) ?? current.blocks.map((block) => block.text).join("\n\n"),
-			// During planning the tool is intentionally inactive. Recommend it on
+			specPath: current.source ?? specPath,
+			specText: readApprovedText(version) ?? current.blocks.map((block) => block.text).join("\n\n"),
+			// During the review the tool is intentionally inactive. Recommend it on
 			// approval only when the project has the framework and the tool exists.
 			recordTool:
 				pi.getAllTools().some((tool) => tool.name === "record_change") &&
@@ -194,26 +199,26 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		decision: { action: "approve" | "deny"; version: number },
 		ctx: ExtensionContext,
 	): Promise<void> {
-		// The operator may leave plan mode, or switch sessions, during the short
+		// The operator may leave spec mode, or switch sessions, during the short
 		// close delay. A stale decision must not resurrect implementation or send
 		// an empty message into the new phase.
 		if (!active) return;
 		const message = decisionMessage(decision.version);
 		if (decision.action === "approve") {
 			// Leave the phase before the message goes out: the implementation
-			// turn must not run under the planning gates.
-			leave(ctx, "plan approved — implementing.");
+			// turn must not run under the spec-review gates.
+			leave(ctx, "spec approved — implementing.");
 		} else {
-			ctx.ui.notify("ask-plan: feedback sent — the agent will revise the plan.", "info");
+			ctx.ui.notify("ask-spec: feedback sent — the agent will revise the spec.", "info");
 		}
 		pi.sendUserMessage(message);
 	}
 
 	// ── Command ────────────────────────────────────────────────────────────
 
-	pi.registerCommand(PLAN_COMMAND, {
+	const specCommand = {
 		description:
-			"Plan first: research, write a spec, review it in the browser with block annotations, then implement after approval. `off` leaves the phase, `open` re-opens the review.",
+			"Spec first: research, write a spec, review it in the browser with block annotations, then implement after approval. `off` leaves the phase, `open` re-opens the review.",
 		handler: async (args: string, ctx: ExtensionContext) => {
 			const arg = args.trim();
 			ctxRef = ctx;
@@ -221,90 +226,96 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 
 			if (arg === "off") {
 				if (!active) {
-					ctx.ui.notify("ask-plan: not in plan mode.", "info");
+					ctx.ui.notify("ask-spec: not in spec mode.", "info");
 					return;
 				}
-				leave(ctx, specPath ? `plan mode off — draft left at ${specPath}.` : "plan mode off.");
+				leave(ctx, specPath ? `spec mode off — draft left at ${specPath}.` : "spec mode off.");
 				return;
 			}
 
 			if (arg === "open") {
 				if (!server) {
-					ctx.ui.notify("ask-plan: no review is open — submit a plan first.", "warning");
+					ctx.ui.notify("ask-spec: no review is open — submit a spec first.", "warning");
 					return;
 				}
 				open(server.url);
-				ctx.ui.notify(`ask-plan: ${server.url}`, "info");
+				ctx.ui.notify(`ask-spec: ${server.url}`, "info");
 				return;
 			}
 
 			if (active) {
-				ctx.ui.notify("ask-plan: already planning. Use `off` to leave the phase.", "warning");
+				ctx.ui.notify("ask-spec: already reviewing a spec. Use `off` to leave the phase.", "warning");
 				return;
 			}
 
 			if (!ctx.isIdle()) {
-				ctx.ui.notify("ask-plan: the agent is still running — finish or abort first.", "warning");
+				ctx.ui.notify("ask-spec: the agent is still running — finish or abort first.", "warning");
 				return;
 			}
 			if (pi.getActiveTools().includes(UAT_PHASE_TOOL)) {
-				ctx.ui.notify("ask-plan: ask-uat is open — /ask-uat off first.", "warning");
+				ctx.ui.notify("ask-spec: ask-uat is open — /ask-uat off first.", "warning");
 				return;
 			}
 
 			const readiness = frameworkReadiness(resolveProjectRoot(cwd));
 			if (!readiness.ready) {
 				ctx.ui.notify(
-					`ask-plan: no complete agent framework (missing: ${readiness.missing.join(", ")}). The spec still works, but record_change and /ask-uat stay unavailable until /ask-init.`,
+					`ask-spec: no complete agent framework (missing: ${readiness.missing.join(", ")}). The spec still works, but record_change and /ask-uat stay unavailable until /ask-init.`,
 					"info",
 				);
 			}
 
-			const slug = planSlug(arg || "plan");
+			const slug = specSlug(arg || "spec");
 			specPath = `specs/${slug}.md`;
 			session = undefined;
-			planSessionId = sessionIdOf(ctx);
+			specSessionId = sessionIdOf(ctx);
 			const permission = getPermissionControl();
 			permissionBefore = permission?.snapshot();
 			permission?.enableDefaults(ctx);
 			permissionDuring = permission?.snapshot();
-			// Plan mode is intentionally less restrictive than ask mode. Let ask
-			// restore its own tool snapshot before we add plan_submit.
+			// Spec mode is intentionally less restrictive than ask mode. Let ask
+			// restore its own tool snapshot before we add spec_submit.
 			if (getAskControl()?.isActive()) getAskControl()?.exit(ctx);
 			active = true;
 			pi.setActiveTools(toolSetWithSubmit());
 			ctx.ui.notify(
-				`ask-plan: planning. Write the spec to ${specPath}, then call ${PLAN_SUBMIT_TOOL}.`,
+				`ask-spec: reviewing. Write the spec to ${specPath}, then call ${SPEC_SUBMIT_TOOL}.`,
 				"info",
 			);
-			pi.sendUserMessage(buildPlanKickoff(arg || undefined));
+			pi.sendUserMessage(buildSpecKickoff(arg || undefined));
 		},
-	});
+	};
+
+	// `/ask-plan` stays as an alias: the workflow predates the rename, and a
+	// half-remembered command must not drop the operator into a plain chat.
+	for (const command of [SPEC_COMMAND, SPEC_COMMAND_ALIAS]) {
+		pi.registerCommand(command, specCommand);
+	}
 
 	// ── Tool ───────────────────────────────────────────────────────────────
 
-	pi.registerTool<typeof PLAN_SUBMIT_PARAMS, { version?: number; url?: string }>({
-		name: PLAN_SUBMIT_TOOL,
-		label: "Submit plan for review",
+	pi.registerTool<typeof SPEC_SUBMIT_PARAMS, { version?: number; url?: string }>({
+		name: SPEC_SUBMIT_TOOL,
+		label: "Submit spec for review",
 		description:
 			"Submit the spec file you just wrote so the operator can review and annotate it in the browser. Returns immediately; the decision arrives as a new message.",
-		promptSnippet: "Submit the plan for browser review (plan mode only)",
+		promptSnippet: "Submit the spec for browser review (spec mode only)",
 		promptGuidelines: [
-			"Call plan_submit only after the spec file on disk is the version you want reviewed.",
+			"Call spec_submit only after the spec file on disk is the version you want reviewed.",
 			"After submitting, end your turn: the operator's annotations arrive as a new message.",
-			"Never submit a file you have not written — plan_submit reads the file from disk.",
+			"Never submit a file you have not written — spec_submit reads the file from disk.",
 		],
-		parameters: PLAN_SUBMIT_PARAMS,
+		parameters: SPEC_SUBMIT_PARAMS,
 		defaultActive: false,
 		async execute(_toolCallId: string, params: { path?: string }) {
 			if (!active) {
 				return {
-					content: [{ type: "text" as const, text: "Plan mode is off — use /ask-plan first." }],
+					content: [{ type: "text" as const, text: "Spec mode is off — use /ask-spec first." }],
 					details: {},
 				};
 			}
-			const target = params.path ?? specPath ?? "specs/plan.md";
-			const absolute = planMarkdownPath(target, cwd);
+			const target = params.path ?? specPath ?? "specs/spec.md";
+			const absolute = specMarkdownPath(target, cwd);
 			if (!absolute) {
 				return {
 					content: [
@@ -324,7 +335,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 					content: [
 						{
 							type: "text" as const,
-							text: `Cannot read ${target}. Write the spec file first, then call plan_submit again.`,
+							text: `Cannot read ${target}. Write the spec file first, then call spec_submit again.`,
 						},
 					],
 					details: {},
@@ -332,18 +343,18 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 			}
 			const source = relative(cwd, absolute) || target;
 			if (!session) {
-				session = createPlanSession({
+				session = createSpecSession({
 					agentDir,
-					slug: planSlug(source.replace(/\.mdx?$/i, "").replace(/^specs\//, "")),
+					slug: specSlug(source.replace(/\.mdx?$/i, "").replace(/^specs\//, "")),
 					text,
 					source,
 				});
 			} else {
-				appendPlanVersion(session, { text, source });
+				appendSpecVersion(session, { text, source });
 			}
 			const version = latestVersion(session);
 			if (!server) {
-				server = await startPlanServer({
+				server = await startSpecServer({
 					session,
 					render: renderBlockHtml,
 					portStart: options.portStart,
@@ -354,11 +365,11 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 					},
 				});
 				open(server.url);
-				ctxRef?.ui.notify(`ask-plan: review open at ${server.url}`, "info");
+				ctxRef?.ui.notify(`ask-spec: review open at ${server.url}`, "info");
 			} else {
 				server.broadcast("revision", { version: version.n });
 			}
-			const changed = buildPlanState(session, version.n).items.filter(
+			const changed = buildSpecState(session, version.n).items.filter(
 				(item) => item.status !== "unchanged",
 			).length;
 			return {
@@ -375,56 +386,56 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		},
 	});
 
-	// ── Gate: the planning phase writes markdown only ──────────────────────
+	// ── Gate: the spec-review phase writes markdown only ──────────────────────
 
 	gates.register({
-		name: "plan",
+		name: "spec",
 		order: 5,
-			evaluate(event: ToolCallEvent) {
-				if (!active) return undefined;
-				if (event.toolName === "bash") {
-					// The promise is "plan mode does not implement", and a redirect is
-					// implementation just as much as `write` is. Temp paths outside the
-					// workspace stay allowed; opaque units are left to the permission gate,
-					// which already fails closed on them (no double prompt here).
-					const command = typeof event.input.command === "string" ? event.input.command : "";
-					if (command === "") return undefined;
-					for (const unit of parseCommandUnits(command, cwd)) {
-						if (unit.opaque) continue;
-						for (const target of unit.targets) {
-							if (target.effect !== "write") continue;
-							const absolute = canonicalize(target.path);
-							if (absolute === cwd || !isWithin(cwd, absolute)) continue;
-							if (/\.mdx?$/i.test(absolute)) continue;
-							return {
-								kind: "block" as const,
-								reason:
-									`Plan mode only writes markdown while the plan is under review (blocked bash write to ${target.path}). ` +
-									"Implement the change after the plan is approved; write the spec file instead.",
-							};
-						}
+		evaluate(event: ToolCallEvent) {
+			if (!active) return undefined;
+			if (event.toolName === "bash") {
+				// The promise is "spec mode does not implement", and a redirect is
+				// implementation just as much as `write` is. Temp paths outside the
+				// workspace stay allowed; opaque units are left to the permission gate,
+				// which already fails closed on them (no double prompt here).
+				const command = typeof event.input.command === "string" ? event.input.command : "";
+				if (command === "") return undefined;
+				for (const unit of parseCommandUnits(command, cwd)) {
+					if (unit.opaque) continue;
+					for (const target of unit.targets) {
+						if (target.effect !== "write") continue;
+						const absolute = canonicalize(target.path);
+						if (absolute === cwd || !isWithin(cwd, absolute)) continue;
+						if (/\.mdx?$/i.test(absolute)) continue;
+						return {
+							kind: "block" as const,
+							reason:
+								`Spec mode only writes markdown while the spec is under review (blocked bash write to ${target.path}). ` +
+								"Implement the change after the spec is approved; write the spec file instead.",
+						};
 					}
-					return undefined;
 				}
-				if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
+				return undefined;
+			}
+			if (event.toolName !== "write" && event.toolName !== "edit") return undefined;
 			const path = typeof event.input.path === "string" ? event.input.path : "";
-			if (planMarkdownPath(path, cwd) !== undefined) return undefined;
+			if (specMarkdownPath(path, cwd) !== undefined) return undefined;
 			return {
 				kind: "block" as const,
 				reason:
-					"Plan mode only writes markdown (.md/.mdx) while the plan is under review. " +
-					"Implement the change after the plan is approved, or write the spec file instead.",
+					"Spec mode only writes markdown (.md/.mdx) while the spec is under review. " +
+					"Implement the change after the spec is approved, or write the spec file instead.",
 			};
 		},
 	});
 
-	// ── System prompt while planning ───────────────────────────────────────
+	// ── System prompt while reviewing ──────────────────────────────────────
 
 	pi.on("before_agent_start", (event) => {
 		if (!active) return undefined;
 		pi.setActiveTools(toolSetWithSubmit());
 		return {
-			systemPrompt: `${event.systemPrompt}\n\n${buildPlanSystemPrompt({
+			systemPrompt: `${event.systemPrompt}\n\n${buildSpecSystemPrompt({
 				questionTool: pi.getActiveTools().includes("ask_user_question"),
 			})}`,
 		};
@@ -436,7 +447,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 
 	pi.on("session_start", (_event, ctx) => {
 		const nextSessionId = sessionIdOf(ctx);
-		if (nextSessionId === planSessionId) return;
+		if (nextSessionId === specSessionId) return;
 		// A different session must not inherit this session's gates, review server
 		// or permission snapshot. Permission's own session_start has already reset
 		// its state, so do not restore the old snapshot here.
@@ -444,7 +455,7 @@ export function registerPlan(pi: ExtensionAPI, gates: GateHub, options: PlanOpti
 		session = undefined;
 		permissionBefore = undefined;
 		permissionDuring = undefined;
-		planSessionId = undefined;
+		specSessionId = undefined;
 		specPath = undefined;
 		ctxRef = ctx;
 		closeServer();

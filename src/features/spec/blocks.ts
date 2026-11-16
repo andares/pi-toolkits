@@ -1,5 +1,5 @@
 /**
- * plan blocks — the review unit of `/ask-plan`.
+ * spec blocks — the review unit of `/ask-spec`.
  *
  * A block is one blank-line-separated paragraph of the plan markdown: that is
  * the granularity the operator annotates at ("this step is wrong"), so there is

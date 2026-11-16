@@ -406,7 +406,7 @@ export function registerPermission(
 	});
 
 	// ── Control surface for other features ─────────────────────────────────
-	// `/ask-plan` needs to switch the checks on for the planning phase and put
+	// `/ask-spec` needs to switch the checks on for the spec-review phase and put
 	// them back afterwards. It gets a handle, not a copy of the state: the
 	// session's own `/ask-perm` command stays authoritative, so an operator who
 	// changes the mode mid-plan wins over whatever we restore later.

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { parseBlocks } from "./blocks.js";
 import { renderBlockHtml } from "./render.js";
-import { buildPlanState, normalizeAnnotations, startPlanServer, type PlanServerHandle } from "./server.js";
-import { appendPlanVersion, createPlanSession, type PlanSession } from "./store.js";
+import { buildSpecState, normalizeAnnotations, startSpecServer, type SpecServerHandle } from "./server.js";
+import { appendSpecVersion, createSpecSession, type SpecSession } from "./store.js";
 
 let agentDir: string;
 
@@ -18,8 +18,8 @@ afterAll(() => {
 	rmSync(agentDir, { recursive: true, force: true });
 });
 
-function makeSession(text = "## Plan\n\nfirst step"): PlanSession {
-	return createPlanSession({
+function makeSession(text = "## Spec\n\nfirst step"): SpecSession {
+	return createSpecSession({
 		agentDir,
 		slug: `srv-${Math.random().toString(36).slice(2, 8)}`,
 		text,
@@ -28,10 +28,10 @@ function makeSession(text = "## Plan\n\nfirst step"): PlanSession {
 }
 
 async function serve(
-	session: PlanSession,
-	overrides: Partial<Parameters<typeof startPlanServer>[0]> = {},
-): Promise<PlanServerHandle> {
-	return startPlanServer({
+	session: SpecSession,
+	overrides: Partial<Parameters<typeof startSpecServer>[0]> = {},
+): Promise<SpecServerHandle> {
+	return startSpecServer({
 		session,
 		assetsDir: join(agentDir, "no-assets"),
 		render: renderBlockHtml,
@@ -118,21 +118,21 @@ function openStream(port: number, path: string): {
 	};
 }
 
-describe("buildPlanState", () => {
+describe("buildSpecState", () => {
 	it("shows no badges for the first revision", () => {
-		const session = makeSession("## Plan\n\none\n\ntwo");
-		const state = buildPlanState(session);
+		const session = makeSession("## Spec\n\none\n\ntwo");
+		const state = buildSpecState(session);
 		expect(state.items.map((item) => item.status)).toEqual(["unchanged", "unchanged", "unchanged"]);
 		expect(state.totalVersions).toBe(1);
 	});
 
 	it("carries the diff statuses and the previous-block ids for a later revision", () => {
-		const session = makeSession("## Plan\n\nwrite the block parser before the server\n\nsecond step");
+		const session = makeSession("## Spec\n\nwrite the block parser before the server\n\nsecond step");
 		const first = session.versions[0];
-		appendPlanVersion(session, {
-			text: "## Plan\n\nwrite the block parser before the HTTP server\n\nsecond step\n\nthird step",
+		appendSpecVersion(session, {
+			text: "## Spec\n\nwrite the block parser before the HTTP server\n\nsecond step\n\nthird step",
 		});
-		const state = buildPlanState(session);
+		const state = buildSpecState(session);
 		expect(state.version).toBe(2);
 		expect(state.items.map((item) => item.status)).toEqual([
 			"unchanged",
@@ -146,7 +146,7 @@ describe("buildPlanState", () => {
 
 	it("refuses an unknown revision", () => {
 		const session = makeSession();
-		expect(() => buildPlanState(session, 9)).toThrow(/no plan revision 9/);
+		expect(() => buildSpecState(session, 9)).toThrow(/no spec revision 9/);
 	});
 });
 
@@ -175,7 +175,7 @@ describe("normalizeAnnotations", () => {
 	});
 });
 
-describe("startPlanServer", () => {
+describe("startSpecServer", () => {
 	it("serves the fallback page and refuses a missing token", async () => {
 		const session = makeSession();
 		const server = await serve(session);
@@ -193,13 +193,13 @@ describe("startPlanServer", () => {
 	});
 
 	it("serves state with rendered block html", async () => {
-		const session = makeSession("## Plan\n\nuse **bold** here");
+		const session = makeSession("## Spec\n\nuse **bold** here");
 		const server = await serve(session);
 		try {
 			const response = await call({ port: server.port, path: `/api/state?t=${server.token}` });
 			expect(response.status).toBe(200);
 			const state = response.json() as { items: Array<{ html: string }> };
-			expect(state.items[0].html).toBe("<h2>Plan</h2>");
+			expect(state.items[0].html).toBe("<h2>Spec</h2>");
 			expect(state.items[1].html).toContain("<strong>bold</strong>");
 		} finally {
 			await server.close();
@@ -229,7 +229,7 @@ describe("startPlanServer", () => {
 
 	it("refuses to annotate an older revision", async () => {
 		const session = makeSession("one");
-		appendPlanVersion(session, { text: "two" });
+		appendSpecVersion(session, { text: "two" });
 		const server = await serve(session);
 		try {
 			const response = await call({
@@ -362,7 +362,7 @@ describe("startPlanServer", () => {
 		const stream = openStream(server.port, `/api/events?t=${server.token}`);
 		try {
 			expect(await stream.until(": connected")).toContain(": connected");
-			appendPlanVersion(session, { text: "two" });
+			appendSpecVersion(session, { text: "two" });
 			expect(parseBlocks("two")).toHaveLength(1);
 			server.broadcast("revision", { version: 2 });
 			expect(await stream.until("event: revision")).toContain('"version":2');

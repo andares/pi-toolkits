@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: twelve ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **plan review in the browser** `ask-plan`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
+In a nutshell: twelve ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **spec review in the browser** `ask-spec`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.5.2 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -76,7 +76,7 @@ After installing, verify in any pi session:
 | ⭐ **favorites** model favorites | `ctrl+A` / `ctrl+J` inside `/model` | favorite the models you use most (marked in bold bright yellow), `ctrl+p` cycles only among favorites |
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/ask-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
-| 🧭 **plan** browser-reviewed planning | `/ask-plan` | research first, write a spec, review it in your browser paragraph by paragraph, annotate block by block, then implement only after approval |
+| 🧭 **spec** browser-reviewed specs | `/ask-spec` | research first, write a spec, review it in your browser paragraph by paragraph, annotate block by block, then implement only after approval |
 | ✅ **uat** acceptance ledger | `/ask-uat` | after `/ask-init`: cluster pending change records into user-facing acceptance items, tick them off on a page (append-only ledger, no submit), and see what shipped without being verified |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
@@ -92,7 +92,7 @@ After installing, verify in any pi session:
 
 Enter with `/ask` (press it again to exit). Meant for the case where you only want to "ask questions and read code": the model may not change the project, but it is not starved of a place to think.
 
-Ask is standalone (no `/ask-init` needed). If a plan review or the UAT page is active, leave it first — ask refuses to start on top of another phase rather than promise a read-only surface another feature will re-open.
+Ask is standalone (no `/ask-init` needed). If a spec review or the UAT page is active, leave it first — ask refuses to start on top of another phase rather than promise a read-only surface another feature will re-open.
 
 **While active**:
 
@@ -281,35 +281,36 @@ After a development task is done, type the `/ask-review` command to summon **a d
 
 - **Unconfigured / the configured model is no longer available** (e.g. it was deleted from pi's models.json) → a notice is shown and the list opens as usual (with no default entry in that case)
 - Triggered while a task is still in progress (the agent is not idle) → you are told to wait and nothing runs; only one review may be active at a time
-- Planning phase → refused (a plan under review must not be edited); ask mode is exited automatically because check + fix needs the full tool set
+- Spec-review phase → refused (a spec under review must not be edited); ask mode is exited automatically because check + fix needs the full tool set
 - A grey `review` status in the footer means a review model is configured
 
 ---
 
-## 🧭 plan — plan first, review in the browser, then implement
+## 🧭 spec — write it, review it in the browser, then implement
 
-<a name="plan"></a>
+<a name="spec"></a>
 
-`/ask-plan [topic]` opens a planning phase: the agent explores the code, asks what it cannot infer, and writes a spec — no code changes while the plan is under review. Then it calls `plan_submit`, the review opens in **your browser**, and you annotate it **paragraph by paragraph**: every blank-line-separated block can carry notes, and every note comes back to the agent as its next message.
+`/ask-spec [topic]` opens a spec-review phase: the agent explores the code, asks what it cannot infer, and writes a spec — no code changes while the spec is under review. Then it calls `spec_submit`, the review opens in **your browser**, and you annotate it **paragraph by paragraph**: every blank-line-separated block can carry notes, and every note comes back to the agent as its next message. `/ask-plan` is kept as an alias.
 
 - **Blocks are the unit of review.** Each paragraph is one block, with a badge telling you what changed since the previous round: `new`, `modified`, `moved`, `removed`. Unchanged blocks collapse, so a three-line edit does not look like a rewrite. Fenced code blocks stay whole.
 - **Two levels of notes.** On a block, or global. Nothing finer — no text ranges to re-anchor after an edit.
-- **Approve and deny both carry your notes.** They only choose the next step: approve means "start implementing" (with every note applied on the way), deny means "revise the plan and submit again".
-- **History is kept.** Every submitted revision is stored under `<agent-dir>/ask-plan/<slug>/` and the header lets you reopen any of them read-only.
-- **The planning phase uses the boundary checks.** `/ask-perm` is switched on with its defaults when planning starts and restored when it ends; the only file the plan phase may write is markdown.
-- **No model switching, ever.** The plan is reviewed and implemented with whatever model the session is on. (`/ask-review` is the one command that does switch, because you asked it to.)
+- **The page keeps the review in view.** A two-column layout: the spec on the left; the revision stats and a clickable annotation index on the right. Global notes stay visible above the blocks even when the editor is closed.
+- **Approve and deny both carry your notes.** They only choose the next step: approve means "start implementing" (with every note applied on the way), deny means "revise the spec and submit again".
+- **History is kept.** Every submitted revision is stored under `<agent-dir>/ask-spec/<slug>/` and the header lets you reopen any of them read-only. Existing `<agent-dir>/ask-plan/` histories are migrated on first use.
+- **The review phase uses the boundary checks.** `/ask-perm` is switched on with its defaults when the review starts and restored when it ends; the only file the review phase may write is markdown.
+- **No model switching, ever.** The spec is reviewed and implemented with whatever model the session is on. (`/ask-review` is the one command that does switch, because you asked it to.)
 
 **Browser on WSL**: the review server binds `0.0.0.0` and the URL is printed with the WSL address, because Windows cannot reach a loopback-only server inside WSL. The opener prefers a Windows-side launcher (`wslview`, `cmd.exe /c start`, `powershell Start-Process`) and only falls back to `xdg-open` elsewhere — that is the difference between "opens your browser" and "opens a browser inside WSL that you cannot see".
 
 ```text
-/ask-plan build the export feature     # start planning
-/ask-plan open                         # re-open the review page
-/ask-plan off                          # leave the phase (the draft stays where it is)
+/ask-spec build the export feature     # start the review
+/ask-spec open                         # re-open the review page
+/ask-spec off                          # leave the phase (the draft stays where it is)
 ```
 
-The spec lands in `specs/<slug>.md` — the same place `/ask-init` puts plans. Without an
-agent framework the plan still works, but `record_change` and `/ask-uat` stay unavailable
-until `/ask-init`; the command says so when planning starts. Leave an open UAT page first:
+The spec lands in `specs/<slug>.md` — the same place `/ask-init` keeps specs. Without an
+agent framework the review still works, but `record_change` and `/ask-uat` stay unavailable
+until `/ask-init`; the command says so when the review starts. Leave an open UAT page first:
 the two phases do not run on top of each other.
 
 ---
@@ -481,7 +482,7 @@ the split between three things that decay when mixed:
 
 | Family | Location | Answers | Lifetime |
 | --- | --- | --- | --- |
-| **plan** | `specs/` (`PLAN.md` + `<unit>.md`) | what to do, how it will be accepted | written before work, status updated at close |
+| **spec** | `specs/` (roadmap `PLAN.md` + `<unit>.md`) | what to do, how it will be accepted | written before work, status updated at close |
 | **memory** | `.agents/memory/` | what is known, decided, and why | long-lived; append and compact only |
 | **evidence** | `.agents/implementations/` | what changed, when, with what proof | one record per change, never rewritten |
 
@@ -512,7 +513,7 @@ turn; the audit still writes its runtime report. After a package upgrade run `/a
 `AGENTS.md`, `.agents/memory/README.md` and `.agents/implementations/` exist. The
 content is yours — small edits do not stop `/ask-uat` or `record_change`. Commands
 that need the framework refuse with the missing list instead of guessing.
-Mutating runs (including `refresh` and `roots`) refuse while `/ask`, a plan review
+Mutating runs (including `refresh` and `roots`) refuse while `/ask`, a spec review
 or the UAT page is active; `check` and `plan` stay available.
 
 A project written by an older tool has no template anchor. `/ask-init` reports those
@@ -748,7 +749,7 @@ src/
     ├── permission/       # session-scoped boundary permission: modes, panel,
     │                     #           bash units, policy, session grants, prompt,
     │                     #           audit payload, tests
-    ├── plan/             # browser-reviewed planning: phases, block diff,
+    ├── spec/             # browser-reviewed specs: phases, block diff,
     │                     #           review server, UI, tests
     ├── quit-guard/       # quit watchdog: TUI teardown + quit-event triggers,
     │                     #           settings store, hang report, tests

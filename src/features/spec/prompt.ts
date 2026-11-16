@@ -1,13 +1,13 @@
 /**
- * plan prompt — what the agent is told when plan mode opens.
+ * spec prompt — what the agent is told when spec review opens.
  *
- * Two parts, both injected as a system-prompt block on every plan-mode turn:
+ * Two parts, both injected as a system-prompt block on every spec-review turn:
  *
  *   1. the framing: what the phase allows (write markdown, read everything,
  *      ask questions) and the one rule that has no exception — the turn ends by
- *      asking a question or by submitting the plan, never by going quiet;
+ *      asking a question or by submitting the spec, never by going quiet;
  *   2. the spec framework: a skill-style guide to the shape of a reviewable
- *      plan. It is deliberately a *default* shape, not a template to fill in:
+ *      spec. It is deliberately a *default* shape, not a template to fill in:
  *      the operator reviews paragraphs, so the guide also explains how to write
  *      for paragraph-level review (one idea per block, headings on their own
  *      line, no blank lines inside a list) — that is the part models get wrong
@@ -15,40 +15,40 @@
  *
  * Kept as a string constant rather than a bundled SKILL.md on purpose: a skill
  * description would be paid for on every request in every session, while this
- * text is only ever sent while plan mode is on.
+ * text is only ever sent while spec review is on.
  */
 
-export const PLAN_MODE_BANNER = [
-	"[ASK-PLAN — PLANNING]",
-	"You are planning this change with the operator before any code is written.",
+export const SPEC_MODE_BANNER = [
+	"[ASK-SPEC — SPEC REVIEW]",
+	"You are writing a spec with the operator before any code is written.",
 	"",
 	"Allowed now: reading tools, bash for inspection, and writing/editing",
 	"markdown files inside the project. Not allowed: editing other files, destructive commands,",
-	"or starting the implementation — that begins only after the plan is approved.",
+	"or starting the implementation — that begins only after the spec is approved.",
 	"",
-	"Loop: explore → ask what the code cannot tell you → write the spec file → plan_submit.",
-	"End every turn with either a question or a plan_submit call. Do not end it silently.",
+	"Loop: explore → ask what the code cannot tell you → write the spec file → spec_submit.",
+	"End every turn with either a question or a spec_submit call. Do not end it silently.",
 ].join("\n");
 
 /**
- * The interview half of planning. Deliberately capability-neutral: the session's
+ * The interview half of the review. Deliberately capability-neutral: the session's
  * question tool is a third-party extension in most installs, so the prompt says
  * "the session's question tool" and the caller adds a line about availability —
  * naming a tool the harness does not have sends the model into an empty call.
  */
 export const INTERVIEW_GUIDE = [
-	"[ASK-PLAN — INTERVIEW]",
+	"[ASK-SPEC — INTERVIEW]",
 	"Settle ambiguity by asking, in rounds, before you write the spec — not after.",
 	"Use the session's question tool when one is available; otherwise ask in plain text and wait.",
 	"One round = 1-4 questions, each with concrete options when the choice is enumerable.",
 	"Ask about what the code cannot tell you: scope, precedence between existing behaviours,",
 	"error handling, and what must not change. Do not ask what you can read from the repo.",
-	"Stop asking when the next answer would not change the plan you are about to write.",
+	"Stop asking when the next answer would not change the spec you are about to write.",
 ].join("\n");
 
 export const SPEC_FRAMEWORK_GUIDE = [
-	"[ASK-PLAN — SPEC FRAMEWORK]",
-	"Write the plan as one markdown file (convention: `specs/<slug>.md`) using roughly this shape.",
+	"[ASK-SPEC — SPEC FRAMEWORK]",
+	"Write the spec as one markdown file (convention: `specs/<slug>.md`) using roughly this shape.",
 	"Adapt it: drop sections that do not apply, merge two when they are thin, but keep the order —",
 	"the operator reads it top to bottom and reviews it paragraph by paragraph.",
 	"",
@@ -82,29 +82,29 @@ export const SPEC_FRAMEWORK_GUIDE = [
 	"### Revising after feedback",
 	"Annotations arrive whatever the decision — approving means \"go\", not \"notes ignored\".",
 	"When revising: change only the blocks that were annotated, keep the rest byte for byte, then",
-	"call plan_submit again. A full rewrite makes the diff useless: every block turns red and the",
-	"operator has to re-read the whole plan to find your three changes.",
+	"call spec_submit again. A full rewrite makes the diff useless: every block turns red and the",
+	"operator has to re-read the whole spec to find your three changes.",
 ].join("\n");
 
-/** The complete plan-mode system-prompt block. */
-export function buildPlanSystemPrompt(options: { questionTool?: boolean } = {}): string {
+/** The complete spec-review system-prompt block. */
+export function buildSpecSystemPrompt(options: { questionTool?: boolean } = {}): string {
 	const questionLine = options.questionTool
 		? "`ask_user_question` is available in this session and is the preferred way to ask."
 		: "This session exposes no question tool: ask in plain text and wait for the reply.";
-	return `${PLAN_MODE_BANNER}\n${questionLine}\n\n${INTERVIEW_GUIDE}\n\n${SPEC_FRAMEWORK_GUIDE}`;
+	return `${SPEC_MODE_BANNER}\n${questionLine}\n\n${INTERVIEW_GUIDE}\n\n${SPEC_FRAMEWORK_GUIDE}`;
 }
 
 /**
- * One-shot kickoff text for `/ask-plan <topic>`: sets the task and points at the
+ * One-shot kickoff text for `/ask-spec <topic>`: sets the task and points at the
  * framework without repeating it (it is already in the system prompt).
  */
-export function buildPlanKickoff(topic: string | undefined): string {
+export function buildSpecKickoff(topic: string | undefined): string {
 	const subject = topic?.trim();
 	return [
-		"Start planning.",
+		"Start spec review.",
 		subject ? `Task: ${subject}` : "Task: the work we have been discussing in this session.",
 		"",
 		"Explore the code before writing, ask me what you cannot infer, then write the spec file and",
-		"submit it with plan_submit. Do not implement anything yet.",
+		"submit it with spec_submit. Do not implement anything yet.",
 	].join("\n");
 }

@@ -10,7 +10,7 @@
  *     items stream into the page while the agent works;
  *   - `uat_item` is the only writer of item identity, and it is active only in
  *     this phase; `record_change` is active in framework projects outside the
- *     read-only consult and planning phases;
+ *     read-only consult and spec-review phases;
  *   - nothing here edits code, and there is no submit: a checkbox appends one
  *     event to `.agents/uat/ledger.jsonl` and that is the whole decision.
  *
@@ -19,7 +19,7 @@
  */
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { getAskControl } from "../../lib/ask-control.js";
-import { PLAN_PHASE_TOOL } from "../../lib/phases.js";
+import { SPEC_PHASE_TOOL, LEGACY_SPEC_PHASE_TOOL } from "../../lib/phases.js";
 import { openInBrowser } from "../../lib/opener.js";
 import {
 	MAX_CANDIDATES_PER_RUN,
@@ -74,13 +74,13 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 	let lastActivity = Date.now();
 	let idleTimer: NodeJS.Timeout | undefined;
 
-	// `plan_submit` is the owning feature's phase marker. Detecting the active
+	// `spec_submit` is the owning feature's phase marker. Detecting the active
 	// tool avoids a second global control registry while still keeping the two
 	// phases' write surfaces disjoint.
-	const planningTool = PLAN_PHASE_TOOL;
+	const specTools = new Set([SPEC_PHASE_TOOL, LEGACY_SPEC_PHASE_TOOL]);
 
 	function recordChangeAllowed(tools: readonly string[] = pi.getActiveTools()): boolean {
-		return !getAskControl()?.isActive() && !tools.includes(planningTool);
+		return !getAskControl()?.isActive() && !tools.some((name) => specTools.has(name));
 	}
 
 	function syncRecordTool(installed: boolean): void {
@@ -198,8 +198,8 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 		root = projectRoot;
 		ctxRef = ctx;
 
-		if (pi.getActiveTools().includes(planningTool)) {
-			ctx.ui.notify("ask-uat: finish or approve the plan before acceptance.", "warning");
+		if (pi.getActiveTools().some((name) => specTools.has(name))) {
+			ctx.ui.notify("ask-uat: finish or approve the spec before acceptance.", "warning");
 			return;
 		}
 
@@ -219,7 +219,7 @@ export function registerUat(pi: ExtensionAPI, options: UatOptions = {}): void {
 		}
 
 		// UAT legitimately writes ledger events, so it cannot run inside the
-		// read-only consult phase. Match /ask-plan: the explicit phase command
+		// read-only consult phase. Match /ask-spec: the explicit phase command
 		// exits consult mode through its owner, preserving its tool snapshot.
 		const ask = getAskControl();
 		if (ask?.isActive()) ask.exit(ctx);

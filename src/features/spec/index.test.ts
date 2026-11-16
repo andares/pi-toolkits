@@ -1,5 +1,5 @@
 /**
- * ask-plan wiring: command, tool, gate, prompt, decision round-trip.
+ * ask-spec wiring: command, tool, gate, prompt, decision round-trip.
  *
  * The server is real here (it is the only way to prove the non-blocking submit
  * actually resolves into a message), the browser opener and the permission
@@ -15,7 +15,8 @@ import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-wo
 import type { GateHub, GateVerdict } from "../../lib/gates.js";
 import { setPermissionControl, type PermissionControl } from "../../lib/permission-control.js";
 import { setAskControl } from "../../lib/ask-control.js";
-import { registerPlan, PLAN_COMMAND, PLAN_SUBMIT_TOOL } from "./index.js";
+import { LEGACY_SPEC_PHASE_TOOL } from "../../lib/phases.js";
+import { registerSpec, SPEC_COMMAND, SPEC_COMMAND_ALIAS, SPEC_SUBMIT_TOOL } from "./index.js";
 
 let agentDir: string;
 let workDir: string;
@@ -99,7 +100,7 @@ function harness(): Harness {
 		disable: vi.fn(),
 	};
 	setPermissionControl(control as unknown as PermissionControl);
-	registerPlan(pi, { register: (def: never) => gates.push(def as never) } as unknown as GateHub, {
+	registerSpec(pi, { register: (def: never) => gates.push(def as never) } as unknown as GateHub, {
 		agentDir,
 		openBrowser,
 		portStart: 46_000 + Math.floor(Math.random() * 1000),
@@ -132,35 +133,56 @@ async function decide(url: string, action: "approve" | "deny"): Promise<number> 
 	});
 }
 
-describe("ask-plan command", () => {
-	it("enters plan mode: permission on, submit tool active, kickoff sent", async () => {
+describe("ask-spec command", () => {
+	it("enters spec mode: permission on, submit tool active, kickoff sent", async () => {
 		const h = harness();
-		const command = h.commands.get(PLAN_COMMAND);
+		const command = h.commands.get(SPEC_COMMAND);
 		expect(command).toBeDefined();
-		await command!.handler("ask-plan work", h.ctx);
+		await command!.handler("ask-spec work", h.ctx);
 
 		expect(h.control.enableDefaults).toHaveBeenCalledWith(h.ctx);
-		expect(h.activeTools()).toContain(PLAN_SUBMIT_TOOL);
-		expect(h.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("Task: ask-plan work"));
-		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("specs/ask-plan-work.md"), "info");
+		expect(h.activeTools()).toContain(SPEC_SUBMIT_TOOL);
+		expect(h.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("Task: ask-spec work"));
+		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("specs/ask-spec-work.md"), "info");
+	});
+
+	it("keeps /ask-plan as an alias for the same handler", () => {
+		const h = harness();
+		const primary = h.commands.get(SPEC_COMMAND);
+		const alias = h.commands.get(SPEC_COMMAND_ALIAS);
+		expect(primary).toBeDefined();
+		expect(alias).toBeDefined();
+		expect(alias!.handler).toBe(primary!.handler);
+	});
+
+	it("runs the same flow through the alias", async () => {
+		const h = harness();
+		await h.commands.get(SPEC_COMMAND_ALIAS)!.handler("legacy topic", h.ctx);
+		expect(h.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("Task: legacy topic"));
+	});
+
+	it("defaults the spec file to specs/spec.md without a topic", async () => {
+		const h = harness();
+		await h.commands.get(SPEC_COMMAND)!.handler("", h.ctx);
+		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("specs/spec.md"), "info");
 	});
 
 	it("refuses to start twice and can be turned off", async () => {
 		const h = harness();
-		const handler = h.commands.get(PLAN_COMMAND)!.handler;
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
 		await handler("topic", h.ctx);
 		await handler("topic", h.ctx);
-		expect(h.notify).toHaveBeenLastCalledWith(expect.stringContaining("already planning"), "warning");
+		expect(h.notify).toHaveBeenLastCalledWith(expect.stringContaining("already reviewing a spec"), "warning");
 
 		await handler("off", h.ctx);
 		expect(h.control.restore).toHaveBeenCalled();
-		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
+		expect(h.activeTools()).not.toContain(SPEC_SUBMIT_TOOL);
 	});
 
 	it("refuses to start while ask-uat is open", async () => {
 		const h = harness();
 		h.pi.setActiveTools([...h.activeTools(), "uat_item"]);
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		expect(h.sendUserMessage).not.toHaveBeenCalled();
 		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("ask-uat"), "warning");
 	});
@@ -168,7 +190,7 @@ describe("ask-plan command", () => {
 	it("refuses to start while the agent is still running", async () => {
 		const h = harness();
 		const busy = { ...h.ctx, isIdle: () => false } as ExtensionContext;
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", busy);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", busy);
 		expect(h.sendUserMessage).not.toHaveBeenCalled();
 		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("still running"), "warning");
 	});
@@ -194,7 +216,7 @@ describe("ask-plan command", () => {
 
 			const h = harness();
 			const linkedCtx = { ...h.ctx, cwd: linked } as ExtensionContext;
-			const handler = h.commands.get(PLAN_COMMAND)!.handler;
+			const handler = h.commands.get(SPEC_COMMAND)!.handler;
 			await handler("topic", linkedCtx);
 			expect(h.notify).not.toHaveBeenCalledWith(
 				expect.stringContaining("no complete agent framework"),
@@ -209,16 +231,28 @@ describe("ask-plan command", () => {
 });
 
 describe("phase integration", () => {
-	it("exits ask mode before enabling the broader planning tool surface", async () => {
+	it("exits ask mode before enabling the broader spec-review tool surface", async () => {
 		const h = harness();
 		const exit = vi.fn();
 		setAskControl({ isActive: () => true, exit });
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		expect(exit).toHaveBeenCalledWith(h.ctx);
-		expect(h.activeTools()).toContain(PLAN_SUBMIT_TOOL);
+		expect(h.activeTools()).toContain(SPEC_SUBMIT_TOOL);
 	});
 
-	it("does not overwrite a permission policy the operator changed mid-plan", async () => {
+	it("clears both current and pre-rename submit markers", async () => {
+		const h = harness();
+		h.pi.setActiveTools([...h.activeTools(), LEGACY_SPEC_PHASE_TOOL]);
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
+		await handler("topic", h.ctx);
+		expect(h.activeTools()).toContain(SPEC_SUBMIT_TOOL);
+		expect(h.activeTools()).not.toContain(LEGACY_SPEC_PHASE_TOOL);
+		await handler("off", h.ctx);
+		expect(h.activeTools()).not.toContain(SPEC_SUBMIT_TOOL);
+		expect(h.activeTools()).not.toContain(LEGACY_SPEC_PHASE_TOOL);
+	});
+
+	it("does not overwrite a permission policy the operator changed mid-review", async () => {
 		const h = harness();
 		const off = { enabled: false, modes: { inRead: "allow", inWrite: "allow", outRead: "allow", outWrite: "ask" } };
 		const defaults = { enabled: true, modes: { inRead: "allow", inWrite: "allow", outRead: "allow", outWrite: "ask" } };
@@ -227,53 +261,53 @@ describe("phase integration", () => {
 			.mockReturnValueOnce(off as never)
 			.mockReturnValueOnce(defaults as never)
 			.mockReturnValueOnce(manual as never);
-		const handler = h.commands.get(PLAN_COMMAND)!.handler;
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
 		await handler("topic", h.ctx);
 		await handler("off", h.ctx);
 		expect(h.control.restore).not.toHaveBeenCalled();
 		expect(h.control.disable).not.toHaveBeenCalled();
 	});
 
-	it("starts a fresh review session for the next plan after leaving", async () => {
+	it("starts a fresh review session for the next spec after leaving", async () => {
 		const h = harness();
-		const handler = h.commands.get(PLAN_COMMAND)!.handler;
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
 		await handler("first", h.ctx);
 		writeSpec("specs/first.md", "# SPEC: first");
-		const first = await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/first.md" });
+		const first = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/first.md" });
 		expect(first.content[0].text).toContain("Submitted v1 of 1");
 		await handler("off", h.ctx);
 		await handler("second", h.ctx);
 		writeSpec("specs/second.md", "# SPEC: second");
-		const second = await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/second.md" });
+		const second = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/second.md" });
 		expect(second.content[0].text).toContain("Submitted v1 of 1");
 		expect(h.openBrowser).toHaveBeenCalledTimes(2);
 	});
 
-	it("drops plan state and closes the review when the pi session changes", async () => {
+	it("drops spec state and closes the review when the pi session changes", async () => {
 		const h = harness();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		writeSpec("specs/topic.md", "# SPEC: topic");
-		await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
 		const nextCtx = {
 			...h.ctx,
 			sessionManager: { getSessionId: () => "next-session" },
 		} as unknown as ExtensionContext;
 		h.handlers.session_start![0]!({ systemPrompt: "" }, nextCtx);
-		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
+		expect(h.activeTools()).not.toContain(SPEC_SUBMIT_TOOL);
 		expect(h.control.restore).not.toHaveBeenCalled();
 	});
 });
 
-describe("plan gate", () => {
-	const gate = (h: Harness) => h.gates.find((entry) => entry.name === "plan");
+describe("spec gate", () => {
+	const gate = (h: Harness) => h.gates.find((entry) => entry.name === "spec");
 
-	it("blocks writing anything but markdown while planning", async () => {
+	it("blocks writing anything but markdown while reviewing", async () => {
 		const h = harness();
 		const evaluate = gate(h)!.evaluate;
 		const write = (path: string): ToolCallEvent => ({ toolName: "write", input: { path } }) as unknown as ToolCallEvent;
 
 		expect(evaluate(write("src/features/x.ts"))).toBeUndefined();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		expect(evaluate(write("src/features/x.ts"))).toMatchObject({ kind: "block" });
 		expect(evaluate(write("specs/topic.md"))).toBeUndefined();
 		expect(evaluate(write("/tmp/outside.md"))).toMatchObject({ kind: "block" });
@@ -282,19 +316,19 @@ describe("plan gate", () => {
 		expect(evaluate(write("linked/escape.md"))).toMatchObject({ kind: "block" });
 	});
 
-	it("stays out of the way when plan mode is off", () => {
+	it("stays out of the way when spec mode is off", () => {
 		const h = harness();
 		const event = { toolName: "edit", input: { path: "src/a.ts" } } as unknown as ToolCallEvent;
 		expect(gate(h)!.evaluate(event)).toBeUndefined();
 	});
 });
 
-describe("plan_submit", () => {
+describe("spec_submit", () => {
 	it("reads the file, snapshots a revision and opens the review once", async () => {
 		const h = harness();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		writeSpec("specs/topic.md", "# SPEC: topic\n\nfirst step");
-		const tool = h.tools.get(PLAN_SUBMIT_TOOL)!;
+		const tool = h.tools.get(SPEC_SUBMIT_TOOL)!;
 
 		const first = await tool.execute("id", { path: "specs/topic.md" });
 		expect(first.content[0].text).toContain("Submitted v1 of 1");
@@ -308,53 +342,53 @@ describe("plan_submit", () => {
 
 	it("tells the model to write the file when it does not exist", async () => {
 		const h = harness();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
-		const result = await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/missing.md" });
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
+		const result = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/missing.md" });
 		expect(result.content[0].text).toContain("Write the spec file first");
 	});
 
 	it("refuses to submit non-markdown or out-of-workspace files", async () => {
 		const h = harness();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
-		const tool = h.tools.get(PLAN_SUBMIT_TOOL)!;
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
+		const tool = h.tools.get(SPEC_SUBMIT_TOOL)!;
 		expect((await tool.execute("id", { path: "src/a.ts" })).content[0].text).toContain("inside the workspace");
 		expect((await tool.execute("id", { path: "/tmp/outside.md" })).content[0].text).toContain("inside the workspace");
 	});
 
-	it("refuses to submit outside plan mode", async () => {
+	it("refuses to submit outside spec mode", async () => {
 		const h = harness();
-		const result = await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/x.md" });
-		expect(result.content[0].text).toContain("Plan mode is off");
+		const result = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/x.md" });
+		expect(result.content[0].text).toContain("Spec mode is off");
 	});
 
 	it("turns an approval into a message and leaves the phase", async () => {
 		const h = harness();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		writeSpec("specs/topic.md", "# SPEC: topic\n\nfirst step");
-		await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
 		const url = h.openBrowser.mock.calls[0][0] as string;
 
 		expect(await decide(url, "approve")).toBe(200);
 		await vi.waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(2), { timeout: 5000 });
 		const message = h.sendUserMessage.mock.calls[1][0] as string;
-		expect(message).toContain("## Plan approved");
+		expect(message).toContain("## Spec approved");
 		expect(message).toContain("start implementing");
 		// The approved revision is quoted back (the file may have changed since
 		// the submit), and the model is told to track the work in the todo list.
-		expect(message).toContain("### Approved plan (specs/topic.md)");
+		expect(message).toContain("### Approved spec (specs/topic.md)");
 		expect(message).toContain("# SPEC: topic\n\nfirst step");
 		expect(message).toContain("Record the implementation work in the todo list");
 		expect(message).not.toContain("call `record_change`");
 		expect(h.control.restore).toHaveBeenCalled();
-		expect(h.activeTools()).not.toContain(PLAN_SUBMIT_TOOL);
+		expect(h.activeTools()).not.toContain(SPEC_SUBMIT_TOOL);
 	});
 
-	it("drops a browser decision that arrives after plan mode was closed", async () => {
+	it("drops a browser decision that arrives after spec mode was closed", async () => {
 		const h = harness();
-		const handler = h.commands.get(PLAN_COMMAND)!.handler;
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
 		await handler("topic", h.ctx);
 		writeSpec("specs/topic.md", "# SPEC: topic");
-		await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
 		const url = h.openBrowser.mock.calls[0][0] as string;
 		expect(await decide(url, "deny")).toBe(200);
 		await handler("off", h.ctx);
@@ -363,19 +397,19 @@ describe("plan_submit", () => {
 		expect(h.sendUserMessage).toHaveBeenCalledTimes(1);
 	});
 
-	it("turns a denial into feedback but keeps planning", async () => {
+	it("turns a denial into feedback but keeps reviewing", async () => {
 		const h = harness();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		writeSpec("specs/topic.md", "# SPEC: topic\n\nfirst step");
-		await h.tools.get(PLAN_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
 		const url = h.openBrowser.mock.calls[0][0] as string;
 
 		expect(await decide(url, "deny")).toBe(200);
 		await vi.waitFor(() => expect(h.sendUserMessage).toHaveBeenCalledTimes(2), { timeout: 5000 });
 		const message = h.sendUserMessage.mock.calls[1][0] as string;
-		expect(message).toContain("## Plan feedback");
+		expect(message).toContain("## Spec feedback");
 		expect(message).toContain("No specific annotations were left");
-		expect(h.activeTools()).toContain(PLAN_SUBMIT_TOOL);
+		expect(h.activeTools()).toContain(SPEC_SUBMIT_TOOL);
 		expect(h.control.restore).not.toHaveBeenCalled();
 	});
 });
@@ -387,22 +421,22 @@ describe("prompt injection", () => {
 		return handler!({ systemPrompt: prompt });
 	};
 
-	it("appends the plan framework only while planning", async () => {
+	it("appends the spec framework only while reviewing", async () => {
 		const h = harness();
 		expect(start(h, "base")).toBeUndefined();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		const injected = start(h, "base");
 		expect(injected?.systemPrompt).toContain("base");
-		expect(injected?.systemPrompt).toContain("[ASK-PLAN — PLANNING]");
-		expect(injected?.systemPrompt).toContain("plan_submit");
-		expect(injected?.systemPrompt).toContain("[ASK-PLAN — INTERVIEW]");
+		expect(injected?.systemPrompt).toContain("[ASK-SPEC — SPEC REVIEW]");
+		expect(injected?.systemPrompt).toContain("spec_submit");
+		expect(injected?.systemPrompt).toContain("[ASK-SPEC — INTERVIEW]");
 		expect(injected?.systemPrompt).toContain("ask in plain text");
 	});
 
 	it("names the question tool only when it is active", async () => {
 		const h = harness();
 		h.pi.setActiveTools([...h.activeTools(), "ask_user_question"]);
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
 		const injected = start(h, "base");
 		expect(injected?.systemPrompt).toContain("`ask_user_question` is available");
 	});
@@ -411,8 +445,8 @@ describe("prompt injection", () => {
 describe("plan write boundary", () => {
 	it("blocks a bash write to a non-markdown project path", async () => {
 		const h = harness();
-		await h.commands.get(PLAN_COMMAND)!.handler("topic", h.ctx);
-		const gate = h.gates.find((entry) => entry.name === "plan");
+		await h.commands.get(SPEC_COMMAND)!.handler("topic", h.ctx);
+		const gate = h.gates.find((entry) => entry.name === "spec");
 		expect(gate).toBeDefined();
 		const evaluate = (command: string) =>
 			gate!.evaluate({ toolName: "bash", input: { command } } as ToolCallEvent);
@@ -427,7 +461,7 @@ describe("plan write boundary", () => {
 
 describe("model policy", () => {
 	it("contains no model-switching call in production code", () => {
-		const root = join(process.cwd(), "src", "features", "plan");
+		const root = join(process.cwd(), "src", "features", "spec");
 		for (const file of readdirSync(root)) {
 			if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
 			expect(readFileSync(join(root, file), "utf8"), file).not.toContain("setModel");
