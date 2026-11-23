@@ -11,6 +11,10 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+## 1.0.2 — 2026-11-24
+
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
 - **host compatibility** — verified against every published pi release from 0.99.0 through 1.6.0 (window 1.3–1.6); the declared range stays `pi >= 0.99.0` with no upper bound, and the package loads cleanly on 1.6.0.
 
 ## 1.0.1 — 2026-11-17
@@ -63,6 +67,7 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
 
 
