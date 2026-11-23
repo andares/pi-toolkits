@@ -41,7 +41,9 @@ class ApplyOnEnter implements Component {
 	}
 
 	render(width: number): string[] {
-		return this.list.render(width);
+		// pi 1.6.0 widened `Component.render` to `readonly string[]`; copy so the
+		// mutable local signature stays valid on both sides of that change.
+		return [...this.list.render(width)];
 	}
 
 	invalidate(): void {

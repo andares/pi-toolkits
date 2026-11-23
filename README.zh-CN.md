@@ -15,7 +15,7 @@
 
 一句话介绍:目前包含十二个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
 
-**版本要求**:pi `>=0.99.0`。0.99.0 到 1.5.2 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
+**版本要求**:pi `>=0.99.0`。0.99.0 到 1.6.0 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
 ---
 
@@ -380,7 +380,7 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | auto-compact 阈值触发 | 压缩模型总结 |
 | context overflow 恢复 | 压缩模型总结,重试行为不变 |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在 1.2.0 → 1.5.2 内字节级不变 —— 除了此处采纳的两项 1.4.0 修正:摘要请求使用模型自身的输出上限而非 `reserveTokens` 的固定比例,以及 `/compact <instructions>` 也会进入 split-turn 前缀,外加 1.5.0 的 `cost.totalFromProvider` 合并规则(用量统计);只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在 1.2.0 → 1.6.0 内字节级不变 —— 除了此处采纳的两项 1.4.0 修正:摘要请求使用模型自身的输出上限而非 `reserveTokens` 的固定比例,以及 `/compact <instructions>` 也会进入 split-turn 前缀,外加 1.5.0 的 `cost.totalFromProvider` 合并规则(用量统计);只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
 
 - **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
 - **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
@@ -461,7 +461,7 @@ run = [
 
 **关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
 
-> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`;`_tryExecuteExtensionCommand` 在 1.2.0–1.5.2 全区间字节级一致,1.5.1 虽把 `sendUserMessage` 其余部分重构进 `_preparePrompt`,扩展命令分支仍是它最前面的早退路径,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`;`_tryExecuteExtensionCommand` 在 1.2.0–1.6.0 全区间字节级一致,1.5.1 虽把 `sendUserMessage` 其余部分重构进 `_preparePrompt`,扩展命令分支仍是它最前面的早退路径,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
 
 ---
 
@@ -615,7 +615,7 @@ pnpm typecheck    # tsc --noEmit
 pnpm test         # vitest(全部功能单元测试)
 
 pnpm check:keybindings   # 用宿主自己的分发表审计本插件的按键
-pnpm check:compat        # 校验声明的 pi 下限:强制 4 条线窗口 + 向后 4 条线探针 → public floor
+pnpm check:compat        # 用真实宿主实测声明的 pi 区间(与声明不符即判失败)
 pnpm approval-report     # 汇总本地审批日志(答复分布、目标目录、候选规则)
 ```
 
@@ -692,7 +692,7 @@ pnpm release:github --audit         # 列出 npm 版本 vs GitHub Release vs 远
 - **内建 patch**(favorites)必须保持**版本守卫 + 幂等** —— 打 patch 前先确认目标原型成员存在,防止重复应用,失败时用 `console.warn` 降级而不是把扩展搞挂
 - **内建提示词同步**(compact) —— `src/features/compact/prompt.ts` 里的总结 prompt 逐字抄自 pi 内建压缩;升级 pi 依赖时 diff `dist/core/compaction/compaction.js`(及 `utils.js`),同步字符串与组装辅助函数,保持接管输出与内建字节级一致
 - **键位** —— 定新快捷键前先查 pi 默认键位 + 保留键、终端控制字符、OS/终端模拟器占用;跨平台安全优先选 `ctrl+alt+<字母>`。**不得只验证「主屏下我这台机器能用」**:自 pi 1.0 起默认 `fullscreen`,alt-screen 层在对话框看到按键**之前**就消费 `tui.altScreen.*`,且 Windows/WSL 上多个绑定与 Linux 默认值不同。用 `pnpm check:keybindings [候选键...]` 核查(pi 升级后跑 `pnpm check:keybindings --all`),它用宿主自己的 `matchesKey` 探测已安装宿主的**已解析**键位表。**宿主表空闲 ≠ 机器层空闲**:Windows Terminal 默认占 `ctrl+v`(粘贴)与 `ctrl+shift+f`(查找),第三方 Windows 工具常绑 `ctrl+alt+<字母>`(截图工具占过 `ctrl+alt+f`)——定键后必须在真机试按,确认按键真的到得了应用。
-- **宿主兼容** —— peer 区间是实测结论而非愿望,而且只往回指:最近 4 个已发布中版本线是**强制窗口**(不兼容就改我们的代码,绝不抬下限),窗口之下再向后探最多 4 条线找出兼容实际停在哪里,对使用者只展示一个数:由此得到的**下限**(`pi >= <floor>`,无上界)。宿主依赖一动就重跑 `pnpm check:compat`,读它的 verdict 段(声明下限与实测不一致会直接判失败)。详见 AGENTS.md「pi 宿主兼容」;升级中发现的键位冲突**上报崔总决策**,不得顺手换键。
+- **宿主兼容** —— peer 区间是实测结论而非愿望:`pi >= <floor>`,无上界;下限是仍能通过完整门禁的最老版本,下限到「已验证的最新版本」之间的每一个已发布版本都实测过。宿主依赖只在 `pnpm check:compat` 全绿时一起升——它用真实宿主重测声明区间,声明与实测不一致会直接判失败。详见 AGENTS.md「pi 宿主兼容」;升级中发现的键位冲突**上报崔总决策**,不得顺手换键。
 - **质量门禁** —— 提交前必须通过 `pnpm typecheck && pnpm test`
 
 ---

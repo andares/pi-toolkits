@@ -48,6 +48,25 @@
   quit-guard 面对的收尾链又多了两个 await，结论不变。
 - 证据：change record `.agents/implementations/2026-11-10_pi-1.5.1-compat.md`。
 
+### M5 — pi 1.6.0 宿主兼容迁移（2026-11-24）
+
+- 窗口前移为 1.3 / 1.4 / 1.5 / 1.6（六个已发布版本全绿，各 950 passed、键位 ✅）；探针
+  1.2 / 1.1 / 1.0 / 0.99 四条线全绿（0.87.x 上一轮已按规则停探、本轮未重探），
+  **public floor 仍为 0.99.0**，peer `>=0.99.0` 未变，实测覆盖 0.99.0 → 1.6.0。
+- 唯一代码改动：宿主把 `Component.render` 放宽为 `readonly string[]`，`permission/panel.ts`
+  直接返回 `SettingsList.render()` 在 1.6.0 报 TS4104 → 改为返回副本（两侧类型都成立，
+  不做版本分支）；其余功能不受影响。
+- dist 判读：`compaction.js` / `compaction/utils.js` / `usage-totals.js` / `keybindings.js`
+  字节级未动；`agent-session.js` 三处（tool-loadout 恢复的 `_restoredToolNames`、
+  `_extensionsBound`、`getLastAssistantText` 语义）均不碰 `cycleModel`（1.2.0→1.6.0 仍字节级
+  一致）与扩展命令早退（`sendUserMessage`/`_preparePrompt` 同上）；`model-selector.js` 与 pi-tui
+  `settings-list.js` 只改了「光标键不重新过滤」的调用点，我们的 `filterModels` patch 语义不变；
+  `types.d.ts` 全增量（`reportError`、render 放宽）；quit-guard 面对的收尾链多了
+  `await flushStdout()`，结论不变。
+- 对外口径：README 只公示实测结论（`pi >= 0.99.0`、已验证 0.99.0–1.6.0、无上界）；
+  4 版窗口 / 4 版探针这套内部规则从 README 移回 AGENTS.md，并写进迁移流程的收尾判据。
+- 证据：change record `.agents/implementations/2026-11-24_0037_pi-1-6-0-compat.md`。
+
 ### M4 — `/ask-uat` 验收台账（2026-11-12）
 
 - 验收单位从「提交」换成「用户可见行为」：`record_change` 写规范实施记录 + 一条行为句，

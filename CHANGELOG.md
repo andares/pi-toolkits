@@ -11,6 +11,8 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+- **host compatibility** — verified against every published pi release from 0.99.0 through 1.6.0 (window 1.3–1.6); the declared range stays `pi >= 0.99.0` with no upper bound, and the package loads cleanly on 1.6.0.
+
 ## 1.0.1 — 2026-11-17
 
 - **ask-spec** — the browser review command is now `/ask-spec` (`/ask-plan` still works as an alias), the submit tool is `spec_submit`, and an untitled review defaults to `specs/spec.md` instead of `specs/plan.md`.

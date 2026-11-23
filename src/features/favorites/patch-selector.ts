@@ -22,13 +22,17 @@
  * keeps loading and ctrl+p falls back to stock behavior. The prototype
  * shape touched here (handleInput/updateList/filterModels and the instance
  * fields below) is unchanged across the mandatory window
- * pi 1.2.0 → 1.5.1 (and exercised by the 0.99.0 → 1.1.0 backward probes).
+ * pi 1.3.0 → 1.6.0 (and exercised by the 0.99.0 → 1.2.0 backward probes).
  * updateList gained one layout change in 1.5.0 — the disambiguating model
  * name after the id — mirrored here; see distinctModelName below.
  * filterModels gained a second `preferredModel` argument in 1.5.1 (keep the
  * selection when a background catalog refresh lands, #9109). The override
  * forwards it as-is: hosts before 1.5.1 ignore the extra argument, hosts from
  * 1.5.1 keep the highlighted row instead of jumping back to the top.
+ * 1.6.0 changed the *call site* only: the stock handleInput re-filters just
+ * when the query text actually changed (cursor keys no longer move the
+ * selection). Our override is on filterModels, which that path still calls,
+ * and the favorites keys are intercepted before the original handleInput runs.
  */
 import {
 	ModelSelectorComponent,

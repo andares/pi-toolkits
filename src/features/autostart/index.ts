@@ -27,11 +27,12 @@
  * that flag is what routes "/cmd args" through _tryExecuteExtensionCommand
  * instead of the model prompt path. The wrapper defaults it to false in this
  * package. `_tryExecuteExtensionCommand` is byte-identical across every
- * published version of the supported window (1.2.0 → 1.5.1); `sendUserMessage`
+ * published version of the supported window (1.3.0 → 1.6.0); `sendUserMessage`
  * itself was refactored in 1.5.1 (the rest of the body moved into
  * `_preparePrompt`, #9154), but the extension-command branch is still the
  * first early exit of the wrapper, so `/cmd args` never reaches the model
- * prompt path. See AGENTS.md host-compat discipline for the version matrix.
+ * prompt path (1.6.0 left `sendUserMessage` and `_preparePrompt`
+ * byte-identical). See AGENTS.md host-compat discipline for the version matrix.
  *
  * Only extension commands can run this way. Built-in commands (/compact,
  * /reload, /resume, …) are dispatched at the TUI layer and cannot be
