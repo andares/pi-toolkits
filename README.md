@@ -330,7 +330,7 @@ the two phases do not run on top of each other.
 No tool is registered, no tool set changes, no permission mode is touched and nothing is added to the system prompt: the command costs nothing until you type it, and it works inside `/ask` and the other phases.
 
 - **Only the notes go back.** The message is `## Notes on your last reply` — each note with the block it quotes, clipped to 600 characters — followed by `## Operator's message`. The reply itself is not echoed: it is already in the model's context. If a compaction pushed it out, the reply is repeated once in full so the quotes still point at text the model can see.
-- **One note per block, no verdicts.** A conversation annotation is "here is what I think about this part", not a change request to triage; clicking the note edits it.
+- **One note per paragraph, no verdicts.** A conversation annotation is "here is what I think about this part", not a change request to triage; clicking the note edits it. Headings are navigation only — they appear in the contents but carry no notes.
 - **No versions, no diff, no approval.** It is a snapshot, not a document under revision. Running `/ask-talk` again refreshes it: the same reply keeps your notes, a new reply starts empty.
 - **Continue commits once.** It saves the notes and the composer text, sends one message and closes the port; the page then offers to be closed (a tab opened by an external launcher cannot be closed by script).
 - **It refuses while the agent is running.** The host persists an assistant message at the end of a run, so annotating mid-run would silently show the *previous* reply.
