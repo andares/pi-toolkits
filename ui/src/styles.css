@@ -32,6 +32,8 @@
 	--sans: "Ubuntu Sans", "Noto Sans", "Droid Sans Fallback", system-ui, -apple-system,
 		"Segoe UI", Roboto, sans-serif;
 	--mono: "Noto Sans Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+	/* Published by shared.tsx (`useFooterHeight`) — floating widgets sit above it. */
+	--footer-h: 96px;
 	color-scheme: light;
 }
 
@@ -55,7 +57,7 @@ body {
 .page {
 	max-width: 1440px;
 	margin: 0 auto;
-	padding: 0 140px 150px;
+	padding: 0 140px calc(var(--footer-h) + 54px);
 }
 
 /* ── masthead ─────────────────────────────────────────────────────────── */
@@ -1152,5 +1154,370 @@ button:disabled {
 	.footer {
 		width: calc(100vw - 24px);
 		bottom: 10px;
+	}
+}
+
+/* ── talk mode ─────────────────────────────────────────────────────────── */
+/* A snapshot has no diff, so a block gets a neutral rule instead of a status
+   ramp, and its note carries no verdict chip — the note IS the comment. */
+.bar-talk {
+	background: linear-gradient(90deg, rgba(224, 68, 107, 0.3), rgba(224, 68, 107, 0));
+}
+
+.block-talk .block-head {
+	justify-content: space-between;
+}
+
+/* The hash id is a debugging handle for the spec review; on the reply page it is
+   noise — the operator points at text, not at ids. */
+.block-talk .block-id {
+	display: none;
+}
+
+.note-talk {
+	align-items: center;
+}
+
+.verdict-talk {
+	background: #f8dde2;
+	color: #b72847;
+}
+
+.note-input {
+	width: 100%;
+	min-height: 84px;
+	padding: 12px 14px;
+	border: 1px solid #e7c9c1;
+	border-radius: 12px;
+	background: var(--surface);
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.55;
+	resize: vertical;
+}
+
+.note-input:focus {
+	outline: none;
+	border-color: rgba(224, 68, 107, 0.55);
+	box-shadow: 0 0 0 3px rgba(224, 68, 107, 0.12);
+}
+
+.rail-hint {
+	margin: 10px 0 14px;
+	color: var(--muted);
+	font-size: 12px;
+	line-height: 1.5;
+}
+
+/* Jump target flash — the outline lands on a block, and the eye needs to be
+   told which one, because a heading scrolls to its block's top edge. */
+.block.is-target {
+	animation: target-flash 1.2s ease-out;
+}
+
+@keyframes target-flash {
+	0%,
+	55% {
+		border-color: rgba(224, 68, 107, 0.75);
+		box-shadow: 0 0 0 3px rgba(224, 68, 107, 0.16), var(--shadow);
+	}
+	100% {
+		border-color: var(--border);
+		box-shadow: var(--shadow);
+	}
+}
+
+/* ── composer (talk footer) ────────────────────────────────────────────── */
+.footer-talk {
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 18px;
+	padding: 14px 20px;
+}
+
+.footer-composer {
+	min-width: 0;
+}
+
+.composer-input {
+	display: block;
+	width: 100%;
+	height: 24px;
+	max-height: 220px;
+	padding: 6px 12px;
+	border: 1px solid #e7c9c1;
+	border-radius: 14px;
+	background: var(--surface);
+	color: var(--ink);
+	font: inherit;
+	font-size: 13.5px;
+	line-height: 1.55;
+	resize: none;
+	overflow-y: hidden;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease, height 0.12s ease;
+}
+
+.composer-input:focus {
+	outline: none;
+	border-color: rgba(224, 68, 107, 0.5);
+	box-shadow: 0 0 0 3px rgba(224, 68, 107, 0.1);
+}
+
+/* ── outline (both modes) ──────────────────────────────────────────────── */
+/* Anchored to the reading column's right edge: the strip lives in the page's
+   right padding, and the panel opens leftwards over the rail. */
+.outline {
+	position: fixed;
+	top: 40vh;
+	right: max(20px, calc((100vw - 1440px) / 2 + 96px));
+	z-index: 40;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	/* Only the strip is interactive while collapsed; the panel sits to its left. */
+	pointer-events: none;
+}
+
+.outline-bars {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 6px;
+	width: 16px;
+	pointer-events: auto;
+	cursor: pointer;
+	/* Fade the first and last bars so the column reads as a continuation of the
+	   page rather than a widget with hard ends. */
+	-webkit-mask-image: linear-gradient(
+		180deg,
+		transparent 0,
+		#000 14px,
+		#000 calc(100% - 14px),
+		transparent 100%
+	);
+	mask-image: linear-gradient(
+		180deg,
+		transparent 0,
+		#000 14px,
+		#000 calc(100% - 14px),
+		transparent 100%
+	);
+}
+
+.outline-bars:hover .outline-bar {
+	background: rgba(160, 108, 112, 0.75);
+}
+
+.outline-bar {
+	height: 2px;
+	border-radius: 999px;
+	background: #d3b3ac;
+	transition: background 0.15s ease, width 0.15s ease;
+}
+
+.outline-bar.is-active {
+	height: 3px;
+	background: var(--brand);
+}
+
+.outline.is-open .outline-bars {
+	opacity: 0.5;
+}
+
+.outline-panel {
+	position: absolute;
+	right: 26px;
+	top: 50%;
+	display: flex;
+	flex-direction: column;
+	width: 292px;
+	max-height: min(60vh, 460px);
+	border: 1px solid var(--border);
+	border-radius: 16px;
+	background: rgba(255, 253, 251, 0.97);
+	box-shadow: 0 18px 50px rgba(71, 27, 39, 0.16);
+	backdrop-filter: blur(18px);
+	pointer-events: none;
+	opacity: 0;
+	transform: translateY(-50%) translateX(10px) scaleX(0.96);
+	transform-origin: right center;
+	transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.outline.is-open .outline-panel {
+	pointer-events: auto;
+	opacity: 1;
+	transform: translateY(-50%) translateX(0) scaleX(1);
+}
+
+.outline-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 14px 16px 8px;
+}
+
+.outline-count {
+	color: var(--muted);
+	font-size: 10.5px;
+}
+
+.outline-list {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	padding: 0 6px 10px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	/* First and last rows dissolve instead of being clipped mid-glyph. */
+	-webkit-mask-image: linear-gradient(
+		180deg,
+		transparent 0,
+		#000 10px,
+		#000 calc(100% - 12px),
+		transparent 100%
+	);
+	mask-image: linear-gradient(
+		180deg,
+		transparent 0,
+		#000 10px,
+		#000 calc(100% - 12px),
+		transparent 100%
+	);
+}
+
+.outline-row {
+	position: relative;
+	padding: 7px 10px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.35;
+	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+
+.outline-row:hover {
+	/* Hover reads as "this is what I would jump to": lighter text on blush. */
+	color: #b79aa2;
+	background: rgba(224, 68, 107, 0.05);
+}
+
+.outline-row.is-active {
+	color: var(--brand);
+	font-weight: 600;
+	background: rgba(224, 68, 107, 0.07);
+}
+
+.outline-row.is-active::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 6px;
+	bottom: 6px;
+	width: 2px;
+	border-radius: 999px;
+	background: var(--brand);
+}
+
+.outline-text {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* ── back to top ───────────────────────────────────────────────────────── */
+.back-to-top {
+	position: fixed;
+	right: max(20px, calc((100vw - 1440px) / 2 + 96px));
+	bottom: calc(var(--footer-h) + 16px);
+	z-index: 35;
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	height: 38px;
+	padding: 0 16px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: rgba(255, 253, 251, 0.96);
+	color: #a9304a;
+	font: inherit;
+	font-size: 12.5px;
+	font-weight: 600;
+	box-shadow: 0 12px 30px rgba(71, 27, 39, 0.14);
+	backdrop-filter: blur(12px);
+	cursor: pointer;
+	animation: back-to-top-in 0.18s ease-out;
+}
+
+.back-to-top svg {
+	width: 14px;
+	height: 14px;
+}
+
+.back-to-top:hover {
+	border-color: #e7c9c1;
+	background: #fff7f4;
+}
+
+@keyframes back-to-top-in {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* Both widgets exist only where there is room beside the reading column; in the
+   single-column layout the outline would cover the text it indexes. */
+@media (max-width: 1040px) {
+	.outline {
+		display: none;
+	}
+}
+
+@media (max-width: 800px) {
+	.footer-talk {
+		grid-template-columns: 1fr;
+		align-items: stretch;
+	}
+
+	.footer-talk .footer-center {
+		justify-self: start;
+	}
+
+	.footer-talk .footer-actions {
+		justify-self: stretch;
+	}
+
+	.footer-talk .btn-approve {
+		flex: 1;
+	}
+
+	.back-to-top {
+		right: 16px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.outline-panel,
+	.outline-bar,
+	.composer-input {
+		transition: none;
+	}
+
+	.back-to-top {
+		animation: none;
 	}
 }

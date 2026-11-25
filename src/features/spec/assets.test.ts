@@ -2,7 +2,7 @@
  * Wiring between the built UI and the review server.
  *
  * The UI is a separate Vite app whose output is committed to
- * `src/features/spec/assets/` (see `pnpm ui:check`). These assertions catch the
+ * `src/features/review-page/assets/` (see `pnpm ui:check`). These assertions catch the
  * failure that would otherwise only show up in a browser: the page shipping a
  * bundle path the server cannot resolve (Vite's `assetsDir` and the server's
  * `/assets/<file>` route have to agree).
@@ -15,7 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startSpecServer } from "./server.js";
 import { createSpecSession } from "./store.js";
 
-const assetsDir = new URL("./assets/", import.meta.url).pathname;
+const assetsDir = new URL("../review-page/assets/", import.meta.url).pathname;
 const built = existsSync(join(assetsDir, "index.html"));
 let agentDir: string;
 

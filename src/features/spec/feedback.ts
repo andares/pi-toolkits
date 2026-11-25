@@ -10,7 +10,7 @@
  * block notes (about one paragraph). There is no inline/range annotation, which
  * is what keeps the block model from needing re-anchoring after an edit.
  */
-import { blockLabel, type Block } from "./blocks.js";
+import { blockLabel, type Block } from "../review-page/blocks.js";
 import type { DiffEntry } from "./diff.js";
 
 export type AnnotationVerdict = "change" | "suggest" | "question";

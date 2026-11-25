@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: thirteen ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **spec review in the browser** `ask-spec`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, a **session backlog for parallel work** `keep`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
+In a nutshell: fourteen ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **spec review in the browser** `ask-spec`, **reply notes in the browser** `ask-talk`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, a **session backlog for parallel work** `keep`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.6.0 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -78,6 +78,7 @@ After installing, verify in any pi session:
 | 📥 **stash** prompt stash | `ctrl+alt+y` | a stash slot for one prompt: press to swap, press twice to stash and clear the input box |
 | 🔎 **review** third-party code review | `/ask-review` | summon the configured review model to check + fix the task just finished, focusing on "is this round's requirement implemented / is anything missing / is anything wrong" |
 | 🧭 **spec** browser-reviewed specs | `/ask-spec` | research first, write a spec, review it in your browser paragraph by paragraph, annotate block by block, then implement only after approval |
+| 💬 **talk** reply notes | `/ask-talk` | annotate the agent's last reply in the browser — one note per block plus one message — and send it back as a single short message instead of re-quoting the answer |
 | ✅ **uat** acceptance ledger | `/ask-uat` | after `/ask-init`: cluster pending change records into user-facing acceptance items, tick them off on a page (append-only ledger, no submit), and see what shipped without being verified |
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
@@ -301,6 +302,7 @@ After a development task is done, type the `/ask-review` command to summon **a d
 - **History is kept.** Every submitted revision is stored under `<agent-dir>/ask-spec/<slug>/` and the header lets you reopen any of them read-only. Existing `<agent-dir>/ask-plan/` histories are migrated on first use.
 - **The review phase uses the boundary checks.** `/ask-perm` is switched on with its defaults when the review starts and restored when it ends; the only file the review phase may write is markdown.
 - **Every revision gets a fresh window.** The review server closes shortly after you send a decision, so the next submitted revision starts a new server (next free port in the 20-port range) and opens a new window instead of pointing you at a dead URL. That is a restart of the page, not of the review: every revision, annotation and decision is kept, and the history drawer still lists the earlier rounds.
+- **Contents and back to top.** A column of warm grey bars sits at the reading column's right edge; pointing at it opens a table of contents (one bar per heading, current section marked) that jumps on click, and the whole column hides in the single-column layout. Once the right column has scrolled out of view, a "Back to top" button appears above the footer. Both are shared with `/ask-talk`.
 - **No model switching, ever.** The spec is reviewed and implemented with whatever model the session is on. (`/ask-review` is the one command that does switch, because you asked it to.)
 
 **Browser on WSL**: the review server binds `0.0.0.0` and the URL is printed with the WSL address, because Windows cannot reach a loopback-only server inside WSL. The opener prefers a Windows-side launcher (`wslview`, `cmd.exe /c start`, `powershell Start-Process`) and only falls back to `xdg-open` elsewhere — that is the difference between "opens your browser" and "opens a browser inside WSL that you cannot see".
@@ -316,6 +318,27 @@ The spec lands in `specs/<slug>.md` — the same place `/ask-init` keeps specs. 
 agent framework the review still works, but `record_change` and `/ask-uat` stay unavailable
 until `/ask-init`; the command says so when the review starts. Leave an open UAT page first:
 the two phases do not run on top of each other.
+
+---
+
+## 💬 talk — annotate the last reply
+
+<a name="talk"></a>
+
+`/ask-talk` takes the agent's **last formal reply** — the final assistant message of the current turn, with thinking and tool calls excluded — and opens it in the same review page as `/ask-spec`: read it as a document, put a note on any paragraph, type a message at the bottom, press **Continue**.
+
+No tool is registered, no tool set changes, no permission mode is touched and nothing is added to the system prompt: the command costs nothing until you type it, and it works inside `/ask` and the other phases.
+
+- **Only the notes go back.** The message is `## Notes on your last reply` — each note with the block it quotes, clipped to 600 characters — followed by `## Operator's message`. The reply itself is not echoed: it is already in the model's context. If a compaction pushed it out, the reply is repeated once in full so the quotes still point at text the model can see.
+- **One note per block, no verdicts.** A conversation annotation is "here is what I think about this part", not a change request to triage; clicking the note edits it.
+- **No versions, no diff, no approval.** It is a snapshot, not a document under revision. Running `/ask-talk` again refreshes it: the same reply keeps your notes, a new reply starts empty.
+- **Continue commits once.** It saves the notes and the composer text, sends one message and closes the port; the page then offers to be closed (a tab opened by an external launcher cannot be closed by script).
+- **It refuses while the agent is running.** The host persists an assistant message at the end of a run, so annotating mid-run would silently show the *previous* reply.
+
+```text
+/ask-talk        # open (or refresh) the page for the last reply
+/ask-talk off    # close it
+```
 
 ---
 

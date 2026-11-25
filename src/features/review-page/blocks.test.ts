@@ -29,6 +29,23 @@ describe("parseBlocks", () => {
 		expect(blocks[1]?.kind).toBe("text");
 	});
 
+	it("splits a heading from adjacent prose and from the next heading without blank lines", () => {
+		const blocks = parseBlocks("## One\nfirst body\n## Two\nsecond body");
+		expect(blocks.map((block) => [block.kind, block.text])).toEqual([
+			["heading", "## One"],
+			["text", "first body"],
+			["heading", "## Two"],
+			["text", "second body"],
+		]);
+		expect(blocks.map((block) => block.line)).toEqual([1, 2, 3, 4]);
+	});
+
+	it("does not treat heading-like lines inside a fence as block boundaries", () => {
+		const blocks = parseBlocks("```md\n## One\n## Two\n```");
+		expect(blocks).toHaveLength(1);
+		expect(blocks[0]?.kind).toBe("code");
+	});
+
 	it("classifies lists, quotes and tables", () => {
 		const blocks = parseBlocks("- one\n- two\n\n> quoted\n\n| a | b |\n| --- | --- |\n| 1 | 2 |");
 		expect(blocks.map((block) => block.kind)).toEqual(["list", "quote", "table"]);

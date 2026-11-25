@@ -34,7 +34,7 @@ import { parseCommandUnits } from "../permission/units.js";
 import { buildFeedbackMarkdown } from "./feedback.js";
 import { openInBrowser } from "../../lib/opener.js";
 import { buildSpecKickoff, buildSpecSystemPrompt } from "./prompt.js";
-import { renderBlockHtml } from "./render.js";
+import { renderBlockHtml } from "../review-page/render.js";
 import { buildSpecState, startSpecServer, type SpecServerHandle } from "./server.js";
 import {
 	appendSpecVersion,

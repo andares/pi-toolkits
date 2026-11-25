@@ -22,7 +22,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { parseBlocks, type Block } from "./blocks.js";
+import { parseBlocks, type Block } from "../review-page/blocks.js";
 import { diffBlocks, type DiffEntry } from "./diff.js";
 import type { Annotation, BlockAnnotations } from "./feedback.js";
 

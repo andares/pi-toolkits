@@ -36,6 +36,7 @@ import { registerSpec } from "./features/spec/index.js";
 import { registerQuitGuard } from "./features/quit-guard/index.js";
 import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
+import { registerTalk } from "./features/talk/index.js";
 import { registerUat } from "./features/uat/index.js";
 import { registerWhatsNew } from "./features/whats-new/index.js";
 
@@ -60,6 +61,9 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	registerQuitGuard(pi);
 	registerReview(pi);
 	registerStash(pi);
+	// Not a phase: no tools, no gates, no prompt banner. Registered after the
+	// phases so it never competes with their `before_agent_start` assertions.
+	registerTalk(pi);
 	// UAT registers after spec so its `before_agent_start` re-assertion runs last
 	// and can add `record_change` to whatever tool set spec installed.
 	registerUat(pi);

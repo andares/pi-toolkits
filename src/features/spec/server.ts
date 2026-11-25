@@ -16,7 +16,8 @@
  * routes and payload.
  */
 import { fileURLToPath } from "node:url";
-import { blockLabel, type Block } from "./blocks.js";
+import { blockLabel, type Block } from "../review-page/blocks.js";
+import { extractHeadings, type Heading } from "../review-page/headings.js";
 import type { BlockStatus, DiffEntry } from "./diff.js";
 import type { Annotation, BlockAnnotations } from "./feedback.js";
 import {
@@ -28,7 +29,7 @@ import {
 } from "./store.js";
 import { bindHost, isWsl, urlHost } from "../../lib/opener.js";
 import { startWebServer, type WebServerHandle } from "../../lib/web-review.js";
-import { renderBlockHtml } from "./render.js";
+import { renderBlockHtml } from "../review-page/render.js";
 
 export interface SpecStateItem {
 	status: BlockStatus;
@@ -41,6 +42,7 @@ export interface SpecStateItem {
 }
 
 export interface SpecStatePayload {
+	mode: "spec";
 	slug: string;
 	version: number;
 	totalVersions: number;
@@ -52,6 +54,8 @@ export interface SpecStatePayload {
 	decided: boolean;
 	/** Earlier revisions, newest first — the history drawer. */
 	history: Array<{ n: number; at: string; changed: number }>;
+	/** Outline entries over the revision being viewed (shared with talk mode). */
+	headings: Heading[];
 }
 
 /** Compose what the page renders: blocks of one revision, tagged with their diff status. */
@@ -88,6 +92,7 @@ export function buildSpecState(session: SpecSession, versionNumber?: number): Sp
 	}
 
 	return {
+		mode: "spec",
 		slug: session.slug,
 		version: version.n,
 		totalVersions: latestVersion(session).n,
@@ -104,6 +109,9 @@ export function buildSpecState(session: SpecSession, versionNumber?: number): Sp
 				changed: candidate.diff.filter((entry) => entry.status !== "unchanged").length,
 			}))
 			.sort((a, b) => b.n - a.n),
+		// Outline entries follow the revision being viewed, so "View a previous
+		// version" moves the table of contents with it.
+		headings: extractHeadings(version.blocks),
 	};
 }
 
@@ -173,7 +181,7 @@ export function normalizeAnnotations(input: unknown): SpecAnnotations {
 }
 
 export async function startSpecServer(options: StartSpecServerOptions): Promise<SpecServerHandle> {
-	const assetsDir = options.assetsDir ?? fileURLToPath(new URL("./assets/", import.meta.url));
+	const assetsDir = options.assetsDir ?? fileURLToPath(new URL("../review-page/assets/", import.meta.url));
 	const render = options.render ?? renderBlockHtml;
 	const closeDelayMs = options.closeDelayMs ?? 1500;
 	let closing = false;

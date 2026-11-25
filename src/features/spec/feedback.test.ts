@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseBlocks } from "./blocks.js";
+import { parseBlocks } from "../review-page/blocks.js";
 import { diffBlocks } from "./diff.js";
 import { buildFeedbackMarkdown } from "./feedback.js";
 

@@ -13,7 +13,7 @@ export default defineConfig({
 	plugins: [solid()],
 	base: "/",
 	build: {
-		outDir: "../src/features/spec/assets",
+		outDir: "../src/features/review-page/assets",
 		assetsDir: ".",
 		emptyOutDir: true,
 		target: "es2022",

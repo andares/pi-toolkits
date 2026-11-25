@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含十三个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**并行任务的会话暂存** `keep`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
+一句话介绍:目前包含十四个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**回复批注** `ask-talk`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**并行任务的会话暂存** `keep`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.6.0 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -78,6 +78,7 @@ pi -e ./src/index.ts
 | 📥 **stash** 提示词暂存 | `ctrl+alt+y` | 一段提示词的暂存槽,按键交换 / 连按两次暂存并清空输入框 |
 | 🔎 **review** 第三方代码评审 | `/ask-review` | 召唤配置的评审模型,对刚完成的任务做查+修,重点检查「本轮需求实现 / 是否有遗漏 / 是否有错误」 |
 | 🧭 **spec** 浏览器内规格评审 | `/ask-spec` | 先调研、写 spec、在浏览器里逐段评审并逐块批注,批准之后才动代码 |
+| 💬 **talk** 回复批注 | `/ask-talk` | 把 agent 最近一条正式回复摊在浏览器里,逐块写批注、底部写一句话,合起来作为一条短消息发回,而不是把原文再贴一遍 |
 | ✅ **uat** 验收台账 | `/ask-uat` | `/ask-init` 之后：把待归类的实施记录聚成用户视角的验收项，在页面里勾选（只追加、无提交），看清哪些已交付但还没验过 |
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
@@ -315,6 +316,27 @@ run = ["/ask-perm allow allow allow ask"]
 spec 落在 `specs/<slug>.md`——与 `/ask-init` 放 spec 的地方相同。没有 agent 框架时评审仍可用，
 但 `record_change` 与 `/ask-uat` 不可用，直到 `/ask-init`；命令在评审开始时会说明。
 UAT 页面开着时先退出：两个相位不叠在一起跑。
+
+---
+
+## 💬 talk — 给最近一条回复写批注
+
+<a name="talk"></a>
+
+`/ask-talk` 把 agent **最近一条正式回复**（当前回合最后一条 assistant 消息的正文，不含 thinking 与工具调用）用与 `/ask-spec` 相同的评审页打开：当文档读，任意段落写一条批注，底部输入一句话，按 **继续**。
+
+不注册工具、不改工具集、不动权限、不进系统提示：不用它时零成本，且在 `/ask` 等相位期间都能用。
+
+- **只发批注。** 消息是 `## Notes on your last reply`（每条批注 + 它引用的块，引用裁到 600 字符）加 `## Operator's message`；回复原文不重复，因为它本来就在模型上下文里。若中途 compact 把它挤掉了，才整篇附一次。
+- **每块一条批注、无 verdict。** 对话里的批注就是「这块我想说这句」，点开可改。
+- **没有版本、没有 diff、没有批准。** 这是快照不是待修订的文档；再跑一次等于刷新：同一条回复保留批注，换了回复就清空。
+- **继续只提交一次。** 保存批注与输入框、发一条消息、关掉端口；页面随后提示可以关闭（外部打开的标签页脚本关不掉）。
+- **agent 还在跑时拒绝。** 宿主在回合结束才落盘 assistant 消息，跑到一半打开只会静默显示**上一轮**。
+
+```text
+/ask-talk        # 打开（或刷新）最近一条回复的批注页
+/ask-talk off    # 关掉
+```
 
 ---
 

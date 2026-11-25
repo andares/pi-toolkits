@@ -8,6 +8,15 @@
 export type Verdict = "change" | "suggest" | "question";
 export type BlockStatus = "unchanged" | "moved" | "modified" | "added" | "removed";
 export type Decision = "approve" | "deny";
+export type Mode = "spec" | "talk";
+
+/** One outline row; the anchor is a block, not a line. */
+export interface Heading {
+	blockId: string;
+	/** 1–6. */
+	level: number;
+	text: string;
+}
 
 export interface Annotation {
 	verdict: Verdict;
@@ -25,7 +34,10 @@ export interface Annotations {
 }
 
 export interface SpecItem {
-	status: BlockStatus;
+	/** Absent in talk mode: a snapshot has no diff against anything. */
+	status?: BlockStatus;
+	/** Talk mode uses this to keep headings navigable but not annotatable. */
+	kind?: "heading" | "text" | "list" | "code" | "table" | "quote";
 	id: string;
 	prevId?: string;
 	html: string;
@@ -33,6 +45,7 @@ export interface SpecItem {
 }
 
 export interface SpecState {
+	mode: "spec";
 	slug: string;
 	version: number;
 	totalVersions: number;
@@ -43,7 +56,21 @@ export interface SpecState {
 	decision?: { action: Decision; at: string };
 	decided: boolean;
 	history: Array<{ n: number; at: string; changed: number }>;
+	headings: Heading[];
 }
+
+/** `/ask-talk`: one reply, one note per block, one composer, no versions. */
+export interface TalkState {
+	mode: "talk";
+	reply: { model?: string; at: string; chars: number };
+	items: SpecItem[];
+	headings: Heading[];
+	notes: Record<string, string>;
+	draft: string;
+	sent: boolean;
+}
+
+export type PageState = SpecState | TalkState;
 
 const token = new URLSearchParams(window.location.search).get("t") ?? "";
 
@@ -62,8 +89,22 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 	return (await response.json()) as T;
 }
 
-export function fetchState(version?: number): Promise<SpecState> {
-	return request<SpecState>(version === undefined ? "/api/state" : `/api/state?version=${version}`);
+export function fetchState(version?: number): Promise<PageState> {
+	return request<PageState>(version === undefined ? "/api/state" : `/api/state?version=${version}`);
+}
+
+export function postTalkNotes(notes: Record<string, string>, draft: string): Promise<{ ok: true }> {
+	return request<{ ok: true }>("/api/notes", {
+		method: "POST",
+		body: JSON.stringify({ notes, draft }),
+	});
+}
+
+export function postContinue(notes: Record<string, string>, message: string): Promise<{ ok: true }> {
+	return request<{ ok: true }>("/api/continue", {
+		method: "POST",
+		body: JSON.stringify({ notes, message }),
+	});
 }
 
 export function postAnnotations(version: number, annotations: Annotations): Promise<{ ok: true }> {
@@ -84,6 +125,10 @@ export interface EventHandlers {
 	onRevision: (version: number) => void;
 	onAnnotations: () => void;
 	onDecided: (decision: { action: Decision; version: number }) => void;
+	/** talk mode: the snapshot was replaced (or is being re-shown). */
+	onRefresh?: () => void;
+	/** talk mode: Continue was accepted; the port closes right after. */
+	onSent?: () => void;
 }
 
 /** SSE payloads are ours, but a malformed frame must not break the page. */
@@ -107,5 +152,7 @@ export function subscribe(handlers: EventHandlers): () => void {
 		const data = parseEvent<{ action: Decision; version: number }>(event);
 		if (data) handlers.onDecided(data);
 	});
+	source.addEventListener("refresh", () => handlers.onRefresh?.());
+	source.addEventListener("sent", () => handlers.onSent?.());
 	return () => source.close();
 }

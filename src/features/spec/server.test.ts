@@ -3,8 +3,8 @@ import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { parseBlocks } from "./blocks.js";
-import { renderBlockHtml } from "./render.js";
+import { parseBlocks } from "../review-page/blocks.js";
+import { renderBlockHtml } from "../review-page/render.js";
 import { buildSpecState, normalizeAnnotations, startSpecServer, type SpecServerHandle } from "./server.js";
 import { appendSpecVersion, createSpecSession, type SpecSession } from "./store.js";
 
@@ -124,6 +124,20 @@ describe("buildSpecState", () => {
 		const state = buildSpecState(session);
 		expect(state.items.map((item) => item.status)).toEqual(["unchanged", "unchanged", "unchanged"]);
 		expect(state.totalVersions).toBe(1);
+	});
+
+	it("declares spec mode and ships an outline over the viewed revision", () => {
+		const session = makeSession("# Top\n\nintro\n\n## Section\n\nbody");
+		const state = buildSpecState(session);
+		expect(state.mode).toBe("spec");
+		expect(state.headings.map((heading) => [heading.level, heading.text])).toEqual([
+			[1, "Top"],
+			[2, "Section"],
+		]);
+		// Anchors point at blocks the page actually renders.
+		for (const heading of state.headings) {
+			expect(state.items.some((item) => item.id === heading.blockId)).toBe(true);
+		}
 	});
 
 	it("carries the diff statuses and the previous-block ids for a later revision", () => {

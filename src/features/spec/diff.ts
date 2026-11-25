@@ -21,7 +21,7 @@
  * bigrams because plans mix English and CJK (word splitting would collapse a
  * Chinese sentence into one token).
  */
-import type { Block } from "./blocks.js";
+import type { Block } from "../review-page/blocks.js";
 
 export type BlockStatus = "unchanged" | "moved" | "modified" | "added" | "removed";
 

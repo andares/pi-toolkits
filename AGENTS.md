@@ -79,7 +79,7 @@ CHANGELOG、npm description/keywords 等任何对外文案。理由：这些规�
 对使用者既无用又会被读成承诺（一旦某轮窗口因故未跑满，用户会当成毁约而不是维护节奏）。
 
 （当前：强制窗口 1.3 / 1.4 / 1.5 / 1.6，1.5 线含 1.5.0、1.5.1 与 1.5.2，1.6 线只有 1.6.0；向后探针
-1.2 / 1.1 / 1.0 / 0.99 **四条线全绿**（每版 991 passed），0.99 已是探针额度的最老一线；再往下的
+1.2 / 1.1 / 1.0 / 0.99 **四条线全绿**（矩阵各版通过（1054 项；本轮 1.5.1 有 1 项条件跳过）），0.99 已是探针额度的最老一线；再往下的
 0.87.x 在上一轮探到并**停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`（`ask/scratch-tool` 与
 `init/tool` 两处），且 `ToolCallEvent` 上没有 `parentToolCallId`（2026-10-24 审批日志、
 2026-10-26 init 新增的依赖），typecheck 红属探测结论、不改代码（本轮探针额度已满，未重探）；
@@ -569,8 +569,8 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 54 个文件 / 991 测试全绿；`pnpm check:compat` 在强制窗口
-  1.3.0–1.6.0 全绿（每版 991 passed），向后探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 也全绿（0.87.x
+- 测试：`pnpm test` 60 个文件 / 1054 测试全绿；`pnpm check:compat` 在强制窗口
+  1.3.0–1.6.0 全绿（矩阵各版通过（1054 项；本轮 1.5.1 有 1 项条件跳过）），向后探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 也全绿（0.87.x
   上一轮因 `defaultActive` 停探、不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
 - 真实 pi 1.6.0 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
   历史冒烟（1.5.2 同命令回 `OK`；1.4.0 项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）；
@@ -797,9 +797,9 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿（init 11 个测试文件 / 122 用例）；
+- `pnpm typecheck` 绿；`pnpm test` **60 文件 / 1054 测试**全绿（init 11 个测试文件 / 122 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
-- `pnpm check:compat`：窗口 1.3.0–1.6.0 全绿（每版 991 passed），探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 全绿、
+- `pnpm check:compat`：窗口 1.3.0–1.6.0 全绿（矩阵各版通过（1054 项；本轮 1.5.1 有 1 项条件跳过）），探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 全绿、
   0.87.x 上一轮因 `defaultActive` 停探（本轮探针额度已满，未重探），floor 0.99.0。
 - 测试稳定性（2026-11-04）：矩阵并发四沙箱时，vitest 默认 worker 数（22 核 → 21）会因内存
   压力让**不同的**测试偶发超时（1.0.2 的 git fixture、1.0.1 的动态 import），把 floor 拖到噪声上。
@@ -950,7 +950,7 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 54 个文件 / 991 测试全绿；`pnpm check:compat` 强制窗口
+- 测试：`pnpm test` 60 个文件 / 1054 测试全绿；`pnpm check:compat` 强制窗口
   1.3.0–1.6.0 + 向后探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
   真实 pi 1.6.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
@@ -1024,7 +1024,7 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 
 **已验证**
 
-- `pnpm test` 54 个文件 / 991 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+- `pnpm test` 60 个文件 / 1054 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
   `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
 - 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
   单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、
@@ -1173,7 +1173,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck`、`pnpm test`：**54 文件 / 991 测试**全绿（quit-guard 55 例，含 killer 4 例）。
+- `pnpm typecheck`、`pnpm test`：**60 文件 / 1054 测试**全绿（quit-guard 55 例，含 killer 4 例）。
 - **2026-11-13 真实事故与修复验证**：真实会话里 guard 已 fire、报告已落盘、"forcing exit"
   已打印，但 `process.exit(0)` 卡死在宿主 exit 路径（主线程 `futex_wait`，18 分钟未退，
   pty 被用户关窗口删掉，fd 0/1/2 → `/dev/pts/N (deleted)`；宿主 chunk 里确认 pi-tui
@@ -1283,7 +1283,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已实现并验证（2026-11-25）
 
-- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿（keep 41 例：折叠/探活/补写/笔记回退/rebuild/四条拒绝理由/取消回滚/`--all` 过滤/picker 键位）。
+- `pnpm typecheck` 绿；`pnpm test` **60 文件 / 1054 测试**全绿（keep 41 例：折叠/探活/补写/笔记回退/rebuild/四条拒绝理由/取消回滚/`--all` 过滤/picker 键位）。
 - 真实 pi 1.6.0 + tmux 冒烟（`-ne -e ./src/index.ts`，独立 `--session-dir`）：`/keep-quit` 后账本落 `keep`、进程退出；重开新会话
   notice `2 not loaded`；`/keep-load` 列表 `○`/`●` 两段（用 `capture-pane -e` 确认置灰色值不同）；enter 载入后注入 `[keep] Resumed …`
   且账本**只有 load 没有 unload**；已载入的行可以强行重载；`kill -9` 持有进程后下一次读取补一条 `unload`（两个 owner 全灭 → 回到 `○`）；
@@ -1333,9 +1333,9 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/features/spec/blocks.ts` | 段落切分（围栏感知）、归一化哈希、重复段落出现序号 |
+| `src/features/review-page/blocks.ts` | 段落切分（围栏感知）、归一化哈希、重复段落出现序号 |
 | `src/features/spec/diff.ts` | 块级 diff 三态 + moved |
-| `src/features/spec/render.ts` | markdown 子集 → HTML（先转义，无原始 HTML 透传） |
+| `src/features/review-page/render.ts` | markdown 子集 → HTML（先转义，无原始 HTML 透传） |
 | `src/features/spec/feedback.ts` | 批注 → 固定模板的模型消息（英文） |
 | `src/features/spec/prompt.ts` | 评审横幅 + spec 骨架（12 段）+ 段落书写纪律 |
 | `src/features/spec/store.ts` | `<agent-dir>/ask-spec/<slug>/vNNN.md` + `state.json`（原子写、50 版上限、旧目录迁移） |
@@ -1343,12 +1343,12 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 | `src/lib/opener.ts` | WSL 探测、绑定地址、打开器选择（spec 与 uat 共用） |
 | `src/features/spec/index.ts` | `/ask-spec` + `/ask-plan` 别名、`spec_submit`、gate、系统提示注入、决策回投 |
 | `src/lib/phases.ts` | `SPEC_PHASE_TOOL` + 旧 `plan_submit` 识别；phase 名 `spec` |
-| `ui/` | Solid 1.9 + Vite 8 单页，产物落 `src/features/spec/assets/`（`pnpm ui:check` 防过期） |
+| `ui/` | Solid 1.9 + Vite 8 单页，产物落 `src/features/review-page/assets/`（`pnpm ui:check` 防过期） |
 | `design/ask-spec.ptr` | 已确认的评审页设计稿（暖纸/玫瑰、双栏、批注索引、底部决策栏） |
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿（spec 113 例）；`pnpm ui:typecheck` 绿；`pnpm ui:build` 已更新 assets（`ui:check` 的 git-clean 断言需在提交 assets 后成立）。
+- `pnpm typecheck` 绿；`pnpm test` **60 文件 / 1054 测试**全绿（spec 113 例）；`pnpm ui:typecheck` 绿；`pnpm ui:build` 已更新 assets（`ui:check` 的 git-clean 断言需在提交 assets 后成立）。
 - 命令：`/ask-spec` 与 `/ask-plan` 指向同一个 handler；不带主题默认 `specs/spec.md`；
   `spec_submit` 默认不在工具集里，进入评审期才激活；旧 `plan_submit` 仍被相位判定识别。
 - 评审期写入边界：`echo x > src/a.ts` / `cp a.ts b.ts` 被 gate 拒；写入 `specs/` 下的
@@ -1378,6 +1378,70 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 - 端口固定从 3401 顺延 20 个（`portAttempts` 可注入，仅测试用），不做配置项（崔总 2026-11-11 定）；
   多个会话/多次重启各自走这条递增链，互不抢端口（`server.test.ts` 覆盖）。
 - `/ask-plan` 别名只保证命令入口；提示语、日志与文档一律以 `/ask-spec` 为准。
+
+## Feature: talk（`/ask-talk` 回复批注，2026-11-25 实现）
+
+对话里最贵的一步是复述：「第三段那个判断不对」要么抄原文，要么绕三句指位置。`/ask-talk` 把 agent **最近一条正式回复**当成文档摊在浏览器里，逐块批注 + 底部一句话，`Continue` 之后作为一条消息回到对话。
+
+### 不变量
+
+- **不是相位**：不注册工具、不改工具集、不动权限、不进系统提示 → 不用时零常驻 token，`/ask`、`/ask-spec`、`/ask-uat` 期间都能用。
+- **只回批注与那句话**：`## Notes on your last reply`（每条 = 章节路径 + 引用块 + note）+ `## Operator's message`；**不回原文**——它本来就在模型上下文里。唯一例外见下。
+- **每个非标题块一条 note、无 verdict**、无版本/diff/批准；再跑一次 = 刷新（同一回复保 note，换了回复清空，因为块 id 是内容哈希）。
+- **`!ctx.isIdle()` 一律拒绝**：assistant 消息在 `message_end` 才落盘，跑到一半打开只会静默显示上一轮。
+- **`Continue` 只提交一次**：会收集仍在编辑器里、尚未点 Save 的批注；`sent` 之后写路由全 409、端口 1.2 s 后关闭；页面是 OS 打开的标签页，`window.close()` 多半被拦，sent 态才是真正的兜底。
+- 运行时文案英文。
+
+### 取「最后一次正式回复」
+
+`extractLastReply(ctx.sessionManager.getBranch())` 从末尾往前扫：跳过非 `message`；`role === "assistant"` 只取最后一个 thinking/toolCall 边界之后的连续 `text` 段（同一 assistant 消息内的前置过程话也排除）；撞到 `user` / `custom_message` / `compaction` / `branch_summary` 就停（回合边界）。纯工具调用的 assistant 继续往前找，不吃掉上一轮的答案。
+
+引用块裁到 600 字符、按行切、切在围栏里就补闭合（省略号放在围栏内，避免它变成代码块之后的散文）。**Continue 到达时**重查 `entryId` 是否仍在 `buildContextEntries()` 里；被 compact 挤掉才整篇附一次全文——那时引用指向模型看不见的文字，回贴是必要的。off / 换会话后，旧快照的在途 Continue 直接丢弃。
+
+标题块**去掉 `##` 再引用**：`### Alpha` 下面紧跟 `> ## Alpha` 读起来是 blockquote 里的嵌套标题，是纯噪声。
+
+### 页面：一份 bundle，两种模式
+
+`ui/src/App.tsx` 先取一次 `/api/state`，按 `mode` 渲染 `SpecView` 或 `TalkPage`；块渲染、批注卡、索引条、回顶按钮是共享组件（`ui/src/shared.tsx`），分支只在顶栏/右栏/底栏/块头/note 编辑器这几处。服务端两套路由、一套 HTTP 壳（`lib/web-review.ts`），talk 端口从 **3501** 起（spec/uat 是 3401，URL 一眼能分）。
+
+### 索引条与回到顶部（两种模式通用）
+
+- 折叠态：16px 宽、2px 高、6px 间距的一列横杠，贴**内容区右缘**（页面右侧留白），宽度按层级递减，颜色 `#D3B3AC`（中性灰在暖纸底上发脏），CSS `mask-image` 让首尾 14px 自然淡出；当前节用品牌色。
+- 超过 24 个标题等距抽样（保留首条与当前节）——精度不重要。
+- 悬停整组展开 292px 浮窗（180ms 由右向左），复刻底栏面板语言（surface / 1px 边框 / soft shadow / blur）；离开 200ms 后收起，鼠标从横杠移进浮窗不会闪断；滚轮在浮窗内只滚列表。
+- 点击：`scrollIntoView` 到块 → 块描边闪 1.2s（`.is-target`）；spec 模式下目标块被「只看改动」隐藏时先展开。
+- 回到顶部：`IntersectionObserver` 盯 `.rail`，`!isIntersecting && rect.bottom <= 0`（**右栏整体滚出视口**）才出现；`bottom: calc(var(--footer-h) + 16px)`，`--footer-h` 由 `ResizeObserver` 写回 `:root`（talk 的输入框会长高）。≤1040px 单栏时索引条 `display:none`，回顶改判 `scrollY > 0.8 × 视口高`。
+
+### 落位
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/features/review-page/{blocks,render,headings}.ts` + `assets/` | 两种模式共用的块模型、markdown 子集渲染、标题索引、构建产物（目录名不能用 `review/`——那是 `/ask-review`） |
+| `src/features/talk/reply.ts` | 取最后一条正式回复（回合边界、thinking/tool 排除、fingerprint） |
+| `src/features/talk/sections.ts` | 块 → 章节路径（外层在前，` > ` 连接） |
+| `src/features/talk/message.ts` | 两段式消息（裁剪、补围栏、标题去 `#`、两种省略、compact 兜底） |
+| `src/features/talk/server.ts` | talk 路由（`/api/state`、`/api/notes`、`/api/continue`）与载荷 |
+| `src/features/talk/index.ts` | `/ask-talk`（`off` 关闭）、刷新语义、会话生命周期、continue → `sendUserMessage` |
+| `ui/src/{App,SpecView,TalkPage,shared}.tsx` | 模式分发、两个视图、索引条/回顶/可伸缩输入框 |
+| `src/features/spec/server.ts` | `buildSpecState` 增加 `mode` 与 `headings`（跟随当前查看的版本） |
+
+### 已验证（2026-11-25）
+
+- `pnpm typecheck` 绿；`pnpm test` **60 文件 / 1054 测试**全绿（新增 talk 命令生命周期、快照刷新、Continue 时 compact 等回归）；`pnpm ui:typecheck` 绿；`pnpm ui:build` 产物在 `src/features/review-page/assets/`。
+- `pnpm check:compat`：窗口 1.3.0–1.6.0 全绿（矩阵各版通过（1054 项；本轮 1.5.1 有 1 项条件跳过）），探针 1.2 / 1.1 / 1.0 / 0.99 全绿，**floor 仍是 0.99.0**、peer 声明一致（新代码只碰 `getBranch` / `buildContextEntries` / `sendUserMessage` / `isIdle`）。
+- 真实 pi 冒烟：`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`。
+- 真实会话端到端（tmux + 独立 `PI_CODING_AGENT_DIR`）：模型回答后 `/ask-talk` → 页面在 3501 打开、`/api/state` 报 `items=4 headings=[(2,Alpha),(2,Beta)]` → `POST /api/continue` 带一条 note + 一句话 → 会话里出现**逐字节符合模板**的两段式消息（`### Alpha` / `> Alpha` / `- …` / `## Operator's message`），模型据此改了标题，端口随即关闭（curl exit 7）。
+- Playwright 目检（真实 `buildTalkState` 产的 state + 构建产物）：talk 页 12 块、右栏统计与批注索引、底栏 pill + 输入框 + Continue；索引条 5 根横杠（2px/8px 间距）、悬停展开浮窗（缩进 + 当前节竖条）、点击跳到目标块（`scrollY 970`、`activeRow=2.1 The dialectic`）；回顶在 `rail.bottom=-405` 出现、`rail.bottom=165` 不出现；1024px 下索引条 `display:none`；输入框失焦 24px、聚焦四行 96px。
+
+- 第三方复核后补测：新回复在原页面返回新块且 Continue 不回旧文；Continue 时 compact 会附全文；未保存编辑器内容进入提交；连续跳转只保留一个高亮并在 1.2 s 后清除；30 标题时折叠条不超过 24 根。
+
+### 已知边界（有意为之）
+
+- 索引只认 ATX 标题；setext（下划线式）与围栏内的 `#` 不算——与 `parseBlocks` 的块判定一致，锚点只到块不到行。
+- 标题行即使没有前后空行也独立成块、进入索引，但不开放批注；其后的正文是单独可批注块。
+- 同一回复再次 `/ask-talk` 不重载页面（避免覆盖保存防抖中的输入）；换成新回复才在原页面 `broadcast("refresh")`，服务端原位替换快照对象并清空 notes。
+- 引用不等于原文：600 字符之外的文字要靠模型从上下文回忆；compact 之后那条会明显变贵。
+- `window.close()` 关不掉外部打开的标签页——sent 态 + 关端口是唯一保证。
 
 ## Feature: uat（`/ask-uat` 验收台账，2026-11-12 实现）
 
@@ -1441,7 +1505,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm test` 54 文件 / 991 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
+- `pnpm test` 60 文件 / 1054 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
 - 真实 pi 1.6.0 冒烟：`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`、无 Extension 警告。
 - 覆盖：记录解析/命名/同分钟防覆盖、账本坏行与重复 id、自愈换行、N:M、link 重开、
   merge/drop/amend、命令开页与聚类派发、页面勾选往返、未知项 404。
@@ -1507,7 +1571,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证与边界
 
-- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿。真实 pi 1.6.0 冒烟（加载回 `OK`）；
+- `pnpm typecheck` 绿；`pnpm test` **60 文件 / 1054 测试**全绿。真实 pi 1.6.0 冒烟（加载回 `OK`）；
   交互式展示行为在真实 pi 1.5.2 上复验过：预置旧版本后首启展示，第二次启动不再展示；
   单元测试断言不注册任何命令。
 - print 模式不消费提示。最新修复与复验证据见本轮后续实施记录。

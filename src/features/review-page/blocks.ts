@@ -116,8 +116,17 @@ function splitChunks(markdown: string): Chunk[] {
 			continue;
 		}
 
+		// A heading starts a new block even without a blank line around it. Without
+		// this, `## Head\nbody` becomes one heading-kind chunk and the renderer has
+		// nowhere to show `body`; adjacent headings would also collapse to one index
+		// entry. Fenced `#` lines were already consumed above and stay code.
+		if (HEADING_RE.test(line)) flush();
+
 		if (current.length === 0) startLine = i + 1;
 		current.push(line);
+		// The heading itself is the whole block; its following prose is annotatable
+		// separately instead of being swallowed by the heading renderer.
+		if (HEADING_RE.test(line)) flush();
 	}
 
 	flush();
