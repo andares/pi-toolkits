@@ -9,6 +9,10 @@ renames that heading to the version being published and refuses an empty section
 (`--skip-changelog` bypasses the gate).
 ## Unreleased
 
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
+## 1.2.0 — 2026-11-26
+
 - **talk** — `/ask-talk` opens the agent's last reply in the review page: one note per block plus a composer, and `Continue` sends just the notes and your message back — the reply itself is not re-quoted.
 - **spec** — the review page gets a contents strip at the reading column's edge: point at it to open a heading index, click a heading to jump; it follows the section you are reading.
 - **spec** — a `Back to top` button appears once the right-hand column has scrolled out of view, and stays above the footer.
@@ -82,6 +86,7 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
 
 
