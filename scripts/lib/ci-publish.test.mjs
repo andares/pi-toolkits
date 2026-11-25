@@ -26,6 +26,7 @@ import {
 	registryVersionUrl,
 	waitForAttestations,
 	waitForCiPublish,
+	waitForNpmVersion,
 } from "./ci-publish.mjs";
 
 const NAME = "@andares/pi-toolkits";
@@ -402,6 +403,55 @@ describe("dispatch rescue", () => {
 		});
 		expect(await failed()).toBeUndefined();
 		expect(lines.join("\n")).toContain("HTTP 403");
+	});
+});
+
+describe("waitForNpmVersion", () => {
+	it("accepts the per-version endpoint without spawning npm", async () => {
+		const clock = fakeClock();
+		const published = await waitForNpmVersion({
+			name: NAME,
+			version: VERSION,
+			cwd: "/tmp",
+			now: clock.now,
+			sleep: clock.sleep,
+			npm: "pnpm-no-such-npm-binary",
+			fetchImpl: async () => ({ status: 200 }),
+		});
+		expect(published).toBe(true);
+	});
+
+	it("keeps polling a 404 instead of reporting it as final", async () => {
+		const clock = fakeClock();
+		let calls = 0;
+		const published = await waitForNpmVersion({
+			name: NAME,
+			version: VERSION,
+			cwd: "/tmp",
+			now: clock.now,
+			sleep: clock.sleep,
+			intervalMs: 5000,
+			npm: "pnpm-no-such-npm-binary",
+			fetchImpl: async () => (++calls >= 3 ? { status: 200 } : { status: 404 }),
+		});
+		expect(published).toBe(true);
+		expect(calls).toBe(3);
+	});
+
+	it("gives up after the timeout when only 404s arrive", async () => {
+		const clock = fakeClock();
+		const published = await waitForNpmVersion({
+			name: NAME,
+			version: VERSION,
+			cwd: "/tmp",
+			now: clock.now,
+			sleep: clock.sleep,
+			timeoutMs: 20_000,
+			intervalMs: 5000,
+			npm: "pnpm-no-such-npm-binary",
+			fetchImpl: async () => ({ status: 404 }),
+		});
+		expect(published).toBe(false);
 	});
 });
 

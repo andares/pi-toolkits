@@ -164,6 +164,41 @@ export function npmAttestations({ npm = "npm", name, version, cwd }) {
 }
 
 /**
+ * Poll until the registry reports `<name>@<version>` as published.
+ *
+ * The tail self-check used to call `npm view` exactly once. That reads the
+ * package's *packument*, and a packument replica can still be missing a version
+ * whose per-version endpoint already answers 200 — measured on v1.2.0
+ * (2026-11-25): the publish step succeeded at 17:20:42Z, the wait loop saw the
+ * version, and the tail check a moment later failed with `E404 No match found`
+ * because it read the stale packument. The release was fine; the report was not.
+ *
+ * So: the per-version endpoint is the authority (it is also what the wait loop
+ * trusts), and `npm view` stays as the fallback for when HTTP is unavailable —
+ * never as the primary read.
+ */
+export async function waitForNpmVersion({
+	npm = "npm",
+	name,
+	version,
+	cwd,
+	fetchImpl,
+	timeoutMs = 60_000,
+	intervalMs = 2000,
+	now = Date.now,
+	sleep: wait = sleep,
+}) {
+	const started = now();
+	for (;;) {
+		const http = await fetchPublishedVersion({ name, version, fetchImpl });
+		if (http === true) return true;
+		if (http === undefined && npmVersionPublished({ npm, name, version, cwd })) return true;
+		if (now() - started >= timeoutMs) return false;
+		await wait(intervalMs);
+	}
+}
+
+/**
  * List the runs of a workflow. `query` is passed through verbatim, so callers
  * use the exact filter they need (head_sha for a tag push, event+branch for a
  * dispatch) instead of filtering a mixed list afterwards.

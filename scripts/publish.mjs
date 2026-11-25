@@ -67,6 +67,7 @@ import {
 	createDispatchRescue,
 	waitForAttestations,
 	waitForCiPublish,
+	waitForNpmVersion,
 } from "./lib/ci-publish.mjs";
 import { findUnreleasedSection, promoteUnreleased } from "./lib/changelog.mjs";
 
@@ -611,12 +612,10 @@ const releaseOk = release.status === "created" || release.status === "exists";
 // 而且历史缺口不该拦住今天这版；单版本的四处核实才是每次发版都要有的证据。
 // 全量 audit 仍可用于怀疑历史漂移时（比如怀疑某次被打断的发版没人补）。
 step("尾部自检（这一版的四处证据）");
-const npmView = spawnSync(npm, ["view", `${pkg.name}@${next}`, "version"], {
-	cwd: ROOT,
-	encoding: "utf8",
-	stdio: "pipe",
-});
-const npmOk = npmView.status === 0 && npmView.stdout.trim() === next;
+// Registry, not `npm view`: the packument replica lags the per-version endpoint
+// (v1.2.0 reported a false E404 while the release was fine). `npm view` is only
+// the fallback inside the helper, for when the registry does not answer at all.
+const npmOk = await waitForNpmVersion({ name: pkg.name, version: next, cwd: ROOT });
 const attestations = npmOk
 	? await waitForAttestations({ npm, name: pkg.name, version: next, cwd: ROOT })
 	: [];
@@ -639,7 +638,7 @@ if (process.env.GITHUB_TOKEN) {
 const npmCheck = {
 	label: "npm",
 	ok: npmOk,
-	detail: npmOk ? next : (npmView.stderr || "npm view 未返回该版本").trim().slice(0, 200),
+	detail: npmOk ? next : `60s 内 registry 与 npm view 都未返回 ${next}`,
 };
 let provenanceDetail = "未发布，无 provenance";
 if (attestations.length > 0) {

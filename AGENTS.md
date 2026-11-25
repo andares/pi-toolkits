@@ -464,6 +464,13 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   <name>@<version> dist.attestations` 非空）、远端 tag 同哈希、公开 Release。npm 缺
   版本或 provenance 为空 → **退出码 1**（这是这次迁移的验收标准，不能只打印一行 ❌
   就算过）；Release 缺失仍只提示补建。
+  - **npm 那一项读的是 per-version 端点，不是 `npm view` 的 packument**：v1.2.0
+    （2026-11-25 实测）publish 步骤 17:20:42Z 成功、等 CI 的循环也看到了版本，尾部自检
+    却在同一分钟报 `E404 No match found for version 1.2.0`——因为 `npm view` 读的是
+    packument，而副本更新滞后于 per-version 端点。当时的日志会让人以为这一版没发出去，
+    并按提示去重跑工作流（幂等、什么都不会做）。现在 `waitForNpmVersion` 先探
+    per-version（与等 CI 同源），只在 HTTP 完全不可达时才回落 `npm view`，并给 60 s
+    重试窗口；判「没发出去」之前必须真的等满。
 - GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（classic token 的 `repo` scope 或
   fine-grained 的 Contents: write 都够用；本机用的是 **classic token**）；未设置时
   只提示，npm 发布与 provenance 不受影响，Release 事后用 `pnpm release:github` 补。
