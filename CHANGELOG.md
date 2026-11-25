@@ -11,6 +11,10 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+## 1.1.0 — 2026-11-25
+
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
 - **spec** — running `/ask-spec` without arguments while a spec review is active now leaves the phase; `/ask-spec off` still works.
 - **spec** — after feedback, the next submitted revision starts a new review server and opens a new window instead of printing a dead URL; reopening a closed review restarts it, and the revision history is preserved.
 - **keep** — `/keep-quit` marks the current session unfinished and quits in one step; `/keep-load` lists that backlog, already-loaded rows dimmed but still selectable, and `/keep-drop` (or `ctrl+r` in the list) removes one.
@@ -74,6 +78,7 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
 
 
