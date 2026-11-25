@@ -11,6 +11,13 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+- **spec** — running `/ask-spec` without arguments while a spec review is active now leaves the phase; `/ask-spec off` still works.
+- **spec** — after feedback, the next submitted revision starts a new review server and opens a new window instead of printing a dead URL; reopening a closed review restarts it, and the revision history is preserved.
+- **keep** — `/keep-quit` marks the current session unfinished and quits in one step; `/keep-load` lists that backlog, already-loaded rows dimmed but still selectable, and `/keep-drop` (or `ctrl+r` in the list) removes one.
+- **keep** — the next interactive start reports how many kept sessions are still unloaded (`2 not loaded · /keep-load`).
+- **keep** — a loaded session begins with the note you left at quit time, delivered as a message the model can read without triggering a turn.
+- **keep** — the backlog is an append-only ledger: two pi processes can write at once, and a `load` left behind by a killed process is repaired on the next read.
+
 ## 1.0.2 — 2026-11-24
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->

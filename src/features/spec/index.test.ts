@@ -133,6 +133,55 @@ async function decide(url: string, action: "approve" | "deny"): Promise<number> 
 	});
 }
 
+/** Read `/api/state` the way the page does. */
+async function reviewState(url: string): Promise<{
+	totalVersions: number;
+	version: number;
+	history: Array<{ n: number }>;
+}> {
+	const parsed = new URL(url);
+	const token = parsed.searchParams.get("t") ?? "";
+	return new Promise((resolve, reject) => {
+		const req = request(
+			{
+				host: "127.0.0.1",
+				port: Number(parsed.port),
+				path: "/api/state",
+				method: "GET",
+				headers: { "x-plan-token": token },
+			},
+			(res) => {
+				const chunks: Buffer[] = [];
+				res.on("data", (chunk: Buffer) => chunks.push(chunk));
+				res.on("end", () => {
+					if (res.statusCode !== 200) {
+						reject(new Error(`state HTTP ${res.statusCode}`));
+						return;
+					}
+					resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")) as never);
+				});
+			},
+		);
+		req.on("error", reject);
+		req.end();
+	});
+}
+
+/** Resolve once nothing accepts connections on that URL's port any more. */
+async function waitUntilClosed(url: string): Promise<void> {
+	const port = Number(new URL(url).port);
+	for (let attempt = 0; attempt < 100; attempt += 1) {
+		const up = await new Promise<boolean>((resolve) => {
+			const req = request({ host: "127.0.0.1", port, path: "/", method: "GET" }, () => resolve(true));
+			req.on("error", () => resolve(false));
+			req.end();
+		});
+		if (!up) return;
+		await new Promise((done) => setTimeout(done, 20));
+	}
+	throw new Error(`server on port ${port} never closed`);
+}
+
 describe("ask-spec command", () => {
 	it("enters spec mode: permission on, submit tool active, kickoff sent", async () => {
 		const h = harness();
@@ -165,6 +214,78 @@ describe("ask-spec command", () => {
 		const h = harness();
 		await h.commands.get(SPEC_COMMAND)!.handler("", h.ctx);
 		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("specs/spec.md"), "info");
+	});
+
+	it("leaves spec mode when the bare command is run again", async () => {
+		const h = harness();
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
+		await handler("topic", h.ctx);
+		h.notify.mockClear();
+
+		await handler("", h.ctx);
+		expect(h.control.restore).toHaveBeenCalled();
+		expect(h.activeTools()).not.toContain(SPEC_SUBMIT_TOOL);
+		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("spec mode off"), "info");
+		expect(h.sendUserMessage).toHaveBeenCalledTimes(1);
+
+		// The next bare invocation starts a fresh default-topic review.
+		await handler("", h.ctx);
+		expect(h.activeTools()).toContain(SPEC_SUBMIT_TOOL);
+		expect(h.notify).toHaveBeenLastCalledWith(expect.stringContaining("specs/spec.md"), "info");
+		expect(h.sendUserMessage).toHaveBeenCalledTimes(2);
+	});
+
+	it("opens a new window and server for the revision after feedback, keeping history", async () => {
+		const h = harness();
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
+		await handler("topic", h.ctx);
+
+		writeSpec("specs/topic.md", "# SPEC: one");
+		const first = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		const firstUrl = (first.details as { url: string }).url;
+		expect(h.openBrowser).toHaveBeenCalledTimes(1);
+
+		// Feedback closes the review server shortly after the decision.
+		expect(await decide(firstUrl, "deny")).toBe(200);
+		await waitUntilClosed(firstUrl);
+
+		// The next revision must get its own server and its own window.
+		writeSpec("specs/topic.md", "# SPEC: one\n\nA second paragraph.");
+		const second = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", {
+			path: "specs/topic.md",
+		});
+		const secondUrl = (second.details as { url: string }).url;
+
+		expect(secondUrl).not.toBe(firstUrl);
+		expect(h.openBrowser).toHaveBeenCalledTimes(2);
+		const state = await reviewState(secondUrl);
+		expect(state.totalVersions).toBe(2);
+		expect(state.history.map((entry) => entry.n)).toEqual([2, 1]);
+
+		await handler("off", h.ctx);
+	});
+
+	it("restarts a closed review server when the page is reopened", async () => {
+		const h = harness();
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
+		await handler("topic", h.ctx);
+
+		writeSpec("specs/topic.md", "# SPEC: one");
+		const first = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		const firstUrl = (first.details as { url: string }).url;
+		expect(await decide(firstUrl, "deny")).toBe(200);
+		await waitUntilClosed(firstUrl);
+
+		h.notify.mockClear();
+		await handler("open", h.ctx);
+		expect(h.openBrowser).toHaveBeenCalledTimes(2);
+		const notified = String(h.notify.mock.calls.at(-1)?.[0] ?? "");
+		const secondUrl = /http:\/\/\S+/.exec(notified)?.[0] ?? "";
+		expect(secondUrl).not.toBe("");
+		expect(secondUrl).not.toBe(firstUrl);
+		expect((await reviewState(secondUrl)).totalVersions).toBe(1);
+
+		await handler("off", h.ctx);
 	});
 
 	it("refuses to start twice and can be turned off", async () => {

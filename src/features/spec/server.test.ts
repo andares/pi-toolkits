@@ -372,3 +372,52 @@ describe("startSpecServer", () => {
 		}
 	});
 });
+
+describe("review server lifecycle", () => {
+	it("walks to the next free port so two reviews can be open at once", async () => {
+		const portStart = 44_000 + Math.floor(Math.random() * 500);
+		const first = await serve(makeSession("# first"), { portStart });
+		const second = await serve(makeSession("# second"), { portStart });
+		try {
+			// The pool is 20 ports walked upward: the second review must not
+			// silently take the first one's address.
+			expect(second.port).toBeGreaterThan(first.port);
+			expect(second.url).not.toBe(first.url);
+			expect(second.token).not.toBe(first.token);
+			expect(first.active()).toBe(true);
+			expect(second.active()).toBe(true);
+		} finally {
+			await first.close();
+			await second.close();
+		}
+		expect(first.active()).toBe(false);
+		expect(second.active()).toBe(false);
+	});
+
+	it("reports the handle dead as soon as a decision is accepted", async () => {
+		const session = makeSession();
+		const server = await serve(session, { closeDelayMs: 20 });
+		expect(server.active()).toBe(true);
+		const response = await call({
+			port: server.port,
+			path: "/api/decide",
+			method: "POST",
+			token: server.token,
+			body: { action: "deny" },
+		});
+		expect(response.status).toBe(200);
+		// The extension keys "broadcast a revision" vs "start a new window" off
+		// this flag, so it must flip before the socket is actually gone.
+		expect(server.active()).toBe(false);
+		await vi.waitFor(async () => {
+			await expect(call({ port: server.port, path: "/api/state" })).rejects.toThrow();
+		});
+	});
+
+	it("closes idempotently", async () => {
+		const server = await serve(makeSession());
+		await server.close();
+		await server.close();
+		expect(server.active()).toBe(false);
+	});
+});

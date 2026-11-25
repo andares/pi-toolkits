@@ -77,3 +77,17 @@
   `/ask-init refresh`（受管文件按模板哈希锚刷新，`AGENTS.md` 只动 workflow 标记块）。
 - 证据：change record `.agents/implementations/2026-11-12_0313_ask-uat.md`；规格 `specs/ask-uat.md`；
   `pnpm test` 48 文件 / 841 测试全绿（含第三方评审回归修复）。
+
+### M6 — keep 会话暂存（2026-11-25）
+
+- 三个命令成形：`/keep-quit [note]`（入账并退出）、`/keep-load`（列表；未载入在上、已载入置灰在下，都可选中）、
+  `/keep-drop`（出列，另有列表内 `ctrl+r`）。载入**不**出列——入账与已载入是两个正交维度。
+- 状态是 `<agent-dir>/pi-toolkits-keep/keep.jsonl` 的只追加事件流（`keep`/`drop`/`load`/`unload`），
+  纯函数折叠；同 host 上 owner pid 不在时读列表就地补 `unload`（硬杀可自愈），跨 host 不探活。
+  列表不调用宿主 `SessionManager.list`（实测本项目 576 ms、全量 9.8 s）。
+- 载入后会向目标会话注入一条 `keep:resume` 消息（进模型上下文、不触发回合），把上次留下的备注交给模型；
+  新会话启动只显示一行 `N not loaded · /keep-load`。
+- 同轮把 UAT 账本的追加/自愈换行/容错解析/去重抽成 `src/lib/event-ledger.ts`，两处共用。
+- 证据：change record `.agents/implementations/2026-11-25_0116_keep-session-backlog.md`；规格
+  `specs/keep-sessions.md`；决策 `.agents/memory/ARCHITECTURE.md` D9；
+  `pnpm test` 54 文件 / 991 测试全绿，`pnpm check:compat` 0.99.0 → 1.6.0 全绿（floor 仍 0.99.0）。

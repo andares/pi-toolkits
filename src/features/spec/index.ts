@@ -98,6 +98,8 @@ export interface SpecOptions {
 	closeDelayMs?: number;
 	/** Port search starts here; the review server walks upward. */
 	portStart?: number;
+	/** How many ports the review server may try before giving up (default 20). */
+	portAttempts?: number;
 }
 
 export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOptions = {}): void {
@@ -116,8 +118,47 @@ export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOpti
 
 	function closeServer(): void {
 		if (!server) return;
-		void server.close();
+		const closing = server;
 		server = undefined;
+		void closing.close();
+	}
+
+	/**
+	 * Start the review server for the current session.
+	 *
+	 * Every start gets its own token and walks the port range, so a restarted
+	 * review never reuses a dead socket and two sessions cannot share a window.
+	 */
+	function startReviewServer(current: SpecSession): Promise<SpecServerHandle> {
+		return startSpecServer({
+			session: current,
+			render: renderBlockHtml,
+			portStart: options.portStart,
+			portAttempts: options.portAttempts,
+			closeDelayMs: options.closeDelayMs,
+			onDecision: ({ action, version: decidedVersion }) => {
+				const ctx = ctxRef;
+				if (ctx) void handleDecision({ action, version: decidedVersion }, ctx);
+			},
+		});
+	}
+
+	/**
+	 * A live handle, or a freshly started one with its window opened.
+	 *
+	 * A review server closes itself shortly after a decision. The handle that
+	 * produced that decision is dead: broadcasting a revision into it reaches no
+	 * page, and printing its URL gives the operator a dead link. Detect that and
+	 * start a new server instead — the next window is a new window on purpose.
+	 */
+	async function ensureReviewServer(): Promise<{ handle: SpecServerHandle; started: boolean }> {
+		if (server && server.active()) return { handle: server, started: false };
+		if (!session) throw new Error("no spec revision to review yet");
+		server = undefined;
+		const handle = await startReviewServer(session);
+		server = handle;
+		open(handle.url);
+		return { handle, started: true };
 	}
 
 	function toolSetWithSubmit(): string[] {
@@ -218,7 +259,7 @@ export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOpti
 
 	const specCommand = {
 		description:
-			"Spec first: research, write a spec, review it in the browser with block annotations, then implement after approval. `off` leaves the phase, `open` re-opens the review.",
+			"Spec first: research, write a spec, review it in the browser with block annotations, then implement after approval. Run without arguments again, or use `off`, to leave the phase; `open` re-opens the review.",
 		handler: async (args: string, ctx: ExtensionContext) => {
 			const arg = args.trim();
 			ctxRef = ctx;
@@ -234,12 +275,27 @@ export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOpti
 			}
 
 			if (arg === "open") {
-				if (!server) {
+				if (!session) {
 					ctx.ui.notify("ask-spec: no review is open — submit a spec first.", "warning");
 					return;
 				}
-				open(server.url);
-				ctx.ui.notify(`ask-spec: ${server.url}`, "info");
+				try {
+					const ensured = await ensureReviewServer();
+					// A fresh server already opened its window; an existing one is
+					// simply pointed at again.
+					if (!ensured.started) open(ensured.handle.url);
+					ctx.ui.notify(`ask-spec: ${ensured.handle.url}`, "info");
+				} catch (error) {
+					ctx.ui.notify(
+						`ask-spec: cannot start the review server — ${error instanceof Error ? error.message : String(error)}`,
+						"warning",
+					);
+				}
+				return;
+			}
+
+			if (active && arg === "") {
+				leave(ctx, specPath ? `spec mode off — draft left at ${specPath}.` : "spec mode off.");
 				return;
 			}
 
@@ -353,21 +409,24 @@ export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOpti
 				appendSpecVersion(session, { text, source });
 			}
 			const version = latestVersion(session);
-			if (!server) {
-				server = await startSpecServer({
-					session,
-					render: renderBlockHtml,
-					portStart: options.portStart,
-					closeDelayMs: options.closeDelayMs,
-					onDecision: ({ action, version: decidedVersion }) => {
-						const ctx = ctxRef;
-						if (ctx) void handleDecision({ action, version: decidedVersion }, ctx);
-					},
-				});
-				open(server.url);
-				ctxRef?.ui.notify(`ask-spec: review open at ${server.url}`, "info");
-			} else {
-				server.broadcast("revision", { version: version.n });
+			let handle: SpecServerHandle;
+			try {
+				const ensured = await ensureReviewServer();
+				handle = ensured.handle;
+				if (!ensured.started) handle.broadcast("revision", { version: version.n });
+				if (ensured.started) {
+					ctxRef?.ui.notify(`ask-spec: review open at ${handle.url}`, "info");
+				}
+			} catch (error) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: `Cannot open the review page: ${error instanceof Error ? error.message : String(error)}. The spec is saved; retry spec_submit.`,
+						},
+					],
+					details: {},
+				};
 			}
 			const changed = buildSpecState(session, version.n).items.filter(
 				(item) => item.status !== "unchanged",
@@ -378,10 +437,10 @@ export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOpti
 						type: "text" as const,
 						text:
 							`Submitted v${version.n} of ${session.versions.length} (${changed} changed blocks). ` +
-							`Review: ${server.url}\nEnd your turn now — the decision arrives as a new message.`,
+							`Review: ${handle.url}\nEnd your turn now — the decision arrives as a new message.`,
 					},
 				],
-				details: { version: version.n, url: server.url },
+				details: { version: version.n, url: handle.url },
 			};
 		},
 	});

@@ -9,17 +9,17 @@
 - **一个 npm 包** `@andares/pi-toolkits`，`pi.extensions` 指向 `./src/index.ts`；`files: ["src", "CHANGELOG.md"]`，
   没有 build 步骤（宿主直接加载 TypeScript 源）。`LICENSE` 为 MIT（2026 Andares Cui）。
 - **入口** `src/index.ts` 默认导出 `piToolkits(pi: ExtensionAPI)`：先建一个 gate 总线
-  （`createGateHub`）与一个审批日志（`createApprovalLog`），再顺序注册 12 个 feature，
+  （`createGateHub`）与一个审批日志（`createApprovalLog`），再顺序注册 13 个 feature，
   最后 `gates.install(pi)`。注册顺序有语义：`permission` 在 `autostart` 之前，好让项目声明的
-  `/ask-perm ...` 面对干净状态；`uat` 在 `plan` 之后，让 `record_change` 追加到 plan 装好的
+  `/ask-perm ...` 面对干净状态；`uat` 在 `spec` 之后，让 `record_change` 追加到 spec 装好的
   工具集上（`src/index.ts` 的注释即此依据）。
-- **feature 层** `src/features/<name>/`，每个导出 `registerXxx(pi, …)`；当前 12 个：
-  `ask`、`autostart`、`compact`、`favorites`、`init`、`permission`、`plan`、`quit-guard`、
-  `review`、`stash`、`uat`、`whats-new`。
+- **feature 层** `src/features/<name>/`，每个导出 `registerXxx(pi, …)`；当前 13 个：
+  `ask`、`autostart`、`compact`、`favorites`、`init`、`keep`、`permission`、`quit-guard`、
+  `review`、`spec`、`stash`、`uat`、`whats-new`。
   新增 feature = 新建目录 + 入口加一行，不改既有模块。
 - **共享层** `src/lib/`：`gates.ts`（闸门总线 + 弹窗串行队列 + 审计计数）、`approval-log.ts`
-  （滚动 JSONL）、`tools.ts`（活跃工具快照/恢复 + jailed 工具登记）、`model-config.ts`、
-  `model-picker.ts`、`startup.ts`。
+  （滚动 JSONL）、`event-ledger.ts`（只追加账本的追加/自愈换行/容错解析/去重，UAT 与 keep 共用）、
+  `tools.ts`（活跃工具快照/恢复 + jailed 工具登记）、`model-config.ts`、`model-picker.ts`、`startup.ts`。
 - **测试与门禁**：单元测试与源码同目录（`*.test.ts`，colocated）；`scripts/*.mjs` 放仓库级门禁
   ——`check-compat.mjs`（宿主版本矩阵）、`check-keybindings.mjs`（键位审计）、
   `approval-report.mjs`（审批日志挖掘）、`publish.mjs` / `tag-current.mjs` /
@@ -126,3 +126,19 @@
 - 后果：提示文本与 `CHANGELOG.md` 同源，无法出现「公告说有、实际没发」；维护者必须为每次发版
   写至少一条顶层 bullet（`--skip-changelog` 显式跳过）。发布链因此多一道门，见
   `AGENTS.md` §Feature: whats-new 与 §Release。
+
+### D9 keep 的「入账 / 已载入」两轴与「不是锁」（2026-11-25）
+
+- 背景：项目内多任务并行时会话一多就记不住哪个做完；`/resume` 按时间混排、不分完成度，也不管
+  同一条会话是否被另一个进程开着（两边 append 会让文件静默分支）。评估过两种更重的做法：
+  活动租约 + 拦截 `/resume`（能真正互斥，但要心跳、pid 探活、跨进程 veto，且 `-ne`/headless 进程
+  天然绕过），以及「载入即出列」的队列（自动出列后「已载入」无处安放，判断错了也无法重载）。
+- 决定：① 入账（`keep`，只有 `/keep-quit` 写、`/keep-drop` 或列表 `ctrl+r` 清）与已载入
+  （`load`/`unload`）是两个正交维度，载入**不**出列；② 已载入是记账不是锁：同 host 上 owner pid
+  不在时读列表就地补 `unload`，已载入的行仍然可选中、可强行重载；③ 状态是
+  `<agent-dir>/pi-toolkits-keep/keep.jsonl` 的只追加事件流，不压账本；④ 列表只读账本，不调用
+  宿主 `SessionManager.list`/`listAll`（实测 576 ms / 9.8 s）。
+- 后果：两个进程仍可同时打开同一会话（记录得到、阻止不了），`-ne`/headless 进程在这里不可见——
+  这是崔总 2026-11-25 选的强度，不要事后偷偷加锁。切换前的「先 keep 当前会话」三选、
+  启动的一行 notice（只统计当前项目）、以及「当前会话不出现在列表里」都由这条决定派生。
+- 来源：`specs/keep-sessions.md`；证据 `.agents/implementations/2026-11-25_0116_keep-session-backlog.md`。

@@ -130,6 +130,12 @@ export interface SpecServerHandle {
 	token: string;
 	close: () => Promise<void>;
 	broadcast: (event: string, data: unknown) => void;
+	/**
+	 * False once a decision has been accepted (the port closes shortly after) or
+	 * after `close()`. Callers must start a new server instead of broadcasting
+	 * into a handle whose socket is gone — the old page cannot come back.
+	 */
+	active: () => boolean;
 }
 
 function isVerdict(value: unknown): value is Annotation["verdict"] {
@@ -171,7 +177,16 @@ export async function startSpecServer(options: StartSpecServerOptions): Promise<
 	const render = options.render ?? renderBlockHtml;
 	const closeDelayMs = options.closeDelayMs ?? 1500;
 	let closing = false;
+	let closed = false;
 	let handle: WebServerHandle | undefined;
+
+	/** Idempotent: a decision, `/ask-spec off` and process teardown may all call it. */
+	const closeHandle = async (): Promise<void> => {
+		if (closed) return;
+		closed = true;
+		closing = true;
+		await handle?.close();
+	};
 
 	const server = await startWebServer({
 		assetsDir,
@@ -251,7 +266,7 @@ export async function startSpecServer(options: StartSpecServerOptions): Promise<
 					closing = true;
 					setTimeout(() => {
 						options.onDecision?.({ action, version });
-						void handle?.close();
+						void closeHandle();
 					}, closeDelayMs).unref();
 				}
 				return true;
@@ -266,7 +281,8 @@ export async function startSpecServer(options: StartSpecServerOptions): Promise<
 		url: server.url,
 		port: server.port,
 		token: server.token,
-		close: server.close,
+		close: closeHandle,
 		broadcast: server.broadcast,
+		active: () => !closing && !closed,
 	};
 }

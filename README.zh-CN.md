@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含十二个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
+一句话介绍:目前包含十三个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**并行任务的会话暂存** `keep`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.6.0 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -58,6 +58,7 @@ pi -e ./src/index.ts
   - [🚀 autostart — 会话启动自动化](#autostart)
   - [🧠 init — agent 记忆框架](#init)
   - [🧯 quit-guard — 退出看门狗](#quit-guard)
+  - [🧷 keep — 会话暂存](#keep)
   - [🆕 whats-new — 升级后的版本变更提示](#whats-new)
 - [开发](#development)
 - [贡献](#contributing)
@@ -82,6 +83,7 @@ pi -e ./src/index.ts
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 | 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计/刷新漂移、预算与重复事实 |
 | 🧯 **quit-guard** 退出看门狗 | `/quit-guard` | 交互式退出卡死时，无论发生在 TUI 收尾之后、还是信号触发路径的收尾之前，超时后写诊断报告并强制退出，把命令行提示符还给你；TUI 重启与 Ctrl+Z 恢复都会解除看守 |
+| 🧷 **keep** 会话暂存 | `/keep-quit` · `/keep-load` · `/keep-drop` | 退出时一条命令把当前会话标记为未完成,下次进来直接看这个待办列表(已载入的置灰但仍可选);做完的用 `/keep-drop` 或列表里的 `ctrl+r` 移出。只追加账本,没有锁,也不读宿主的会话列表 |
 | 🆕 **whats-new** 升级后的版本变更提示 | 自动 | 升级后的首次 `pi` 启动展示「从你上次运行的版本到现在改了什么」，只展示一次；不注册斜杠命令，不占用宿主的全局命令命名空间 |
 
 ---
@@ -298,6 +300,7 @@ run = ["/ask-perm allow allow allow ask"]
 - **批准和提意见都携带批注。** 它们只决定下一步：批准是「开始实施」（所有批注都带上），提意见是「改完 spec 再提交一版」。
 - **历史留档。** 每次提交都存在 `<agent-dir>/ask-spec/<slug>/`，页头可以只读回看任意一版；旧的 `<agent-dir>/ask-plan/` 历史会在第一次使用时迁移。
 - **评审期走边界检查。** `/ask-perm` 在评审开始时按默认值开启，结束时恢复；评审期唯一能写的是 markdown。
+- **每一版都有自己的新窗口。** 你提交决定后评审服务很快关端口，所以下一次提交修订会重起服务（20 个端口段里取下一个空闲的）并弹新窗口，而不是把你指向一个死链接。重启的是页面，不是评审：每一版、每条批注和决定都保留，历史抽屉里前几轮仍在。
 - **绝不切模型。** spec 评审与实施都用会话当前的模型。（`/ask-review` 是唯一会切模型的命令，那是你要求的。）
 
 **WSL 下的浏览器**：评审服务器绑 `0.0.0.0`，URL 用 WSL 的地址打印，因为 Windows 连不到 WSL 里只绑 loopback 的服务器。打开器优先用 Windows 侧启动器（`wslview`、`cmd.exe /c start`、`powershell Start-Process`），其它平台才回落到 `xdg-open`——这决定了是「打开你的浏览器」还是「在 WSL 里打开一个你看不见的浏览器」。
@@ -305,6 +308,7 @@ run = ["/ask-perm allow allow allow ask"]
 ```text
 /ask-spec 做导出功能     # 进入规格评审
 /ask-spec open           # 重新打开评审页
+/ask-spec                # 评审中再次执行：退出评审期
 /ask-spec off            # 退出评审期（草稿留在原处）
 ```
 
@@ -590,6 +594,37 @@ refresh 就会正常更新它。
 - 这是对宿主缺口的权宜之计:哪天 pi 给 `session_shutdown` 加上限时,看守就退化成无害的保险,可以直接删掉。
 
 ---
+
+## 🧷 keep — 并行任务的会话暂存
+
+<a name="keep"></a>
+
+**做什么。** `/keep-quit` 把「退出」和「这个任务还没做完」合成一次动作:走的时候顺手记下来,不用第二天再凭记忆翻会话。
+`/keep-load` 只列这份待办。**载入不会把会话移出待办**——出列只有 `/keep-drop` 和列表里的 `ctrl+r` 两条路。
+
+「已入账」和「已载入」故意分成两个维度:入账表示没做完,载入表示某个 pi 进程正开着它。后者是**记账不是锁**——
+进程被硬杀会留下脏标记,所以已载入的行仍然可以选中、可以强行重载;那个进程真的没了之后,下一次读取会发现 pid 不在了,
+自动补一条解锁记录。
+
+状态是 `<agent-dir>/pi-toolkits-keep/keep.jsonl` 里的只追加事件流(`keep` / `drop` / `load` / `unload`),
+列表是它的纯函数折叠,所以两个 pi 进程可以同时追加,不需要加锁。这里**不调用宿主的会话列表**(本项目 109 个会话要 576 ms,
+整个 agent 目录 648 个要 9.8 s)——日常只读账本,只有 `rebuild` 会在恢复时读每个会话文件的尾部 16 KB。
+
+| 命令 | 作用 |
+| --- | --- |
+| `/keep-quit [note]` | 标记当前会话未完成并退出;note 省略时依次回落到会话名、首条用户消息 |
+| `/keep-load` | 打开待办:↑↓ 移动、enter 载入、`ctrl+r` 移出、esc 取消;已载入的行置灰但仍可选中 |
+| `/keep-load <序号\|id>` | 按 1 起序号或会话 id 前缀直接载入 |
+| `/keep-load --all` | 含其他项目,并多一列项目名 |
+| `/keep-load rebuild` | 从会话文件里的面包屑重建账本(账本丢了之后的兜底) |
+| `/keep-drop` | 把当前会话移出待办 |
+
+下次交互式启动时,待办只占一行:`2 not loaded · /keep-load`。载入会话后,当初留下的那句备注会作为一条
+**模型能看到、但不触发回合**的消息注入,所以 agent 一上来就知道上次停在哪。列表里永远不出现当前会话本身——
+它的命令是 `/keep-quit` 和 `/keep-drop`。
+
+**不是锁。** 两个进程仍然可以同时打开同一个会话文件;这里只记录发生过,不阻止。`pi -ne` 与 headless 运行不写 `load`,
+在这里是不可见的。
 
 ## 🆕 whats-new — 升级后的版本变更提示
 

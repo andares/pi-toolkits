@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: twelve ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **spec review in the browser** `ask-spec`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
+In a nutshell: thirteen ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **spec review in the browser** `ask-spec`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, a **session backlog for parallel work** `keep`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.6.0 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -58,6 +58,7 @@ After installing, verify in any pi session:
   - [🚀 autostart — session startup automation](#autostart)
   - [🧠 init — agent memory framework](#init)
   - [🧯 quit-guard — quit watchdog](#quit-guard)
+  - [🧷 keep — session backlog](#keep)
   - [🆕 whats-new — release notes after an upgrade](#whats-new)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -82,6 +83,7 @@ After installing, verify in any pi session:
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, then audit/refresh it for drift, budgets and duplicated facts |
 | 🧯 **quit-guard** quit watchdog | `/quit-guard` | force-exit when an interactive shutdown hangs, whether after the TUI teardown or before it on a signal-triggered quit; write a hang report and give the shell prompt back; TUI restarts and Ctrl+Z resume disarm it |
+| 🧷 **keep** session backlog | `/keep-quit` · `/keep-load` · `/keep-drop` | mark a session unfinished as you quit, reopen the backlog next time (loaded rows dimmed but still selectable), drop what you finished; an append-only ledger, no lock and no host session listing |
 | 🆕 **whats-new** release notes after an upgrade | automatic | the first `pi` start after an upgrade shows what changed since the version you last ran, once; no slash command or other global namespace is claimed |
 
 ---
@@ -298,6 +300,7 @@ After a development task is done, type the `/ask-review` command to summon **a d
 - **Approve and deny both carry your notes.** They only choose the next step: approve means "start implementing" (with every note applied on the way), deny means "revise the spec and submit again".
 - **History is kept.** Every submitted revision is stored under `<agent-dir>/ask-spec/<slug>/` and the header lets you reopen any of them read-only. Existing `<agent-dir>/ask-plan/` histories are migrated on first use.
 - **The review phase uses the boundary checks.** `/ask-perm` is switched on with its defaults when the review starts and restored when it ends; the only file the review phase may write is markdown.
+- **Every revision gets a fresh window.** The review server closes shortly after you send a decision, so the next submitted revision starts a new server (next free port in the 20-port range) and opens a new window instead of pointing you at a dead URL. That is a restart of the page, not of the review: every revision, annotation and decision is kept, and the history drawer still lists the earlier rounds.
 - **No model switching, ever.** The spec is reviewed and implemented with whatever model the session is on. (`/ask-review` is the one command that does switch, because you asked it to.)
 
 **Browser on WSL**: the review server binds `0.0.0.0` and the URL is printed with the WSL address, because Windows cannot reach a loopback-only server inside WSL. The opener prefers a Windows-side launcher (`wslview`, `cmd.exe /c start`, `powershell Start-Process`) and only falls back to `xdg-open` elsewhere — that is the difference between "opens your browser" and "opens a browser inside WSL that you cannot see".
@@ -305,6 +308,7 @@ After a development task is done, type the `/ask-review` command to summon **a d
 ```text
 /ask-spec build the export feature     # start the review
 /ask-spec open                         # re-open the review page
+/ask-spec                              # while reviewing: leave the phase
 /ask-spec off                          # leave the phase (the draft stays where it is)
 ```
 
@@ -680,6 +684,43 @@ kill appends `thread-kill heartbeat-stopped …` there.
   a no-op safety net and can be removed.
 
 ---
+
+## 🧷 keep — session backlog for parallel work
+
+<a name="keep"></a>
+
+**What this does.** `/keep-quit` marks the current session unfinished and quits in one step, so the
+list of open tasks is written down at the moment you walk away instead of reconstructed from memory
+a day later. `/keep-load` lists exactly that backlog. Loading does **not** remove anything:
+`/keep-drop` (or `ctrl+r` in the list) is the only way out.
+
+Kept and loaded are two axes on purpose. A session is *kept* while it is unfinished and *loaded*
+while some pi process has it open, and the second one is a record, not a lock: a hard-killed
+process leaves a stale marker, so a loaded row stays selectable and can be loaded again. The next
+read after that process is gone notices the dead pid and marks the session unloaded again.
+
+State is an append-only ledger at `<agent-dir>/pi-toolkits-keep/keep.jsonl` with four events
+(`keep`, `drop`, `load`, `unload`); everything the list shows is a pure fold over it, so two pi
+processes can append at the same time without a lock. Nothing here calls the host's session
+listing (576 ms for this project's 109 sessions, 9.8 s for the whole agent dir) — the backlog reads
+only the ledger, and `rebuild` reads 16 KB per session file when you have to restore it.
+
+| command | what it does |
+| --- | --- |
+| `/keep-quit [note]` | mark this session unfinished and quit; the note falls back to the session name, then to the first user message |
+| `/keep-load` | open the backlog: `↑↓` move, enter load, `ctrl+r` drop, esc cancel; already-loaded rows are dimmed but still selectable |
+| `/keep-load <n\|id>` | load by 1-based index or session id prefix |
+| `/keep-load --all` | include other projects, with a project column |
+| `/keep-load rebuild` | re-add keeps from the breadcrumb each session file carries (recovery after the ledger is lost) |
+| `/keep-drop` | remove the current session from the backlog |
+
+The next interactive start shows the backlog as one line — `2 not loaded · /keep-load`. Loading a
+session injects the note you left at quit time as a message the model can see without triggering a
+turn, so it knows where you stopped. The current session never lists itself: `/keep-quit` and
+`/keep-drop` are its commands.
+
+**Not a lock.** Two processes can still open the same session file; this records that they did, it
+does not prevent it. `pi -ne` and headless runs never write `load`, so they stay invisible here.
 
 ## 🆕 whats-new — release notes after an upgrade
 

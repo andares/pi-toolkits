@@ -15,6 +15,7 @@
  *  - init — agent memory framework install / adoption (/ask-init)
  *  - uat — acceptance ledger and browser page (/ask-uat, record_change)
  *  - quit-guard — quit watchdog: force-exit when pi's shutdown hangs (/quit-guard)
+ *  - keep — session backlog: keep-quit / keep-load / keep-drop
  *  - whats-new — automatic release notes on the first start after an upgrade
  *
  * `ask` and `permission` are independent gates on one bus: each answers its own
@@ -29,6 +30,7 @@ import { registerAutostart } from "./features/autostart/index.js";
 import { registerCompact } from "./features/compact/index.js";
 import { registerFavorites } from "./features/favorites/index.js";
 import { registerInit } from "./features/init/index.js";
+import { registerKeep } from "./features/keep/index.js";
 import { registerPermission } from "./features/permission/index.js";
 import { registerSpec } from "./features/spec/index.js";
 import { registerQuitGuard } from "./features/quit-guard/index.js";
@@ -54,6 +56,7 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	registerCompact(pi);
 	registerFavorites(pi);
 	registerInit(pi);
+	registerKeep(pi);
 	registerQuitGuard(pi);
 	registerReview(pi);
 	registerStash(pi);

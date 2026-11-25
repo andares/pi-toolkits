@@ -79,7 +79,7 @@ CHANGELOG、npm description/keywords 等任何对外文案。理由：这些规�
 对使用者既无用又会被读成承诺（一旦某轮窗口因故未跑满，用户会当成毁约而不是维护节奏）。
 
 （当前：强制窗口 1.3 / 1.4 / 1.5 / 1.6，1.5 线含 1.5.0、1.5.1 与 1.5.2，1.6 线只有 1.6.0；向后探针
-1.2 / 1.1 / 1.0 / 0.99 **四条线全绿**（每版 950 passed），0.99 已是探针额度的最老一线；再往下的
+1.2 / 1.1 / 1.0 / 0.99 **四条线全绿**（每版 991 passed），0.99 已是探针额度的最老一线；再往下的
 0.87.x 在上一轮探到并**停在 0.87.x**——0.87 的 `ToolDefinition` 没有 `defaultActive`（`ask/scratch-tool` 与
 `init/tool` 两处），且 `ToolCallEvent` 上没有 `parentToolCallId`（2026-10-24 审批日志、
 2026-10-26 init 新增的依赖），typecheck 红属探测结论、不改代码（本轮探针额度已满，未重探）；
@@ -569,8 +569,8 @@ pi 没有「提交注册」这一步：官方编目 https://pi.dev/packages 是�
 
 ### 已验证
 
-- 测试：`pnpm test` 53 个文件 / 950 测试全绿；`pnpm check:compat` 在强制窗口
-  1.3.0–1.6.0 全绿（每版 950 passed），向后探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 也全绿（0.87.x
+- 测试：`pnpm test` 54 个文件 / 991 测试全绿；`pnpm check:compat` 在强制窗口
+  1.3.0–1.6.0 全绿（每版 991 passed），向后探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 也全绿（0.87.x
   上一轮因 `defaultActive` 停探、不改代码）—— **public floor 0.99.0**，peer `>=0.99.0`。
 - 真实 pi 1.6.0 冒烟（`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`）；
   历史冒烟（1.5.2 同命令回 `OK`；1.4.0 项目 autostart 派发 `/ask` → 模型调用 `scratchpad`）；
@@ -787,6 +787,7 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
   `/ask-uat` / `record_change`，缺失时拒绝并列出缺失项。
 - **相位互斥**：`ask` 拒绝叠在 spec/uat 上；`ask-spec` 退出 ask、拒绝 uat、加 `isIdle`；
   `ask-review` 退出 ask、拒绝 spec；`ask-init` 的 mutating 子命令在任一相位下拒绝。
+  spec 激活时再执行裸 `/ask-spec` 与 `/ask-spec off` 同样退出（在 `isIdle` 检查之前，误入时可直接退出）。
 - **不升 `FRAMEWORK_VERSION`**：UAT 目录是可选增量，`I-UAT-01` 表示「尚未安装」；
   升版本号会要求迁移配方，反而挡住用户。
 
@@ -796,9 +797,9 @@ roots；自带完整框架的 root 标记 `independent`，不接管。
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 950 测试**全绿（init 11 个测试文件 / 122 用例）；
+- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿（init 11 个测试文件 / 122 用例）；
   `pnpm check:keybindings` 全部 ✅（未新增任何键位）。
-- `pnpm check:compat`：窗口 1.3.0–1.6.0 全绿（每版 950 passed），探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 全绿、
+- `pnpm check:compat`：窗口 1.3.0–1.6.0 全绿（每版 991 passed），探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 全绿、
   0.87.x 上一轮因 `defaultActive` 停探（本轮探针额度已满，未重探），floor 0.99.0。
 - 测试稳定性（2026-11-04）：矩阵并发四沙箱时，vitest 默认 worker 数（22 核 → 21）会因内存
   压力让**不同的**测试偶发超时（1.0.2 的 git fixture、1.0.1 的动态 import），把 floor 拖到噪声上。
@@ -949,7 +950,7 @@ src/features/permission/
   其余工具（MCP/subagent/…）无路径可判 → 按 write + 工作目录作用域。
 - footer 状态 `perm i:A/A o:A/ask`（A=allow、a=ask、D=deny，按等级着色）；
   `before_agent_start` 追加系统提示横幅说明策略与「拒绝是策略决定、不要换等价命令重试」。
-- 测试：`pnpm test` 53 个文件 / 950 测试全绿；`pnpm check:compat` 强制窗口
+- 测试：`pnpm test` 54 个文件 / 991 测试全绿；`pnpm check:compat` 强制窗口
   1.3.0–1.6.0 + 向后探针 1.2.x / 1.1.x / 1.0.x / 0.99.x 全绿（floor 0.99.0）；
   真实 pi 1.6.0 冒烟（`pi -ne -e ./src/index.ts ... 'Reply with exactly: OK'`）回 OK 无警告。
 
@@ -1023,7 +1024,7 @@ autostart 会重放第二遍（提示出两次），permission 会把刚开启�
 
 **已验证**
 
-- `pnpm test` 53 个文件 / 950 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
+- `pnpm test` 54 个文件 / 991 测试全绿（新增 `approval-log.test.ts`、`gates.audit.test.ts`、
   `permission/audit.test.ts` 与 permission 的 mode/payload/session-grant 集成用例）；`pnpm typecheck` 绿。
 - 轮转（1000 条/8 MiB、10 文件、第 11 个删第 1 个）、崩溃尾部、双写者计数并入、脱敏、记录上限、
   单条不可序列化只跳过不关日志、不可写目录 fail-open、并行调用的 `queueMs`、
@@ -1172,7 +1173,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck`、`pnpm test`：**53 文件 / 950 测试**全绿（quit-guard 55 例，含 killer 4 例）。
+- `pnpm typecheck`、`pnpm test`：**54 文件 / 991 测试**全绿（quit-guard 55 例，含 killer 4 例）。
 - **2026-11-13 真实事故与修复验证**：真实会话里 guard 已 fire、报告已落盘、"forcing exit"
   已打印，但 `process.exit(0)` 卡死在宿主 exit 路径（主线程 `futex_wait`，18 分钟未退，
   pty 被用户关窗口删掉，fd 0/1/2 → `/dev/pts/N (deleted)`；宿主 chunk 里确认 pi-tui
@@ -1238,6 +1239,64 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
   一样），属宿主/夹具噪声，不是本功能的回归；真实会话里 `/reload` 后看守仍按单例接线工作。
 - 这是对宿主缺口的权宜之计：pi 若给 `session_shutdown` 加上限，本功能可整体删除。
 
+## Feature: keep（会话暂存：`/keep-quit` · `/keep-load` · `/keep-drop`，2026-11-25 立项并实现）
+
+问题：一个项目里多条任务并行时，会话一多就记不住哪个做完、哪个没做完；`/resume` 把所有会话按时间混排，既不分「做完/没做完」，
+也不管同一条被两个进程同时打开。方案是**入账 / 已载入两个正交维度**：`keep` 表示没做完（只有 `/keep-quit` 写、`/keep-drop` 清），
+`load` 表示某个 pi 进程正开着它（载入时写、干净退出时清）。载入**不**出列——这是崔总 2026-11-25 定的，理由是自动出列
+会让「已载入」无处安放，也没法重开一个判断错的会话。
+
+### 落位
+
+| 文件 | 职责 |
+| --- | --- |
+| `src/features/keep/ledger.ts` | 四种事件（`keep`/`drop`/`load`/`unload`）、校验、`deriveKeepState` 纯函数折叠、owner 探活与就地补 `unload`、`currentHost()` 用 `os.hostname()` |
+| `src/features/keep/store.ts` | 当前会话事实（`getSessionFile` 为空的 in-memory 会话直接拒绝）、笔记缺省三级回退、`rebuild` 的尾部扫描 |
+| `src/features/keep/format.ts` | 行文本（`○`/`●` + 年龄 + 笔记）、notice、`[keep] Resumed …` 文案，全部纯字符串 |
+| `src/features/keep/picker.ts` | 专用列表组件（分组、置灰、`ctrl+r`、滚动窗口）+ 切换前三选对话框（这个复用 `SelectList`） |
+| `src/features/keep/index.ts` | 三个命令、启动 notice、`session_shutdown` 的 `unload`、`keep:resume` 消息渲染 |
+| `src/lib/event-ledger.ts` | 追加 / 解析 / 去重 / 自愈换行的通用机制，UAT 账本与本账本共用（UAT 的公开 API 不变） |
+
+### 不变量（易破的几条）
+
+- **载入不出列**：出列只有 `/keep-drop` 与列表里的 `ctrl+r`。
+- **「已载入」是记账不是锁**：硬杀会留脏标记，所以列表里已载入的行仍然可以选中、可以强行重载；同 host 上 owner pid
+  不存在时，读列表就地补一条 `unload`（幂等，重复读只是多一行空操作）。跨 host 的 owner 不做探活，按「还活着」算。
+- **不调用 `SessionManager.list` / `listAll`**：本机实测本项目 109 会话 576 ms、全量 648 会话 9.8 s。日常只读账本。
+- **当前会话不出现在列表里**（它的命令是 `/keep-quit` 与 `/keep-drop`），notice 也只统计当前项目、且不计当前会话。
+- **`own` 记录必须在 `withSession` 里认领**：`switchSession` 期间旧会话的 `session_shutdown(resume)` 先于 `withSession` 触发，
+  在 switch 之前写 `loadedHere` 会让旧会话的收尾把**新载入**的标记解掉（2026-11-25 冒烟实测踩到，账本里出现相邻的 load+unload）。
+- **`session_shutdown` 只有 `reload` 不解锁**：其余 reason 都表示会话真的离开了。
+- **`/keep-load` 不注册 `getArgumentCompletions`**：pi 会在 Enter 时应用高亮补全，从而吞掉裸命令（实测 `/keep-load 1` 变成
+  `/keep-load --all`）。子命令写在 description 与「没有待办」的提示里。
+- **`ctrl+r` 只在我们的选择器里消费**：宿主的 `app.session.rename` 属于**会话选择器作用域**，不在 `tui.altScreen.*`
+  也不在全局表。升级宿主时必须重跑 `pnpm check:keybindings ctrl+r`；真机按不出来先上报再换键。
+- 运行时文案一律英文（notify、列表、notice、拒绝理由）。
+
+### 已实测的宿主事实（pi 1.6.0 / tmux，0.99.0 的 `types.d.ts` 同样具备这些原语）
+
+- `ctx.switchSession(path, {withSession})` 真的切换，事件序 `session_before_switch(resume)` → `session_shutdown(resume)`（旧）→
+  `session_start(resume)`（新）→ `withSession`；**切换后旧 ctx 立即 stale**，后续动作只能写在 `withSession` 里。
+- `ctx.shutdown()` 走 `/quit` 的同一交互式关停路径（`session_shutdown(quit)` 后退出），quit-guard 照管。
+- 空会话从不落盘：`getSessionFile()` 有值但文件不存在，所以 `/keep-quit` 必须先查「有对话」。
+- `pi.appendEntry`（`custom` 条目）不进模型上下文，`sendMessage`（`custom_message`）才进——备注走后者、面包屑走前者。
+
+### 已实现并验证（2026-11-25）
+
+- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿（keep 41 例：折叠/探活/补写/笔记回退/rebuild/四条拒绝理由/取消回滚/`--all` 过滤/picker 键位）。
+- 真实 pi 1.6.0 + tmux 冒烟（`-ne -e ./src/index.ts`，独立 `--session-dir`）：`/keep-quit` 后账本落 `keep`、进程退出；重开新会话
+  notice `2 not loaded`；`/keep-load` 列表 `○`/`●` 两段（用 `capture-pane -e` 确认置灰色值不同）；enter 载入后注入 `[keep] Resumed …`
+  且账本**只有 load 没有 unload**；已载入的行可以强行重载；`kill -9` 持有进程后下一次读取补一条 `unload`（两个 owner 全灭 → 回到 `○`）；
+  `ctrl+r` 不载入直接移出；`/keep-drop` 移出当前会话；`/keep-load 1` 与裸 `/keep-load` 都正常；删掉账本后 `/keep-load rebuild`
+  从面包屑恢复 2 条（原时间戳保留）；`--all` 跨项目列出并带项目列；切换前三选对话框在真实终端里渲染正常，
+  选 `Keep it & load` 先给当前会话入账（账本出现两条 keep + 一条 load）。
+
+### 已知边界（有意为之）
+
+- 不是锁：两个进程仍可同时打开同一会话文件（会静默分支），这里只记录、不阻止；`pi -ne` 与 headless 进程不写 `load`，在这里不可见。
+- 账本会长期保留 `missing` 条目（会话文件被删），只能靠 `ctrl+r` 清；不自动清理（自动清理要猜，猜错就是丢任务）。
+- 不压缩账本（一次操作一行）；跨机器共享 agent dir 时 `load` 无法探活，按已载入显示。
+
 ## Feature: spec（`/ask-spec` 浏览器批注式规格评审，2026-11-11 实现；2026-11-16 由 `/ask-plan` 改名）
 
 `/ask` 讨论 → `/ask-spec` 调研 → 写 `specs/<slug>.md` → 浏览器逐段批注 → 多轮 → 批准 → 实施。
@@ -1280,7 +1339,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 | `src/features/spec/feedback.ts` | 批注 → 固定模板的模型消息（英文） |
 | `src/features/spec/prompt.ts` | 评审横幅 + spec 骨架（12 段）+ 段落书写纪律 |
 | `src/features/spec/store.ts` | `<agent-dir>/ask-spec/<slug>/vNNN.md` + `state.json`（原子写、50 版上限、旧目录迁移） |
-| `src/features/spec/server.ts` | 评审路由（`/api/state`、`/api/annotate`、`/api/decide`）；HTTP 壳在 `src/lib/web-review.ts` |
+| `src/features/spec/server.ts` | 评审路由（`/api/state`、`/api/annotate`、`/api/decide`）；`active()` 报告句柄死活；HTTP 壳在 `src/lib/web-review.ts` |
 | `src/lib/opener.ts` | WSL 探测、绑定地址、打开器选择（spec 与 uat 共用） |
 | `src/features/spec/index.ts` | `/ask-spec` + `/ask-plan` 别名、`spec_submit`、gate、系统提示注入、决策回投 |
 | `src/lib/phases.ts` | `SPEC_PHASE_TOOL` + 旧 `plan_submit` 识别；phase 名 `spec` |
@@ -1289,7 +1348,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 950 测试**全绿（spec 113 例）；`pnpm ui:typecheck` 绿；`pnpm ui:build` 已更新 assets（`ui:check` 的 git-clean 断言需在提交 assets 后成立）。
+- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿（spec 113 例）；`pnpm ui:typecheck` 绿；`pnpm ui:build` 已更新 assets（`ui:check` 的 git-clean 断言需在提交 assets 后成立）。
 - 命令：`/ask-spec` 与 `/ask-plan` 指向同一个 handler；不带主题默认 `specs/spec.md`；
   `spec_submit` 默认不在工具集里，进入评审期才激活；旧 `plan_submit` 仍被相位判定识别。
 - 评审期写入边界：`echo x > src/a.ts` / `cp a.ts b.ts` 被 gate 拒；写入 `specs/` 下的
@@ -1307,8 +1366,17 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 ### 已知边界
 
 - 服务器与 pi 同进程：`/reload` 或会话结束即关端口；不支持「关掉 pi 后网页还活着」。
+- **决定后服务自杀，下一次提交必须重开**：`/api/decide` 成功后 1.5 s 关端口（`closeDelayMs`），
+  句柄的 `active()` 从接受决定那一刻起就是 false。`spec_submit` 只在句柄仍活着时 `broadcast`，
+  否则重起一个服务并 `open()` 新窗口——旧句柄广播出去没有任何页面收得到，打印的也只是死端口
+  （2026-11-25 的真实故障：v2 提交复用了死句柄，浏览器不再弹窗）。`/ask-spec open` 同理：
+  服务已关就重起再开页，而不是对着死 URL 再 `open` 一次。
+- **重启不重置评审状态**：版本、批注、决定都在内存的 `SpecSession` 里，并且随每次提交写进
+  `<agent-dir>/ask-spec/<slug>/state.json` + `vNNN.md`；重启的只是 HTTP 服务，历史抽屉与
+  `?version=N` 回看都还在。重开窗口是「新窗口」，不是「新评审」。
 - 批注按版本存放：新版本会清空上一版批注（不做跨版本重新锚定，这是块模型换来的简化）。
-- 端口固定从 3401 顺延 20 个，不做配置项（崔总 2026-11-11 定）。
+- 端口固定从 3401 顺延 20 个（`portAttempts` 可注入，仅测试用），不做配置项（崔总 2026-11-11 定）；
+  多个会话/多次重启各自走这条递增链，互不抢端口（`server.test.ts` 覆盖）。
 - `/ask-plan` 别名只保证命令入口；提示语、日志与文档一律以 `/ask-spec` 为准。
 
 ## Feature: uat（`/ask-uat` 验收台账，2026-11-12 实现）
@@ -1373,7 +1441,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证
 
-- `pnpm test` 53 文件 / 950 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
+- `pnpm test` 54 文件 / 991 测试全绿；`pnpm typecheck`、`pnpm ui:typecheck` 绿。
 - 真实 pi 1.6.0 冒烟：`pi -p --no-extensions -e ./src/index.ts --tools ''` 回 `OK`、无 Extension 警告。
 - 覆盖：记录解析/命名/同分钟防覆盖、账本坏行与重复 id、自愈换行、N:M、link 重开、
   merge/drop/amend、命令开页与聚类派发、页面勾选往返、未知项 404。
@@ -1439,7 +1507,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 ### 已验证与边界
 
-- `pnpm typecheck` 绿；`pnpm test` **53 文件 / 950 测试**全绿。真实 pi 1.6.0 冒烟（加载回 `OK`）；
+- `pnpm typecheck` 绿；`pnpm test` **54 文件 / 991 测试**全绿。真实 pi 1.6.0 冒烟（加载回 `OK`）；
   交互式展示行为在真实 pi 1.5.2 上复验过：预置旧版本后首启展示，第二次启动不再展示；
   单元测试断言不注册任何命令。
 - print 模式不消费提示。最新修复与复验证据见本轮后续实施记录。
