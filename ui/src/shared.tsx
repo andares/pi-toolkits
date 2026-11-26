@@ -22,6 +22,9 @@ const BAR_WIDTH = [16, 13, 10, 8];
 /** How many bars the collapsed strip shows before it starts sampling. */
 const MAX_BARS = 24;
 
+/** Keep a revealed outline row clear of the list's 10–12px edge fade. */
+const REVEAL_INSET = 14;
+
 /**
  * Evenly thin the outline down to `MAX_BARS`, always keeping the first heading
  * and the one currently being read: precision here is explicitly cheap, "I can
@@ -75,6 +78,7 @@ export function Outline(props: OutlineProps) {
 	let flashed: HTMLElement | undefined;
 	let scrollFrame: number | undefined;
 	let barsElement: HTMLDivElement | undefined;
+	let listElement: HTMLDivElement | undefined;
 
 	const levels = createMemo(() => props.headings.map((heading) => heading.level));
 	const bars = createMemo(() => sampleHeadings(props.headings, activeId()));
@@ -141,6 +145,29 @@ export function Outline(props: OutlineProps) {
 		else if (rect.bottom > box.bottom) strip.scrollTop += rect.bottom - box.bottom;
 	});
 
+	// Same promise for the opened panel: the rows keep their full height and the
+	// list scrolls once the headings outgrow `max-height`, so the row for the
+	// section being read can sit below the fold. Reveal it when the panel opens
+	// (nearest edge, like the strip) instead of always starting at the top and
+	// leaving the operator to hunt for the red row. The inset keeps the row out
+	// of the list's own 10–12px fade, which would erase half of it.
+	createEffect(() => {
+		if (!open()) return;
+		const list = listElement;
+		const id = activeId();
+		if (!list || id === undefined) return;
+		const index = props.headings.findIndex((heading) => heading.blockId === id);
+		const row = index >= 0 ? (list.children[index] as HTMLElement | undefined) : undefined;
+		if (!row) return;
+		const box = list.getBoundingClientRect();
+		const rect = row.getBoundingClientRect();
+		const style = getComputedStyle(list);
+		const top = box.top + Number.parseFloat(style.paddingTop) + REVEAL_INSET;
+		const bottom = box.bottom - Number.parseFloat(style.paddingBottom) - REVEAL_INSET;
+		if (rect.top < top) list.scrollTop -= top - rect.top;
+		else if (rect.bottom > bottom) list.scrollTop += rect.bottom - bottom;
+	});
+
 	function jump(blockId: string) {
 		props.onJump?.(blockId);
 		requestAnimationFrame(() => {
@@ -192,7 +219,7 @@ export function Outline(props: OutlineProps) {
 							{props.headings.length} {props.headings.length === 1 ? "heading" : "headings"}
 						</span>
 					</div>
-					<div class="outline-list">
+					<div class="outline-list" ref={(node) => (listElement = node)}>
 						<For each={props.headings}>
 							{(heading) => (
 								<button

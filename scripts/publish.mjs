@@ -59,6 +59,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+	GIT_TIMEOUT_MS,
+	boundedSshCommand,
 	releaseTailGap,
 	syncGitHubRelease,
 } from "./lib/github-release.mjs";
@@ -165,7 +167,7 @@ const TAIL_LABEL = {
 	ok: "已就位",
 	absent: "远端缺失",
 	mismatch: "远端指向别的提交",
-	unknown: "无法确认（git 超时）",
+	unknown: "无法确认（git 探测失败或超时）",
 	"missing-local-tag": "本地无此 tag",
 	skipped: "跳过（--skip-tail-check）",
 };
@@ -178,17 +180,35 @@ function step(label) {
 	console.log(`\n${C.dim}▸${C.reset} ${C.bold}${label}${C.reset}`);
 }
 
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
+const git = process.platform === "win32" ? "git.exe" : "git";
+// Even non-network gates must have an upper bound: a wedged package-manager
+// child otherwise leaves the release sitting on a step header forever. Git uses
+// the tighter network-probe deadline, and its ssh invocation gets the same
+// deadlines as the shared GitHub helpers.
+const COMMAND_TIMEOUT_MS = 15 * 60_000;
+
 function run(cmd, args, opts = {}) {
-	const res = spawnSync(cmd, args, { stdio: "inherit", cwd: ROOT, ...opts });
+	const isGit = cmd === git;
+	const res = spawnSync(cmd, args, {
+		stdio: "inherit",
+		cwd: ROOT,
+		timeout: isGit ? GIT_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
+		killSignal: "SIGKILL",
+		env: isGit
+			? {
+					...process.env,
+					GIT_SSH_COMMAND: boundedSshCommand(process.env.GIT_SSH_COMMAND),
+				}
+			: process.env,
+		...opts,
+	});
 	if (res.status !== 0 && !opts.allowFailure) {
 		console.error(`${C.red}Failed: ${cmd} ${args.join(" ")}${C.reset}`);
 		process.exit(res.status ?? 1);
 	}
 	return res;
 }
-
-const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const git = process.platform === "win32" ? "git.exe" : "git";
 
 function tagExists(tag) {
 	return (
@@ -351,6 +371,10 @@ if (!skipTailCheck) {
 			mismatch:
 				`  远端 tag ${tailTag} 指向 ${tail.remoteSha.slice(0, 7) || "?"}，本地指向 ${tail.localSha.slice(0, 7)}。` +
 				`\n  人工确认后（远端不对就 git push origin refs/tags/${tailTag} --force）再发版。`,
+			unknown:
+				`  git 无法核实远端 tag（网络 / SSH 失败或超时），这不等于远端没有 tag。` +
+				`\n  先手动复核：git ls-remote origin refs/tags/${tailTag}` +
+				`\n  恢复网络 / SSH 后重跑；只有人工确认风险后才用 --skip-tail-check 跳过。`,
 		}[tail.state];
 		console.error(
 			`${C.red}${C.bold}Aborting: ${tailTag} 的发布尾部未完成（${TAIL_LABEL[tail.state]}）。${C.reset}\n${hint}`,

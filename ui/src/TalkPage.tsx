@@ -77,6 +77,13 @@ export function TalkPage(props: { initial: api.TalkState }) {
 	});
 
 	async function reload() {
+		// A refresh replaces the reply. A save still waiting out its debounce
+		// belongs to the old snapshot: letting it fire after the new state arrives
+		// writes the old draft (and any still-valid block notes) into the new reply.
+		if (saveTimer !== undefined) {
+			clearTimeout(saveTimer);
+			saveTimer = undefined;
+		}
 		try {
 			const next = await api.fetchState();
 			if (next.mode !== "talk") return;

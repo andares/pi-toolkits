@@ -56,11 +56,11 @@ export const GIT_TIMEOUT_MS = 20_000;
 export const CURL_TIMEOUT_MS = 20_000;
 
 const SSH_DEADLINES = [
-	"-o BatchMode=yes", // a release script fails; it never waits for a passphrase
-	"-o ConnectTimeout=10", // give up on a host that does not answer
-	"-o ServerAliveInterval=5", // notice a connection that died silently
-	"-o ServerAliveCountMax=3",
-].join(" ");
+	"BatchMode=yes", // a release script fails; it never waits for a passphrase
+	"ConnectTimeout=10", // give up on a host that does not answer
+	"ServerAliveInterval=5", // notice a connection that died silently
+	"ServerAliveCountMax=3",
+];
 
 /**
  * Add ssh deadlines to a `GIT_SSH_COMMAND` without discarding the operator's
@@ -70,8 +70,13 @@ const SSH_DEADLINES = [
  */
 export function boundedSshCommand(command = "ssh") {
 	const base = String(command ?? "").trim() || "ssh";
-	if (base.includes("ServerAliveInterval")) return base;
-	return `${base} ${SSH_DEADLINES}`;
+	// Add each missing deadline independently. Bailing out because just ONE key
+	// is present leaves, for example, a custom ServerAliveInterval command able
+	// to wait for a passphrase forever (no BatchMode) or hang while connecting.
+	// Appended OpenSSH options do not override an explicitly configured earlier
+	// value, so the operator's own deadlines still win.
+	const missing = SSH_DEADLINES.filter((option) => !base.includes(option.split("=")[0]));
+	return missing.length > 0 ? `${base} ${missing.map((option) => `-o ${option}`).join(" ")}` : base;
 }
 
 /** Did the child die because we killed it (spawnSync timeout)? */
@@ -192,9 +197,13 @@ export async function resolveRemoteTag({
 	let tries = 0;
 	for (; tries < attempts; tries++) {
 		const res = git.try(["ls-remote", "origin", `refs/tags/${tag}`]);
-		// "Killed at the timeout" is not "the ref is absent" — reporting it as
-		// absent is how a network stall turns into a wrong diagnosis.
-		if (isSpawnTimeout(res)) return { sha: "", attempts: tries + 1, state: "unknown" };
+		// A killed OR otherwise failed probe is not "the ref is absent": only a
+		// successful ls-remote with empty stdout proves that. Auth, DNS and immediate
+		// TCP failures all exit non-zero with empty stdout too, and calling those
+		// "absent" sends the operator towards an unnecessary tag push.
+		if (isSpawnTimeout(res) || res.status !== 0) {
+			return { sha: "", attempts: tries + 1, state: "unknown" };
+		}
 		sha = (res.stdout ?? "").trim().split(/\s+/)[0] ?? "";
 		if (sha === expectSha) return { sha, attempts: tries + 1, state: "match" };
 		if (tries < attempts - 1) {

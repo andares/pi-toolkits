@@ -25,13 +25,16 @@ const LOCAL_SHA = "a".repeat(40);
 const OTHER_SHA = "b".repeat(40);
 
 /** Fake `git`: answers by subcommand, records what it was asked to do. */
-function fakeGit({ revParse = LOCAL_SHA, lsRemote = LOCAL_SHA, timeoutOn = "" } = {}) {
+function fakeGit({ revParse = LOCAL_SHA, lsRemote = LOCAL_SHA, timeoutOn = "", failOn = "" } = {}) {
 	const calls = [];
 	const spawn = (cmd, args, opts) => {
 		calls.push({ cmd, args, opts });
 		const sub = args[0];
 		if (timeoutOn === sub) {
 			return { status: null, signal: "SIGKILL", stdout: "", stderr: "" };
+		}
+		if (failOn === sub) {
+			return { status: 128, signal: null, stdout: "", stderr: "ssh: connection refused" };
 		}
 		const stdout =
 			sub === "rev-parse"
@@ -58,8 +61,18 @@ describe("boundedSshCommand", () => {
 		expect(command).toContain("ServerAliveCountMax=3");
 	});
 
-	it("does not stack deadlines onto a command that already has them", () => {
-		const already = "ssh -o ServerAliveInterval=5 -o ConnectTimeout=2";
+	it("fills only the missing deadlines around a custom SSH setting", () => {
+		const command = boundedSshCommand("ssh -o ServerAliveInterval=7");
+		expect(command).toContain("ServerAliveInterval=7");
+		expect(command).not.toContain("ServerAliveInterval=5");
+		expect(command).toContain("BatchMode=yes");
+		expect(command).toContain("ConnectTimeout=10");
+		expect(command).toContain("ServerAliveCountMax=3");
+	});
+
+	it("does not stack deadlines onto a command that already has all of them", () => {
+		const already =
+			"ssh -o BatchMode=yes -o ServerAliveInterval=5 -o ConnectTimeout=2 -o ServerAliveCountMax=1";
 		expect(boundedSshCommand(already)).toBe(already);
 	});
 });
@@ -91,6 +104,14 @@ describe("gitToolkit bounds (through releaseTailGap)", () => {
 		const res = await releaseTailGap({ cwd: "/tmp", tag: "v1", spawn });
 
 		expect(res.state).toBe("unknown");
+	});
+
+	it("reports an ordinary ls-remote failure as unknown, not as an absent ref", async () => {
+		const { spawn } = fakeGit({ failOn: "ls-remote" });
+		const res = await releaseTailGap({ cwd: "/tmp", tag: "v1", spawn });
+
+		expect(res.state).toBe("unknown");
+		expect(res.localSha).toBe(LOCAL_SHA);
 	});
 
 	it("still distinguishes a real mismatch and a real absent ref", async () => {

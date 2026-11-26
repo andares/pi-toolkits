@@ -1383,6 +1383,9 @@ button:disabled {
 	padding: 0 6px 10px;
 	overflow-y: auto;
 	overscroll-behavior: contain;
+	/* No visible scrollbar: the row width would jump while it appears, and the
+	   fade at both ends already says "there is more". */
+	scrollbar-width: none;
 	/* First and last rows dissolve instead of being clipped mid-glyph. */
 	-webkit-mask-image: linear-gradient(
 		180deg,
@@ -1402,6 +1405,13 @@ button:disabled {
 
 .outline-row {
 	position: relative;
+	/* Fixed height inside the bounded list, exactly like .outline-bar: the list
+	   is a column flex box capped by the panel's max-height, and `overflow:
+	   hidden` (needed for the ellipsis) drops this item's automatic minimum
+	   size to 0 — so without this the rows get squashed below their line box,
+	   the glyphs spill out of the bottom padding and the next row's background
+	   paints over them (19 headings was enough to trigger it). */
+	flex: none;
 	padding: 7px 10px;
 	border: none;
 	border-radius: 8px;
@@ -1438,6 +1448,10 @@ button:disabled {
 	width: 2px;
 	border-radius: 999px;
 	background: var(--brand);
+}
+
+.outline-list::-webkit-scrollbar {
+	display: none;
 }
 
 .outline-text {
