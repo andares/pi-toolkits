@@ -9,6 +9,10 @@ renames that heading to the version being published and refuses an empty section
 (`--skip-changelog` bypasses the gate).
 ## Unreleased
 
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
+## 1.2.1 — 2026-11-26
+
 - **spec/talk** — both pages have a confirmed **Close** action that stops the review server without sending a decision or a reply, including a closed-state fallback when the server is already gone.
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
@@ -88,6 +92,7 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
 
 
