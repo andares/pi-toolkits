@@ -398,15 +398,39 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   checkout，已发布内容 = tag 内容，但这道闸仍保留：本地门禁必须针对将要发布的
   同一份工作树。
 
+- **发版物料预检 = 硬闸，且跑在一切之前**（`scripts/lib/release-materials.mjs`，纯函数、
+  有测试）：`pnpm release` 先把下列五项一次查齐、一次报齐（每项 ✅ / ⚠ / ❌，❌ 带 `⇒`
+  下一步），**任何一项不齐就 0 步中止**——不跑门禁、不写盘、不提交、不推 tag，也不留下
+  要回滚的东西：
+
+  | 物料 | 不齐时 |
+  | --- | --- |
+  | 工作区干净（`git status --porcelain` 为空） | ❌ 中止 |
+  | `CHANGELOG.md` 的 `## Unreleased` 至少 1 条**顶格** `- ` | ❌ 中止 |
+  | `package.json.files` 含 `CHANGELOG.md` | ❌ 中止 |
+  | 本地没有 `v<next>` tag | ❌ 中止 |
+  | 上一版的远端 tag 已完成（尾部校验，见下） | ❌ 中止 |
+
+  **为什么必须在门禁之前**：门禁要两分钟，物料缺口两秒就能查出来；而发版往往是在
+  **没有 agent 的终端**里按的，缺物料时最需要的是「现在去补齐」，而不是等两分钟再读一条
+  报错。`--dry-run` 打同一份清单但不中止；`--skip-changelog` / `--skip-tail-check` 是仅有
+  的两个显式旁路（降为 ⚠，收尾摘要里仍会说）。
+  先例（2026-11-26，v1.2.3）：`## Unreleased` 在改动提交里漏写，脚本却是在
+  `typecheck + test + UI` **跑完之后**才报，白等两分钟，且提示只有一句「去改文件」。
+
+- **「提交」= 变更写完、写对、写清 + 物料齐备**（崔总 2026-11-26 定）：`CHANGELOG.md` 的
+  `## Unreleased` 条目属于**这次变更本身**，必须与它同一个提交；不允许「先提交、发版时
+  再补备注」——v1.2.3 就是这么空掉的。agent 收尾时若发现没写备注，补完再提交，不要把它
+  留给发版那一刻的预检。
+
 - `pnpm release <patch|minor|major> [flags]`：
-  干净检查 → **上一版尾部校验**（见下）→ typecheck + test + UI → **CHANGELOG.md 提升**
-  （`## Unreleased` 改成 `## <next> — <date>`；缺段落或没有顶层 `- ` 条目直接中止，
-  `--skip-changelog` 跳过；同时校验 `package.json` 的 `files` 含 `CHANGELOG.md`）→
-  bump → commit（`package.json` + `CHANGELOG.md`）+ tag（`scripts/tag-current.mjs` 打
-  `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且工作区干净**（否则中止）→ `git push
-  origin <branch>` + `git push origin refs/tags/vX.Y.Z`（**这一步就是发版**）→ 等 CI
-  （只看 tag 触发的 workflow run：分阶段打印进度、排队卡死的 run 自动补发、失败立即
-  中止并给 run URL；**run 绿了就算完成**）
+  **物料预检**（见上，0 步中止）→ typecheck + test + UI → **CHANGELOG.md 提升**
+  （`## Unreleased` 改成 `## <next> — <date>`；预检已保证有备注，写盘前再读一次，
+  中途被外部改动则中止）→ bump → commit（`package.json` + `CHANGELOG.md`）+ tag
+  （`scripts/tag-current.mjs` 打 `vX.Y.Z`）→ **自检：tag == HEAD 且工作区干净**
+  （否则中止）→ `git push origin <branch>` + `git push origin refs/tags/vX.Y.Z`
+  （**这一步就是发版**）→ 等 CI（只看 tag 触发的 workflow run：分阶段打印进度、排队
+  卡死的 run 自动补发、失败立即中止并给 run URL；**run 绿了就算完成**）
   → 远端 tag 校验 + 幂等创建 GitHub Release → 收尾摘要（tag / run / Release，不查 npm）。
   - `--dry-run`：只打印计划。
   - `--prepare-only`：停在 push 之前并打印推送命令——「准备都做完、发不发由人按
@@ -1425,9 +1449,9 @@ ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`�
 ```
 
 只认**顶格**的 `- ` / `* `；缩进的子 bullet 是给人看的细节，不进启动提示。空段落、缺段落、或
-`package.json.files` 不含 `CHANGELOG.md` 都会让 `pnpm release` 在 bump/commit 前中止；
-`--skip-changelog` 可显式跳过（该版没有公告条目）。发布门禁先把测试跑完再改 changelog，
-避免失败留下半写状态。
+`package.json.files` 不含 `CHANGELOG.md` 都属于**发版物料不全**，`pnpm release` 的预检会在
+跑任何门禁之前就以 ❌ 中止（补齐后重跑；`--skip-changelog` 是唯一的显式旁路）。
+备注写在**改动那个提交里**，不要留到发版时补——见 Release 一节的「提交 = 物料齐备」。
 
 ### 实现
 

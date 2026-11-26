@@ -108,3 +108,16 @@
   没有兜底，卡住时只能看到现场，而不是被一个 8 秒后的 SIGKILL 抹掉。
 - 证据：change record `.agents/implementations/2026-11-26_1506_quit-guard-removal.md`；
   `pnpm test` 全绿（文件数与用例数见该记录）。
+
+### M8 — 发版物料预检前置（2026-11-26）
+
+- **决定（崔总 2026-11-26）**：发版常常在没有 agent 的终端里按，物料缺口必须在**跑任何
+  门禁之前**查清并一次报齐；物料不齐就一步都不执行。「设计了的物料必须 work」——所以
+  `## Unreleased` 不是提示项，是阻塞项。
+- 落地：`scripts/lib/release-materials.mjs`（纯函数，五项判定：脏树 / 备注 / `files` /
+  `v<next>` tag / 上一版尾部），`publish.mjs` 预检前置并打印 ✅⚠❌ + `⇒` 下一步；
+  `changelog.mjs` 新增 `releaseNotesStatus` 并在提升时剥掉占位注释。
+- 纪律入 AGENTS.md：「提交」= 变更写完、写对、写清 + 物料齐备；备注与变更同一个提交。
+- 证据：change record `.agents/implementations/2026-11-26_2018_release-material-preflight.md`；
+  `pnpm test` 61 文件 / 1036 测试全绿；实机脏树 + 空备注时 4.5 秒中止（此前要跑完门禁）。
+

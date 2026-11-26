@@ -11,17 +11,16 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
-## 1.2.3 — 2026-11-26
+- **release** — `pnpm release` now validates every release material before it runs a single gate: uncommitted work, an empty `## Unreleased`, a `package.json` without `CHANGELOG.md`, or a tag that already exists for the target version each stop it in seconds with a list of what to fix, instead of surfacing after the two-minute test run.
+- **changelog** — released sections no longer keep the "notes for the next release go here" comment that used to be promoted along with them.
 
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+## 1.2.3 — 2026-11-26
 
 - **spec/talk** — the contents panel keeps every heading row at its full height (a document with ~19 headings no longer squashes the rows into each other) and scrolls to the section you are reading when it opens.
 - **talk** — when a new reply replaces the snapshot, a draft still waiting to be saved belongs to the old reply and is dropped, so it no longer lands in the new one.
 - **release** — `pnpm release` reports a failed remote-tag probe as unknown with recovery steps instead of calling the tag missing, and every child process it spawns directly now has a deadline.
 
 ## 1.2.2 — 2026-11-26
-
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
 - **release** — `pnpm release` now treats a green `publish` workflow run as the release's success criterion and stops there: no more polling npm for the version and its attestation, just a summary with the tag, the run URL, the Release URL and a package-page link. Every child process it spawns has a deadline (ssh included), so the wait can no longer sit silently on a dead connection.
 - **quit-guard** — removed: `/quit-guard`, its settings file and the hang reports are gone. Force-exiting a hung shutdown never fixed the hang and hid the real cause, so pi is left to hang instead.
@@ -30,19 +29,13 @@ renames that heading to the version being published and refuses an empty section
 
 - **spec/talk** — both pages have a confirmed **Close** action that stops the review server without sending a decision or a reply, including a closed-state fallback when the server is already gone.
 
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
-
 ## 1.2.0 — 2026-11-26
 
 - **talk** — `/ask-talk` opens the agent's last reply in the review page: one note per block plus a composer, and `Continue` sends just the notes and your message back — the reply itself is not re-quoted.
 - **spec** — the review page gets a contents strip at the reading column's edge: point at it to open a heading index, click a heading to jump; it follows the section you are reading.
 - **spec** — a `Back to top` button appears once the right-hand column has scrolled out of view, and stays above the footer.
 
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
-
 ## 1.1.0 — 2026-11-25
-
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
 - **spec** — running `/ask-spec` without arguments while a spec review is active now leaves the phase; `/ask-spec off` still works.
 - **spec** — after feedback, the next submitted revision starts a new review server and opens a new window instead of printing a dead URL; reopening a closed review restarts it, and the revision history is preserved.
@@ -53,8 +46,6 @@ renames that heading to the version being published and refuses an empty section
 
 ## 1.0.2 — 2026-11-24
 
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
-
 - **host compatibility** — verified against every published pi release from 0.99.0 through 1.6.0 (window 1.3–1.6); the declared range stays `pi >= 0.99.0` with no upper bound, and the package loads cleanly on 1.6.0.
 
 ## 1.0.1 — 2026-11-17
@@ -63,8 +54,6 @@ renames that heading to the version being published and refuses an empty section
 - **spec review page** — a new two-column page: warm paper/rose palette, the spec on the left, revision stats and a clickable annotation index on the right; global notes stay visible above the blocks.
 - **spec review page** — the decision bar now carries *Only changed* and *Global notes* on the left and the total note count in the middle, with the explanatory footer text removed.
 - **ask-spec** — existing `<agent-dir>/ask-plan/` review histories are migrated to `<agent-dir>/ask-spec/` on first use.
-
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
 ## 1.0.0 — 2026-11-15
 
@@ -75,8 +64,6 @@ renames that heading to the version being published and refuses an empty section
 - **ask-init** — `refresh --adopt` takes ownership of framework files written by an older tool without a template anchor, after you review them; a normal refresh still leaves them alone.
 - **ask** — phase guards: ask refuses to start on top of a plan review or the UAT page, a review exits ask mode and refuses while a plan is under review, and `/ask-init` refuses mutating runs while another phase owns the tree.
 - **init** — the audit now distinguishes a stale framework file from a hand edit, reports a missing workflow block, and treats bare legacy paths as a warning once the legacy directories are gone.
-
-<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
 ## 0.14.0 — 2026-11-13
 
@@ -107,12 +94,4 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
-
-
-
-
-
-
-
-
 

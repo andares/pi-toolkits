@@ -22,6 +22,15 @@ const SECTION_RE = /^##\s+(.+?)\s*$/;
 const NOTE_RE = /^[-*]\s+\S/;
 const UNRELEASED_RE = /^unreleased\b/i;
 
+/**
+ * The instruction line the release script itself writes into a fresh Unreleased
+ * section. It is stripped back out when that section is promoted: a released
+ * section that still says "notes for the next release go here" ships wrong text
+ * to every reader of the package.
+ */
+export const UNRELEASED_PLACEHOLDER =
+	"<!-- Notes for the next release go here; `pnpm release` renames this heading. -->";
+
 /** Locate the Unreleased section: its heading index, body lines, and where it ends. */
 export function findUnreleasedSection(markdown) {
 	const lines = markdown.split(/\r?\n/);
@@ -45,6 +54,21 @@ export function findUnreleasedSection(markdown) {
 		body,
 		notes: body.filter((line) => NOTE_RE.test(line)),
 	};
+}
+
+/**
+ * Whether the next release has notes, without throwing. The release script runs
+ * this in its pre-flight: an empty or missing section is a material gap, and the
+ * verdict has to be reportable before any gate starts.
+ *
+ * @param {string} markdown
+ * @returns {{ state: "ready" | "empty" | "missing", count: number }}
+ */
+export function releaseNotesStatus(markdown) {
+	const section = findUnreleasedSection(markdown);
+	if (!section) return { state: "missing", count: 0 };
+	if (section.notes.length === 0) return { state: "empty", count: 0 };
+	return { state: "ready", count: section.notes.length };
 }
 
 /**
@@ -77,6 +101,7 @@ export function promoteUnreleased(markdown, version, date) {
 		.join("\n")
 		.replace(/\s+$/, "");
 	const body = section.body
+		.filter((line) => line.trim() !== UNRELEASED_PLACEHOLDER)
 		.join("\n")
 		.replace(/^\s*\n/, "")
 		.replace(/\s+$/, "");
@@ -88,7 +113,7 @@ export function promoteUnreleased(markdown, version, date) {
 	const parts = [
 		"## Unreleased",
 		"",
-		"<!-- Notes for the next release go here; `pnpm release` renames this heading. -->",
+		UNRELEASED_PLACEHOLDER,
 		"",
 		`## ${version} — ${date}`,
 		"",

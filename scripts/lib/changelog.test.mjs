@@ -7,7 +7,12 @@
  * (missing section, no top-level notes).
  */
 import { describe, expect, it } from "vitest";
-import { findUnreleasedSection, promoteUnreleased } from "./changelog.mjs";
+import {
+	UNRELEASED_PLACEHOLDER,
+	findUnreleasedSection,
+	promoteUnreleased,
+	releaseNotesStatus,
+} from "./changelog.mjs";
 
 const HEADER = `# Changelog
 
@@ -72,5 +77,41 @@ describe("promoteUnreleased", () => {
 		// The comment inside the fresh Unreleased must not become a note.
 		const section = findUnreleasedSection(result.markdown);
 		expect(section?.body.join("\n")).not.toContain("- note");
+	});
+});
+
+describe("releaseNotesStatus", () => {
+	it("reports ready with the bullet count", () => {
+		expect(
+			releaseNotesStatus(`${HEADER}## Unreleased\n\n- one\n- two\n`),
+		).toEqual({ state: "ready", count: 2 });
+	});
+
+	it("treats the placeholder comment alone as empty, not ready", () => {
+		expect(
+			releaseNotesStatus(`${HEADER}## Unreleased\n\n${UNRELEASED_PLACEHOLDER}\n\n## 0.1.0\n`),
+		).toEqual({ state: "empty", count: 0 });
+	});
+
+	it("reports a missing section", () => {
+		expect(releaseNotesStatus(`${HEADER}## 0.1.0\n\n- old\n`)).toEqual({
+			state: "missing",
+			count: 0,
+		});
+	});
+});
+
+describe("promoteUnreleased — placeholder hygiene", () => {
+	it("strips the placeholder from the released section and keeps one fresh copy", () => {
+		const result = promoteUnreleased(
+			`${HEADER}## Unreleased\n\n${UNRELEASED_PLACEHOLDER}\n\n- new thing\n\n## 0.1.0 — 2026-01-01\n\n- old\n`,
+			"0.2.0",
+			"2026-02-02",
+		);
+		expect(result.markdown.match(/Notes for the next release go here/g)).toHaveLength(1);
+		expect(result.markdown.indexOf(UNRELEASED_PLACEHOLDER)).toBeLessThan(
+			result.markdown.indexOf("## 0.2.0"),
+		);
+		expect(result.markdown).toContain("## 0.2.0 — 2026-02-02\n\n- new thing");
 	});
 });

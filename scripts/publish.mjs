@@ -17,9 +17,13 @@
  * 用 OIDC trusted publishing 发布（无 token、无 2FA、自动 provenance）。
  *
  * Flow:
- *   validate arg → 工作区必须干净（有未提交变更直接中止）→ typecheck + test + UI checks
- *   → CHANGELOG.md 的 `## Unreleased` 改名为 `## <next> — <date>`（空或缺就中止；
- *     `--skip-changelog` 跳过）—— 运行时据此在升级后首次启动展示变更摘要
+ *   validate arg → **发版物料预检**（工作区干净 / CHANGELOG 有顶格备注 / files 含
+ *     CHANGELOG.md / 本地没有 v<next> tag / 上一版尾部已完成）—— 一次查齐、一次报齐，
+ *     任何一项不齐就一步都不执行（不跑门禁、不写盘、不提交、不推 tag）
+ *   → typecheck + test + UI checks
+ *   → CHANGELOG.md 的 `## Unreleased` 改名为 `## <next> — <date>`（备注是物料，
+ *     预检已经拦住空段；`--skip-changelog` 是唯一显式旁路）—— 运行时据此在升级后
+ *     首次启动展示变更摘要
  *   → bump package.json → git commit `chore: release vX.Y.Z`（含 CHANGELOG.md）+ tag `vX.Y.Z`
  *     (tag via scripts/tag-current.mjs — skips if already exists)
  *     → 自检：tag == HEAD 且工作区干净（否则中止）
@@ -43,6 +47,9 @@
  * anything. `--prepare-only` stops after commit+tag and prints the push command.
  *
  * Notes:
+ *  - 物料预检是硬性前置，且跑在门禁之前：门禁两分钟，物料缺口两秒就能查出来，
+ *    而且缺物料时最需要的是「现在去补齐」，不是「等了很久再读一条报错」。
+ *    预检的清单与判定在 scripts/lib/release-materials.mjs（纯函数，有测试）。
  *  - 干净检查是硬性前置：release 提交只含版本号，未提交内容会进 npm 包
  *    （pnpm 从工作区打包）却不进 tag —— v0.4.0 事故即由此产生。CI 从 tag 的
  *    提交重新 checkout，发布内容 = tag 内容，不再依赖本机工作区。
@@ -65,7 +72,8 @@ import {
 	syncGitHubRelease,
 } from "./lib/github-release.mjs";
 import { createDispatchRescue, waitForCiPublish } from "./lib/ci-publish.mjs";
-import { findUnreleasedSection, promoteUnreleased } from "./lib/changelog.mjs";
+import { promoteUnreleased, releaseNotesStatus } from "./lib/changelog.mjs";
+import { assessReleaseMaterials } from "./lib/release-materials.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PKG_PATH = join(ROOT, "package.json");
@@ -115,7 +123,7 @@ if (!BUMPS.includes(arg) || unknownFlags.length > 0 || strayArgs.length > 0) {
 			`\n  --no-wait         return right after the tag push; do not poll CI or create the Release.` +
 			`\n  --local           emergency: publish from this machine with the local npm token.` +
 			`\n  --skip-tail-check release even when the PREVIOUS version's tag is missing remotely.` +
-			`\n  --skip-changelog  release without promoting an Unreleased section in CHANGELOG.md.`,
+			`\n  --skip-changelog  bypass the release-notes material (this version ships without an announcement).`,
 	);
 	if (unknownFlags.length > 0) {
 		console.error(`${C.red}Unknown flag(s): ${unknownFlags.join(" ")}${C.reset}`);
@@ -161,16 +169,6 @@ const repoMatch = pkg.repository?.url?.match(
 	/github\.com[/:]([^/]+)\/([^/.]+?)(?:\.git)?$/,
 );
 const ghRepo = repoMatch ? `${repoMatch[1]}/${repoMatch[2]}` : "andares/pi-toolkits";
-
-/** 尾部校验结果的人话（dry-run 报告用）。 */
-const TAIL_LABEL = {
-	ok: "已就位",
-	absent: "远端缺失",
-	mismatch: "远端指向别的提交",
-	unknown: "无法确认（git 探测失败或超时）",
-	"missing-local-tag": "本地无此 tag",
-	skipped: "跳过（--skip-tail-check）",
-};
 
 console.log(
 	`${C.dim}release${C.reset} ${C.bold}${current}${C.reset} → ${C.bold}${C.green}${next}${C.reset} (${arg})`,
@@ -231,12 +229,12 @@ function todayStamp() {
 	return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
-/** The Unreleased section of CHANGELOG.md, or undefined when absent. */
-function changelogSection() {
+/** CHANGELOG.md contents; an unreadable file reads as empty (the pre-flight reports it). */
+function readChangelog() {
 	try {
-		return findUnreleasedSection(readFileSync(CHANGELOG_PATH, "utf8"));
+		return readFileSync(CHANGELOG_PATH, "utf8");
 	} catch {
-		return undefined;
+		return "";
 	}
 }
 
@@ -250,49 +248,68 @@ const branch =
 		.toString()
 		.trim() || "master";
 
-// Working-tree state: informational for --dry-run, a hard gate for the real
-// run (see below).
+// 工作区状态：物料之一（见下）。
 const dirty = run(git, ["status", "--porcelain"], { stdio: "pipe" })
 	.stdout.toString()
 	.trim();
 
-// 上一版的 tag 名（尾部校验与 dry-run 报告共用）。
-const tailTag = `v${current}`;
+// ── 发版物料预检（硬闸，跑在一切之前）────────────────────────────────────────
+// 门禁要两分钟，而物料缺口两秒就能查出来；缺物料时最需要的是「现在去补齐」，不是
+// 「等两分钟再读一条报错」。所以这里一次查齐、一次报齐，只要有一项不齐就一步都不
+// 执行（不跑门禁、不写盘、不提交、不推 tag）。判定在
+// scripts/lib/release-materials.mjs（纯函数，有测试）。
+const materials = assessReleaseMaterials({
+	current,
+	next,
+	arg,
+	dirty,
+	changelog: releaseNotesStatus(readChangelog()),
+	filesIncludeChangelog: Array.isArray(pkg.files) && pkg.files.includes("CHANGELOG.md"),
+	nextTagExists: tagExists(`v${next}`),
+	tail: skipTailCheck
+		? undefined
+		: await releaseTailGap({ cwd: ROOT, git, tag: `v${current}` }),
+	skipChangelog,
+	skipTailCheck,
+});
+
+const MARK = { ok: `${C.green}✅`, warn: `${C.yellow}⚠ `, block: `${C.red}❌` };
+
+function printMaterials() {
+	step(`发版物料 ${current} → ${next}`);
+	for (const item of materials.items) {
+		console.log(`  ${MARK[item.level]}${C.reset} ${item.title}`);
+		if (item.detail) {
+			for (const line of item.detail.split("\n")) {
+				console.log(`     ${C.dim}${line}${C.reset}`);
+			}
+		}
+		if (item.fix) {
+			const [first, ...rest] = item.fix.split("\n");
+			console.log(`${C.red}     ⇒ ${first}${C.reset}`);
+			for (const line of rest) console.log(`${C.red}       ${line}${C.reset}`);
+		}
+	}
+}
 
 if (dryRun) {
-	console.log(`\n${C.dim}--dry-run -- nothing changed. Would run:${C.reset}`);
-	console.log(`  0. 工作区必须干净（有未提交变更则直接中止）`);
-	if (skipTailCheck) {
-		console.log(`  0b. 上一版 ${tailTag} 的尾部校验 —— ${TAIL_LABEL.skipped}`);
-	} else {
-		const tail = await releaseTailGap({ cwd: ROOT, git, tag: tailTag });
-		console.log(
-			`  0b. 上一版 ${tailTag} 的远端 tag 校验（现在：${TAIL_LABEL[tail.state]}）—— 不是「已就位」就中止`,
-		);
-	}
+	printMaterials();
+	const verdict = materials.blocked
+		? `${C.yellow}物料不全 —— 实际执行会在上面这一步中止，后面的步骤都不会跑。${C.reset}`
+		: `${C.dim}物料齐备。Would run:${C.reset}`;
+	console.log(`\n${C.dim}--dry-run -- nothing changed.${C.reset} ${verdict}`);
 	console.log(`  1. pnpm typecheck && pnpm test && pnpm ui:typecheck && pnpm ui:check`);
+	let notesPlan = "  2a. CHANGELOG.md：无法提升（备注缺失，见上面的物料清单）";
 	if (skipChangelog) {
-		console.log(`  2a. CHANGELOG.md：--skip-changelog，不提升 Unreleased（本版没有启动公告条目）`);
-	} else {
-		const section = changelogSection();
-		const state =
-			section === undefined
-				? "缺少 `## Unreleased`"
-				: section.notes.length === 0
-					? "`## Unreleased` 还是空的"
-					: `${section.notes.length} 条待发布 → \`## ${next}\``;
-		console.log(`  2a. CHANGELOG.md：${state}（空或缺失会在真实运行时中止）`);
+		notesPlan = "  2a. CHANGELOG.md：不提升（--skip-changelog，本版没有启动公告条目）";
+	} else if (materials.promoteNotes) {
+		notesPlan = `  2a. CHANGELOG.md：提升 \`## Unreleased\` → \`## ${next} — <date>\``;
 	}
+	console.log(notesPlan);
 	console.log(`  2. bump package.json version → ${next}`);
-	if (tagExists(`v${next}`)) {
-		console.log(
-			`  3. git commit -m "chore: release v${next}" + tag-current（tag v${next} 已存在，跳过打 tag）`,
-		);
-	} else {
-		console.log(
-			`  3. git commit -m "chore: release v${next}" + tag-current（git tag v${next}）`,
-		);
-	}
+	console.log(
+		`  3. git commit -m "chore: release v${next}" + tag-current（git tag v${next}）`,
+	);
 	console.log(`  3b. 自检：tag == HEAD 且工作区干净`);
 	if (localPublish) {
 		console.log(`  4. pnpm publish --no-git-checks（--local：本机直接发布，需要 npm token）`);
@@ -319,72 +336,19 @@ if (dryRun) {
 		);
 		console.log(`  8. 收尾：tag / run URL / Release URL 摘要（不查 npm）`);
 	}
-	if (dirty) {
-		console.log(
-			`\n${C.yellow}注意：当前工作区有未提交变更——实际执行会在第 0 步直接中止（先提交再发版）：${C.reset}\n` +
-				dirty
-					.split("\n")
-					.map((l) => `  ${l}`)
-					.join("\n"),
-		);
-	}
 	process.exit(0);
 }
 
-// Hard gate — release 提交只含版本号：有未提交内容时，pnpm 会把它打进
-// npm 包却不进 tag，tag 就不再是「实际发布内容」的快照（v0.4.0 事故）。
-if (dirty) {
+printMaterials();
+if (materials.blocked) {
 	console.error(
-		`${C.red}${C.bold}Aborting: uncommitted changes present.${C.reset}\n` +
-			dirty
-				.split("\n")
-				.map((l) => `  ${l}`)
-				.join("\n") +
-			`\n${C.red}Commit your work first (scratch files: add to .gitignore), then re-run.` +
-			`\n  The release commit only bumps the version — uncommitted work would be published` +
-			` to npm but absent from tag v${next}.${C.reset}`,
+		`\n${C.red}${C.bold}物料不全 —— 一步都没执行${C.reset}` +
+			`\n${C.red}  门禁、提交、tag、push 全部没有跑：0 步中止，没有留下需要回滚的东西。` +
+			`\n  按上面的 ⇒ 补齐物料，然后重跑同一条命令：pnpm release ${arg}${C.reset}`,
 	);
 	process.exit(1);
 }
-
-// Hard gate 2 — 上一版必须真的发完了（tag 已在远端且同哈希）。
-// 中断过的发版（打断在推 tag / 建 Release 之前）会让「再按一次 pnpm release」
-// 产出一个与上一版逐字节相同的新版本：2026-11-10 v0.12.3 → v0.12.4 实测，
-// 两个 tarball 的差异只有 package.json 的 version 一行。补救入口是
-// `pnpm release:github <tag>`——它不 bump 版本、不碰 npm，正好是「补完尾部」
-// 而不是「再发一版」。只看 tag、不看 Release：Release 要 token，缺 token 的人
-// 不应该因此发不了版。
-if (!skipTailCheck) {
-	step(`上一版 ${tailTag} 的发布尾部`);
-	const tail = await releaseTailGap({ cwd: ROOT, git, tag: tailTag });
-	if (tail.state !== "ok") {
-		const hint = {
-			"missing-local-tag":
-				`  本地没有 tag ${tailTag}，无法确认 ${current} 是否已发布。` +
-				`\n  若 ${current} 确实在 npm 上、本地只是丢了 tag：git tag ${tailTag} <发布提交>，然后重跑。` +
-				`\n  若它从未发布过：先修好 package.json 的版本号。`,
-			absent:
-				`  远端没有 tag ${tailTag} —— 上一版很可能在推 tag 之前被打断。` +
-				`\n  先补完尾部：pnpm release:github ${tailTag}（推 tag + 校验 + 建 Release，不碰 npm，幂等）` +
-				`\n  否则这次会发出 v${next}，内容与 ${current} 逐字节相同（只有 version 一行不同）。` +
-				`\n  确认要跳过：pnpm release ${arg} --skip-tail-check`,
-			mismatch:
-				`  远端 tag ${tailTag} 指向 ${tail.remoteSha.slice(0, 7) || "?"}，本地指向 ${tail.localSha.slice(0, 7)}。` +
-				`\n  人工确认后（远端不对就 git push origin refs/tags/${tailTag} --force）再发版。`,
-			unknown:
-				`  git 无法核实远端 tag（网络 / SSH 失败或超时），这不等于远端没有 tag。` +
-				`\n  先手动复核：git ls-remote origin refs/tags/${tailTag}` +
-				`\n  恢复网络 / SSH 后重跑；只有人工确认风险后才用 --skip-tail-check 跳过。`,
-		}[tail.state];
-		console.error(
-			`${C.red}${C.bold}Aborting: ${tailTag} 的发布尾部未完成（${TAIL_LABEL[tail.state]}）。${C.reset}\n${hint}`,
-		);
-		process.exit(1);
-	}
-	console.log(
-		`${C.green}${tailTag} 的远端 tag 已就位 → ${tail.localSha.slice(0, 7)}${C.reset}`,
-	);
-}
+console.log(`\n${C.green}物料齐备，开始执行${C.reset}`);
 
 // 1. Checks gate — abort before anything is changed if they fail.
 step("typecheck + test + UI checks");
@@ -396,47 +360,32 @@ run(pnpm, ["test"]);
 run(pnpm, ["ui:typecheck"]);
 run(pnpm, ["ui:check"]);
 
-// 2. Release notes gate — promote `## Unreleased` to the version being shipped.
-// The extension (src/features/whats-new) reads the published CHANGELOG.md and
-// announces those notes on the first start after an upgrade, so a release with
-// no notes ships an announcement with nothing in it. The gate runs after the
-// checks: a failed test suite must not leave a half-written changelog.
+// 2. 提升 `## Unreleased` → `## <next> — <date>`。
+// 备注在预检里已经确认过（空的段落根本走不到这里），但门禁跑完才轮到这里写盘，
+// 所以再读一次文件：中途若被外部改动，宁可在写盘前重新确认，也不把没校对过的
+// 文本当成「已经预检过」的内容提交。
 step(`release notes → ${next}`);
 if (skipChangelog) {
 	console.log(
 		`${C.yellow}--skip-changelog：CHANGELOG.md 未提升，本版不会有启动公告条目。${C.reset}`,
 	);
 } else {
-	if (!Array.isArray(pkg.files) || !pkg.files.includes("CHANGELOG.md")) {
+	const markdown = readChangelog();
+	const status = releaseNotesStatus(markdown);
+	if (status.state !== "ready") {
 		console.error(
-			`${C.red}${C.bold}Aborting: package.json "files" does not include CHANGELOG.md.${C.reset}\n` +
-				`  The runtime reads the changelog from the installed package; without it every\n` +
-				`  \`/whats-new\` says there are no notes. Add "CHANGELOG.md" to files.`,
+			`${C.red}${C.bold}Aborting: CHANGELOG.md changed after the pre-flight.${C.reset}` +
+				`\n  预检时是 ready，现在是 ${status.state}（${status.count} 条）—— 门禁跑完到写盘的这段时间里文件被改过。` +
+				`\n  确认过内容后重跑同一条命令：pnpm release ${arg}（预检会重新核一遍）。`,
 		);
 		process.exit(1);
 	}
-	let markdown = "";
-	try {
-		markdown = readFileSync(CHANGELOG_PATH, "utf8");
-	} catch {
-		markdown = "";
-	}
-	try {
-		const date = todayStamp();
-		const promoted = promoteUnreleased(markdown, next, date);
-		writeFileSync(CHANGELOG_PATH, promoted.markdown, "utf8");
-		console.log(
-			`${C.green}## Unreleased → ## ${next} — ${date}（${promoted.notes.length} 条）${C.reset}`,
-		);
-	} catch (error) {
-		console.error(
-			`${C.red}${C.bold}Aborting: release notes are not ready.${C.reset}\n` +
-				`  ${error instanceof Error ? error.message : String(error)}\n` +
-				`  The extension announces these notes on the first start after an upgrade;\n` +
-				`  write them in CHANGELOG.md under \`## Unreleased\` (or pass --skip-changelog).`,
-		);
-		process.exit(1);
-	}
+	const date = todayStamp();
+	const promoted = promoteUnreleased(markdown, next, date);
+	writeFileSync(CHANGELOG_PATH, promoted.markdown, "utf8");
+	console.log(
+		`${C.green}## Unreleased → ## ${next} — ${date}（${promoted.notes.length} 条）${C.reset}`,
+	);
 }
 
 // 3. Bump package.json (preserve formatting: 2-space indent + trailing newline).
