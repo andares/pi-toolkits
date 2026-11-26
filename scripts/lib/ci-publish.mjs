@@ -1,31 +1,30 @@
 /**
- * Watch the tag-triggered publish workflow and verify what it produced.
+ * Watch the tag-triggered publish workflow.
  *
  * Why this exists: publishing moved from "this machine runs pnpm publish" to
  * "push the tag, CI publishes with OIDC trusted publishing". That split makes
- * the local script a supervisor instead of a publisher — and it must not claim
- * success until the registry actually has the version and the provenance
- * attestation. A tag push that silently failed in CI is exactly the state that
- * used to be impossible (the publish was the last thing we did).
+ * the local script a supervisor instead of a publisher, and a tag push that
+ * failed in CI is exactly the state that used to be impossible (the publish was
+ * the last thing we did).
  *
- * Everything here is read-only against npm/GitHub, with one exception:
- * `createDispatchRescue` may re-dispatch the same tag's workflow when the
- * tag-triggered run is stuck in `queued` (see below).
+ * **The workflow run being green is the whole completion criterion.** An
+ * earlier version kept polling the npm registry afterwards and refused to call
+ * the release done until the version and its provenance attestation showed up
+ * there. That was overreach: before Actions, `pnpm release` ran `pnpm publish`
+ * and never asked npm whether it had "processed it well" either. Propagation and
+ * scanning are npm's job, the package page is one click away, and the workflow
+ * itself already skips an already-published version instead of failing — so
+ * green is a trustworthy "this version is out".
  *
  * Two hard-won details about *waiting* live here, both measured on this repo:
  *
- * 1. **Probe the registry over HTTP, not `npm view`.** `npm view` costs a child
- *    process (1–2 s on WSL); polling it every 5 s made the loop slower than the
- *    thing it waited on. The registry serves `/<name>/<version>` in ~100 ms, so
- *    the loop can poll every 1.5 s and still cost nothing. `npm view` remains as
- *    the authoritative cross-check (once every 30 s, and always when HTTP is
- *    unavailable), because it is the client npm itself uses.
- * 2. **Say which phase you are waiting in.** The old loop printed one
- *    throttled-to-30 s line for the whole duration, so "CI finished 40 s ago and
- *    npm's read replica has not caught up" looked exactly like "CI is stuck" —
- *    v0.14.0 spent ~2 min in that state and read as a hung workflow. Phases are
- *    now named (run missing / queued / running / CI green, waiting for the
- *    registry) and carry `t=Ns`.
+ * 1. **Say which phase you are waiting in.** The old loop printed one
+ *    throttled-to-30 s line for the whole duration, so "the run has not been
+ *    created yet" looked exactly like "the run is stuck". Phases are named
+ *    (run missing / queued / running) and carry `t=Ns`.
+ * 2. **Read GitHub sparsely** (`runCheckEveryMs`, default 10 s). The REST API is
+ *    rate-limited and a publish run takes ~1 min, so a tighter loop buys
+ *    nothing.
  *
  * GitHub flakiness, observed on this repo (v0.13.0 → run 43096640287): a
  * tag-push run can sit in `queued` forever with `started_at` empty, never
@@ -36,167 +35,9 @@
  * is already published; the alternative is a release that waits 15 minutes to
  * time out.
  */
-import { spawnSync } from "node:child_process";
 import { githubApi, parseJson } from "./github-release.mjs";
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
-
-/** Conclusions that mean "this run will never publish anything". */
-const BAD_CONCLUSIONS = new Set([
-	"failure",
-	"cancelled",
-	"timed_out",
-	"startup_failure",
-]);
-
-/** Registry id for a package name (scoped names use `%2f`). */
-function registryId(name) {
-	return name.replace("/", "%2f");
-}
-
-/** `GET https://registry.npmjs.org/<name>/<version>`. */
-export function registryVersionUrl(name, version) {
-	return `https://registry.npmjs.org/${registryId(name)}/${version}`;
-}
-
-/** `GET https://registry.npmjs.org/-/npm/v1/attestations/<name>@<version>`. */
-export function registryAttestationsUrl(name, version) {
-	return `https://registry.npmjs.org/-/npm/v1/attestations/${registryId(name)}@${version}`;
-}
-
-/** Fetch without throwing: returns the response, or undefined on any failure. */
-async function tryFetch(url, { fetchImpl, timeoutMs, accept } = {}) {
-	const fetchFn = fetchImpl === undefined ? globalThis.fetch : fetchImpl;
-	if (typeof fetchFn !== "function") return undefined;
-	const signal =
-		typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-			? AbortSignal.timeout(timeoutMs ?? 5000)
-			: undefined;
-	try {
-		return await fetchFn(url, {
-			headers: { accept: accept ?? "application/json" },
-			signal,
-		});
-	} catch {
-		return undefined;
-	}
-}
-
-/**
- * Is `<name>@<version>` in the registry? The fast path of the wait loop.
- *
- * Returns `true` / `false` (the registry answered) or `undefined` (it did not:
- * offline, proxy, 5xx, CDN weirdness). `undefined` must never be read as
- * "absent" — the caller falls back to `npm view` instead of staying blind.
- */
-export async function fetchPublishedVersion({
-	name,
-	version,
-	fetchImpl,
-	timeoutMs = 5000,
-}) {
-	const res = await tryFetch(registryVersionUrl(name, version), {
-		fetchImpl,
-		timeoutMs,
-	});
-	if (!res) return undefined;
-	try {
-		// Drain the body so the connection is reusable; only presence matters.
-		await res.arrayBuffer?.();
-	} catch {
-		// ignore: a truncated body cannot change the status code
-	}
-	if (res.status === 200) return true;
-	if (res.status === 404) return false;
-	return undefined;
-}
-
-/**
- * Provenance attestations for a version, or `undefined` when the registry did
- * not answer. `[]` means "answered: nothing there yet".
- */
-export async function fetchAttestations({
-	name,
-	version,
-	fetchImpl,
-	timeoutMs = 5000,
-}) {
-	const res = await tryFetch(registryAttestationsUrl(name, version), {
-		fetchImpl,
-		timeoutMs,
-	});
-	if (!res) return undefined;
-	if (res.status === 404) return [];
-	if (res.status !== 200) return undefined;
-	try {
-		const data = await res.json();
-		const entries = Array.isArray(data?.attestations) ? data.attestations : [];
-		return entries.map((entry) => ({
-			url: registryAttestationsUrl(name, version),
-			predicateType: entry?.predicateType,
-		}));
-	} catch {
-		return undefined;
-	}
-}
-
-/** Is `<name>@<version>` present in the registry? (Inexact while npm scans.) */
-export function npmVersionPublished({ npm = "npm", name, version, cwd }) {
-	const res = spawnSync(npm, ["view", `${name}@${version}`, "version"], {
-		cwd,
-		encoding: "utf8",
-		stdio: "pipe",
-		timeout: 60_000,
-	});
-	return res.status === 0 && res.stdout.trim() === version;
-}
-
-/** Provenance/attestation entries for a published version ([] when none). */
-export function npmAttestations({ npm = "npm", name, version, cwd }) {
-	const res = spawnSync(
-		npm,
-		["view", `${name}@${version}`, "dist.attestations", "--json"],
-		{ cwd, encoding: "utf8", stdio: "pipe", timeout: 60_000 },
-	);
-	if (res.status !== 0) return [];
-	const data = parseJson(res.stdout.trim());
-	return Array.isArray(data) ? data : [];
-}
-
-/**
- * Poll until the registry reports `<name>@<version>` as published.
- *
- * The tail self-check used to call `npm view` exactly once. That reads the
- * package's *packument*, and a packument replica can still be missing a version
- * whose per-version endpoint already answers 200 — measured on v1.2.0
- * (2026-11-25): the publish step succeeded at 17:20:42Z, the wait loop saw the
- * version, and the tail check a moment later failed with `E404 No match found`
- * because it read the stale packument. The release was fine; the report was not.
- *
- * So: the per-version endpoint is the authority (it is also what the wait loop
- * trusts), and `npm view` stays as the fallback for when HTTP is unavailable —
- * never as the primary read.
- */
-export async function waitForNpmVersion({
-	npm = "npm",
-	name,
-	version,
-	cwd,
-	fetchImpl,
-	timeoutMs = 60_000,
-	intervalMs = 2000,
-	now = Date.now,
-	sleep: wait = sleep,
-}) {
-	const started = now();
-	for (;;) {
-		const http = await fetchPublishedVersion({ name, version, fetchImpl });
-		if (http === true) return true;
-		if (http === undefined && npmVersionPublished({ npm, name, version, cwd })) return true;
-		if (now() - started >= timeoutMs) return false;
-		await wait(intervalMs);
-	}
-}
 
 /**
  * List the runs of a workflow. `query` is passed through verbatim, so callers
@@ -364,36 +205,23 @@ function msSince(stamp, now) {
 }
 
 /**
- * Poll until the version is on npm, the run fails, or the timeout expires.
+ * Poll until the publish run finishes.
  *
- * Returns `{ status, run, elapsedMs }` with status one of
+ * Returns `{ status, run, elapsedMs, conclusion }` with status one of
  *   published | failed | timeout
- * `failed` is decided from the workflow run (so we can name the run URL);
- * registry lag after a green run is `timeout`, which is not a publish failure
- * but must still be reported honestly.
- *
- * Cadence: registry over HTTP every `intervalMs` (1.5 s), GitHub every
- * `runCheckEveryMs` (10 s — REST reads are rate-limited), `npm view` every
- * `npmRecheckEveryMs` (30 s) as the authoritative cross-check. Progress is
- * printed on phase change and at least every `logEveryMs`, always naming the
- * phase and the elapsed time.
+ * `published` = the run completed successfully; that is the release's
+ * completion criterion (see the header for why the registry is not consulted).
+ * `failed` carries the conclusion so the caller can name what went wrong
+ * instead of only saying "red".
  */
 export async function waitForCiPublish({
 	repo,
 	token,
 	workflow = "publish.yml",
 	sha,
-	name,
-	version,
-	npm = "npm",
-	cwd,
 	curl,
-	fetchImpl,
 	timeoutMs = 15 * 60_000,
-	intervalMs = 1500,
 	runCheckEveryMs = 10_000,
-	npmRecheckEveryMs = 30_000,
-	npmFallbackMs = 10_000,
 	queuedGraceMs = 60_000,
 	dispatchStuck,
 	logEveryMs = 15_000,
@@ -404,8 +232,6 @@ export async function waitForCiPublish({
 }) {
 	const findRun = probes.findWorkflowRun ?? findWorkflowRun;
 	const getRun = probes.workflowRunById ?? fetchWorkflowRunById;
-	const npmProbe = probes.npmVersionPublished ?? npmVersionPublished;
-	const httpProbe = probes.publishedVersion ?? fetchPublishedVersion;
 
 	const started = now();
 	const elapsed = () => now() - started;
@@ -416,71 +242,46 @@ export async function waitForCiPublish({
 	let pinnedRunId;
 	let rescueTried = false;
 	let lastRunCheck = Number.NEGATIVE_INFINITY;
-	let lastNpmCheck = Number.NEGATIVE_INFINITY;
 	let lastLog = Number.NEGATIVE_INFINITY;
 	let lastPhase = "";
-	/** When the tracked run turned green — registry wait is measured from here. */
-	let greenAt;
 
 	const phase = () => {
 		if (!run) return "discovering";
-		if (run.status === "completed") return "registry";
-		if (run.status === "queued") return "queued";
-		return "running";
+		return run.status === "completed" ? "completed" : run.status;
 	};
 
 	const describe = () => {
 		const t = `t=${secs(elapsed())}s`;
 		if (!run) return `  waiting: workflow run 还没出现（${t}）`;
-		if (run.status === "completed") {
-			const lag = greenAt === undefined ? "" : `，run 绿了 ${secs(now() - greenAt)}s 了`;
-			return (
-				`  waiting: CI 已绿（${t}${lag}），registry 还没吐 ${name}@${version}` +
-				` —— 这段是 npm 的传播延迟，不是 CI 卡住`
-			);
-		}
 		const suffix = run.html_url ? ` — ${run.html_url}` : "";
 		return `  waiting: CI ${run.status}（${t}）${suffix}`;
 	};
 
 	for (;;) {
-		// 1. The registry is the only signal that means "done".
-		const http = await httpProbe({ name, version, fetchImpl });
-		if (http === true) return { status: "published", run, elapsedMs: elapsed() };
-		const npmDue =
-			http === undefined
-				? now() - lastNpmCheck >= npmFallbackMs
-				: now() - lastNpmCheck >= npmRecheckEveryMs;
-		if (npmDue) {
-			lastNpmCheck = now();
-			if (npmProbe({ npm, name, version, cwd })) {
-				return { status: "published", run, elapsedMs: elapsed() };
-			}
-		}
-
-		// 2. The workflow run, read sparsely.
+		// 1. The workflow run, read sparsely.
 		if (now() - lastRunCheck >= runCheckEveryMs) {
 			lastRunCheck = now();
 			const found = pinnedRunId
 				? getRun({ repo, token, runId: pinnedRunId, curl })
 				: findRun({ repo, token, workflow, sha, curl });
 			run = found ?? run;
-			if (!run) {
-				greenAt = undefined;
-			} else if (run.status === "completed") {
-				greenAt ??= now();
-			} else {
-				greenAt = undefined;
+		}
+
+		// 2. A finished run decides, either way. Anything but `success` means the
+		//    version is not out, so there is nothing left to wait for.
+		if (run && run.status === "completed") {
+			if (run.conclusion === "success") {
+				return { status: "published", run, elapsedMs: elapsed() };
 			}
+			return {
+				status: "failed",
+				run,
+				elapsedMs: elapsed(),
+				conclusion: run.conclusion,
+			};
 		}
 
-		// 3. A finished run decides failure immediately (a red run will never
-		//    put the version on npm, so waiting out the timeout is pointless).
-		if (run && BAD_CONCLUSIONS.has(run.conclusion)) {
-			return { status: "failed", run, elapsedMs: elapsed() };
-		}
-
-		// 4. A run that never starts needs a human-equivalent kick: re-dispatch.
+		// 3. A run that never starts needs a human-equivalent kick: re-dispatch.
 		const queuedFor = run ? msSince(run.created_at, now()) : undefined;
 		if (
 			!rescueTried &&
@@ -500,7 +301,6 @@ export async function waitForCiPublish({
 			if (adopted && adopted.id) {
 				run = adopted;
 				pinnedRunId = adopted.id;
-				greenAt = undefined;
 				lastRunCheck = Number.NEGATIVE_INFINITY; // refresh the new run next tick
 				log(
 					`  ↳ 已接管新的 run ${adopted.id}` +
@@ -511,7 +311,7 @@ export async function waitForCiPublish({
 			}
 		}
 
-		// 5. Progress: name the phase, not just "waiting".
+		// 4. Progress: name the phase, not just "waiting".
 		const current = phase();
 		if (current !== lastPhase || now() - lastLog >= logEveryMs) {
 			lastPhase = current;
@@ -522,38 +322,6 @@ export async function waitForCiPublish({
 		if (elapsed() >= timeoutMs) {
 			return { status: "timeout", run, elapsedMs: elapsed() };
 		}
-		await wait(intervalMs);
-	}
-}
-
-/**
- * Provenance attestations can trail the version by a few seconds; poll briefly
- * instead of reporting a false negative. HTTP first (cheap), `npm view` only
- * when the registry does not answer.
- */
-export async function waitForAttestations({
-	npm = "npm",
-	name,
-	version,
-	cwd,
-	fetchImpl,
-	timeoutMs = 120_000,
-	intervalMs = 5000,
-	fallbackEveryMs = 15_000,
-	now = Date.now,
-	sleep: wait = sleep,
-}) {
-	const started = now();
-	let lastFallback = Number.NEGATIVE_INFINITY;
-	for (;;) {
-		const http = await fetchAttestations({ name, version, fetchImpl });
-		if (http && http.length > 0) return http;
-		if (http === undefined && now() - lastFallback >= fallbackEveryMs) {
-			lastFallback = now();
-			const entries = npmAttestations({ npm, name, version, cwd });
-			if (entries.length > 0) return entries;
-		}
-		if (now() - started >= timeoutMs) return [];
-		await wait(intervalMs);
+		await wait(runCheckEveryMs);
 	}
 }

@@ -35,10 +35,66 @@ export const C = {
 
 const API_VERSION = "2022-11-28";
 
+/**
+ * Every child process below is bounded, because none of them used to be and one
+ * of them cost an operator ~47 minutes of staring at a step header (v1.2.1,
+ * 2026-11-26: the tail self-check printed `▾ 尾部自检` and then nothing until it
+ * was interrupted).
+ *
+ * A JS-side watchdog cannot rescue this: `spawnSync` blocks the event loop, so
+ * no timer fires while a child hangs. Neither is a spawn timeout enough on its
+ * own — `git ls-remote` hands its stdout pipe to `ssh`, so killing git leaves a
+ * surviving ssh holding the pipe and spawnSync keeps waiting on it. And ssh has
+ * no default timeout at all, which is exactly how a silently dropped TCP
+ * connection (WSL2 NAT after a host network change) becomes "waiting forever".
+ *
+ * So ssh gets its own deadlines (it exits by itself), and every spawn gets a
+ * kill switch as the backstop. A timeout is reported as `unknown`, never as
+ * `absent`: only one of those is a fact.
+ */
+export const GIT_TIMEOUT_MS = 20_000;
+export const CURL_TIMEOUT_MS = 20_000;
+
+const SSH_DEADLINES = [
+	"-o BatchMode=yes", // a release script fails; it never waits for a passphrase
+	"-o ConnectTimeout=10", // give up on a host that does not answer
+	"-o ServerAliveInterval=5", // notice a connection that died silently
+	"-o ServerAliveCountMax=3",
+].join(" ");
+
+/**
+ * Add ssh deadlines to a `GIT_SSH_COMMAND` without discarding the operator's
+ * own invocation (`ssh -i ~/.ssh/key` keeps working). A wrapper script that
+ * rejects `-o` flags now fails fast and visibly instead of hanging — the
+ * failure is the point.
+ */
+export function boundedSshCommand(command = "ssh") {
+	const base = String(command ?? "").trim() || "ssh";
+	if (base.includes("ServerAliveInterval")) return base;
+	return `${base} ${SSH_DEADLINES}`;
+}
+
+/** Did the child die because we killed it (spawnSync timeout)? */
+export function isSpawnTimeout(res) {
+	return Boolean(res && (res.signal || res.error?.code === "ETIMEDOUT"));
+}
+
 /** Minimal git wrapper: `out` throws on failure, `try` returns the result. */
-export function gitToolkit({ cwd, git = process.platform === "win32" ? "git.exe" : "git" }) {
+export function gitToolkit({
+	cwd,
+	git = process.platform === "win32" ? "git.exe" : "git",
+	spawn = spawnSync,
+	env = process.env,
+}) {
 	const run = (args, opts = {}) =>
-		spawnSync(git, args, { cwd, encoding: "utf8", ...opts });
+		spawn(git, args, {
+			cwd,
+			encoding: "utf8",
+			timeout: GIT_TIMEOUT_MS,
+			killSignal: "SIGKILL",
+			env: { ...env, GIT_SSH_COMMAND: boundedSshCommand(env.GIT_SSH_COMMAND) },
+			...opts,
+		});
 	return {
 		run,
 		out(args) {
@@ -63,9 +119,21 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
  * fine for public repos and rate-limited accordingly).
  * Returns `{ ok, code, body, error }`; `body` is raw text, parsed lazily.
  */
-export function githubApi({ curl = "curl", repo, token, method = "GET", path, body }) {
+export function githubApi({
+	curl = "curl",
+	repo,
+	token,
+	method = "GET",
+	path,
+	body,
+	spawn = spawnSync,
+}) {
 	const args = [
 		"-sS",
+		"--connect-timeout",
+		"5",
+		"--max-time",
+		String(Math.round(CURL_TIMEOUT_MS / 1000)),
 		"-X",
 		method,
 		"-H",
@@ -77,7 +145,16 @@ export function githubApi({ curl = "curl", repo, token, method = "GET", path, bo
 	args.push("-w", "\n%{http_code}");
 	if (body !== undefined) args.push("-d", JSON.stringify(body));
 	args.push(`https://api.github.com/repos/${repo}${path}`);
-	const res = spawnSync(curl, args, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
+	const res = spawn(
+		curl,
+		args,
+		{
+			encoding: "utf8",
+			maxBuffer: 32 * 1024 * 1024,
+			timeout: CURL_TIMEOUT_MS + 5000,
+			killSignal: "SIGKILL",
+		},
+	);
 	const raw = (res.stdout ?? "").trimEnd();
 	const split = raw.lastIndexOf("\n");
 	const text = split === -1 ? "" : raw.slice(0, split);
@@ -115,6 +192,9 @@ export async function resolveRemoteTag({
 	let tries = 0;
 	for (; tries < attempts; tries++) {
 		const res = git.try(["ls-remote", "origin", `refs/tags/${tag}`]);
+		// "Killed at the timeout" is not "the ref is absent" — reporting it as
+		// absent is how a network stall turns into a wrong diagnosis.
+		if (isSpawnTimeout(res)) return { sha: "", attempts: tries + 1, state: "unknown" };
 		sha = (res.stdout ?? "").trim().split(/\s+/)[0] ?? "";
 		if (sha === expectSha) return { sha, attempts: tries + 1, state: "match" };
 		if (tries < attempts - 1) {
@@ -134,20 +214,27 @@ export async function resolveRemoteTag({
  * it is the state the caller is about to report.
  *
  * Returns `{ state, tag, localSha, remoteSha }` with state one of
- *   ok | missing-local-tag | absent | mismatch
+ *   ok | missing-local-tag | absent | mismatch | unknown
+ * `unknown` means the probe was killed at its timeout: the ref is not known to
+ * be absent, the check simply did not complete.
  */
 export async function releaseTailGap({
 	cwd,
 	git = process.platform === "win32" ? "git.exe" : "git",
 	tag,
+	spawn,
 }) {
-	const g = gitToolkit({ cwd, git });
-	let localSha;
-	try {
-		localSha = g.out(["rev-parse", `refs/tags/${tag}`]);
-	} catch {
-		return { state: "missing-local-tag", tag, localSha: "", remoteSha: "" };
+	const g = gitToolkit({ cwd, git, spawn });
+	const local = g.try(["rev-parse", `refs/tags/${tag}`]);
+	if (local.status !== 0) {
+		return {
+			state: isSpawnTimeout(local) ? "unknown" : "missing-local-tag",
+			tag,
+			localSha: "",
+			remoteSha: "",
+		};
 	}
+	const localSha = (local.stdout ?? "").trim();
 	const remote = await resolveRemoteTag({
 		git: g,
 		tag,
@@ -177,6 +264,7 @@ export async function syncGitHubRelease({
 	tag,
 	curl = "curl",
 	git = process.platform === "win32" ? "git.exe" : "git",
+	spawn,
 	push = true,
 	dryRun = false,
 	log = console.log,
@@ -184,7 +272,7 @@ export async function syncGitHubRelease({
 	attempts = 5,
 	delayMs = 2000,
 }) {
-	const g = gitToolkit({ cwd, git });
+	const g = gitToolkit({ cwd, git, spawn });
 	let localSha;
 	try {
 		localSha = g.out(["rev-parse", `refs/tags/${tag}`]);

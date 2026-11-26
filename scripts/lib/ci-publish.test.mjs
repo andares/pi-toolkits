@@ -1,14 +1,17 @@
 /**
  * Release-wait tests.
  *
- * The wait loop is the part of `pnpm release` a human stares at, and it is the
- * part that was slow and misleading (a 5 s `npm view` spawn per iteration, one
- * message throttled to 30 s, and no way to tell "CI finished, npm lags" from
- * "CI is stuck"). So its decisions are pinned here:
+ * The wait loop is the part of `pnpm release` a human stares at, and its
+ * contract was narrowed on 2026-11-26: **the workflow run being green is the
+ * whole completion criterion.** The loop used to keep polling the npm registry
+ * after the run finished and refused to report success until the version and
+ * its provenance attestation appeared there — overreach, since `pnpm publish`
+ * never asked npm "did you process it well" either. So these tests pin:
  *
- *   - registry present → published, without ever spawning `npm view`;
- *   - registry unreachable → `npm view` fallback, not silence;
- *   - red run → failed immediately with the run attached;
+ *   - green run → published, immediately, without any registry/npm probing;
+ *   - red run → failed immediately, with the run attached;
+ *   - any other completed conclusion (cancelled, timed_out, …) → failed, and the
+ *     conclusion is carried so the caller can name it;
  *   - queued run that never starts → ONE workflow_dispatch, adopt the new run;
  *   - running run → never dispatched;
  *   - nothing at all → timeout.
@@ -19,18 +22,10 @@ import { describe, expect, it } from "vitest";
 import {
 	createDispatchRescue,
 	dispatchWorkflow,
-	fetchAttestations,
-	fetchPublishedVersion,
 	findDispatchedRun,
-	registryAttestationsUrl,
-	registryVersionUrl,
-	waitForAttestations,
 	waitForCiPublish,
-	waitForNpmVersion,
 } from "./ci-publish.mjs";
 
-const NAME = "@andares/pi-toolkits";
-const VERSION = "0.14.0";
 const BASE = Date.parse("2026-01-01T00:00:00Z");
 
 /** Deterministic clock: sleeps advance it instead of waiting. */
@@ -59,152 +54,60 @@ const run = (overrides) => ({
 	...overrides,
 });
 
-describe("registry URLs", () => {
-	it("encodes the slash of a scoped name", () => {
-		expect(registryVersionUrl(NAME, VERSION)).toBe(
-			"https://registry.npmjs.org/@andares%2fpi-toolkits/0.14.0",
-		);
-		expect(registryAttestationsUrl(NAME, VERSION)).toBe(
-			"https://registry.npmjs.org/-/npm/v1/attestations/@andares%2fpi-toolkits@0.14.0",
-		);
-	});
-
-	it("leaves an unscoped name alone", () => {
-		expect(registryVersionUrl("left-pad", "1.0.0")).toBe(
-			"https://registry.npmjs.org/left-pad/1.0.0",
-		);
-	});
-});
-
-describe("fetchPublishedVersion", () => {
-	const answer = (status) => async () => ({
-		status,
-		arrayBuffer: async () => new ArrayBuffer(0),
-	});
-
-	it("is true on 200 and false on 404", async () => {
-		expect(await fetchPublishedVersion({ name: NAME, version: VERSION, fetchImpl: answer(200) })).toBe(true);
-		expect(await fetchPublishedVersion({ name: NAME, version: VERSION, fetchImpl: answer(404) })).toBe(false);
-	});
-
-	it("is unknown (undefined) when the registry does not answer", async () => {
-		expect(await fetchPublishedVersion({ name: NAME, version: VERSION, fetchImpl: answer(503) })).toBeUndefined();
-		expect(
-			await fetchPublishedVersion({
-				name: NAME,
-				version: VERSION,
-				fetchImpl: async () => {
-					throw new Error("ECONNREFUSED");
-				},
-			}),
-		).toBeUndefined();
-		expect(await fetchPublishedVersion({ name: NAME, version: VERSION, fetchImpl: null })).toBeUndefined();
-	});
-});
-
-describe("fetchAttestations", () => {
-	it("maps the registry payload and keeps [] for 404", async () => {
-		const found = await fetchAttestations({
-			name: NAME,
-			version: VERSION,
-			fetchImpl: async () => ({
-				status: 200,
-				json: async () => ({ attestations: [{ predicateType: "https://slsa.dev/provenance/v1" }] }),
-			}),
-		});
-		expect(found).toEqual([
-			{
-				url: registryAttestationsUrl(NAME, VERSION),
-				predicateType: "https://slsa.dev/provenance/v1",
-			},
-		]);
-		expect(
-			await fetchAttestations({
-				name: NAME,
-				version: VERSION,
-				fetchImpl: async () => ({ status: 404, json: async () => ({}) }),
-			}),
-		).toEqual([]);
-	});
-});
-
 describe("waitForCiPublish", () => {
-	// Every probe must be faked: the loop's real `npm view` would find the
-	// published 0.14.0 on this machine and short-circuit the whole test.
-	const mkProbes = (overrides) => ({
-		publishedVersion: async () => false,
-		npmVersionPublished: () => false,
-		findWorkflowRun: () => undefined,
-		...overrides,
-	});
-
 	const baseArgs = () => ({
 		repo: "andares/pi-toolkits",
 		token: "t",
 		sha: "aaa",
-		name: NAME,
-		version: VERSION,
-		intervalMs: 1000,
 		runCheckEveryMs: 1000,
-		npmRecheckEveryMs: 1000,
-		npmFallbackMs: 1000,
 		logEveryMs: 60_000,
 		log: () => {},
 	});
 
-	it("reports published from the registry without spawning npm view", async () => {
+	it("reports published as soon as the run is green", async () => {
 		const clock = fakeClock();
-		let npmCalls = 0;
+		const green = run({ id: 5, status: "completed", conclusion: "success" });
 		const result = await waitForCiPublish({
 			...baseArgs(),
 			now: clock.now,
 			sleep: clock.sleep,
-			probes: mkProbes({
-				publishedVersion: async () => true,
-				npmVersionPublished: () => {
-					npmCalls++;
-					return false;
-				},
-			}),
+			probes: { findWorkflowRun: () => green },
 		});
+
 		expect(result.status).toBe("published");
-		expect(npmCalls).toBe(0);
+		expect(result.run?.html_url).toBe(green.html_url);
 		expect(result.elapsedMs).toBe(0);
 	});
 
-	it("falls back to npm view when the registry is unreachable", async () => {
-		const clock = fakeClock();
-		let npmCalls = 0;
-		const result = await waitForCiPublish({
-			...baseArgs(),
-			now: clock.now,
-			sleep: clock.sleep,
-			probes: mkProbes({
-				publishedVersion: async () => undefined,
-				npmVersionPublished: () => {
-					npmCalls++;
-					return npmCalls >= 2;
-				},
-			}),
-		});
-		expect(result.status).toBe("published");
-		expect(npmCalls).toBe(2);
-	});
-
-	it("fails as soon as the run is red, naming the run", async () => {
+	it("fails as soon as the run is red, naming the run and the conclusion", async () => {
 		const clock = fakeClock();
 		const red = run({ id: 7, status: "completed", conclusion: "failure" });
 		const result = await waitForCiPublish({
 			...baseArgs(),
 			now: clock.now,
 			sleep: clock.sleep,
-			probes: mkProbes({
-				publishedVersion: async () => false,
-				findWorkflowRun: () => red,
-			}),
+			probes: { findWorkflowRun: () => red },
 		});
+
 		expect(result.status).toBe("failed");
 		expect(result.run?.html_url).toBe(red.html_url);
+		expect(result.conclusion).toBe("failure");
+	});
+
+	it("treats a completed run that did not succeed as failed", async () => {
+		const clock = fakeClock();
+		for (const conclusion of ["cancelled", "timed_out", "skipped"]) {
+			const result = await waitForCiPublish({
+				...baseArgs(),
+				now: clock.now,
+				sleep: clock.sleep,
+				probes: {
+					findWorkflowRun: () => run({ status: "completed", conclusion }),
+				},
+			});
+			expect(result.status).toBe("failed");
+			expect(result.conclusion).toBe(conclusion);
+		}
 	});
 
 	it("times out when nothing ever happens", async () => {
@@ -214,8 +117,9 @@ describe("waitForCiPublish", () => {
 			timeoutMs: 3000,
 			now: clock.now,
 			sleep: clock.sleep,
-			probes: mkProbes({}),
+			probes: {},
 		});
+
 		expect(result.status).toBe("timeout");
 		expect(result.elapsedMs).toBeGreaterThanOrEqual(3000);
 	});
@@ -240,9 +144,7 @@ describe("waitForCiPublish", () => {
 				dispatches++;
 				return adopted;
 			},
-			probes: mkProbes({
-				// Registry only catches up after the adopted run is green.
-				publishedVersion: async () => byIdCalls >= 3,
+			probes: {
 				findWorkflowRun: () => stuck,
 				workflowRunById: () => {
 					byIdCalls++;
@@ -250,7 +152,7 @@ describe("waitForCiPublish", () => {
 						? { ...adopted, status: "completed", conclusion: "success" }
 						: adopted;
 				},
-			}),
+			},
 		});
 
 		expect(dispatches).toBe(1);
@@ -258,8 +160,6 @@ describe("waitForCiPublish", () => {
 		const text = logs.join("\n");
 		expect(text).toContain("排队 120s 仍未开始");
 		expect(text).toContain("已接管新的 run 2");
-		// The waiting state names the registry lag instead of looking hung.
-		expect(text).toContain("npm 的传播延迟");
 	});
 
 	it("does not re-dispatch a run that is actually running", async () => {
@@ -270,7 +170,7 @@ describe("waitForCiPublish", () => {
 			started_at: new Date(BASE - 100_000).toISOString(),
 		});
 		let dispatches = 0;
-		let probes = 0;
+		let lookups = 0;
 		const logs = [];
 		const result = await waitForCiPublish({
 			...baseArgs(),
@@ -281,10 +181,14 @@ describe("waitForCiPublish", () => {
 				dispatches++;
 				return undefined;
 			},
-			probes: mkProbes({
-				publishedVersion: async () => ++probes >= 3,
-				findWorkflowRun: () => running,
-			}),
+			probes: {
+				findWorkflowRun: () => {
+					lookups++;
+					return lookups >= 3
+						? { ...running, status: "completed", conclusion: "success" }
+						: running;
+				},
+			},
 		});
 
 		expect(dispatches).toBe(0);
@@ -403,90 +307,5 @@ describe("dispatch rescue", () => {
 		});
 		expect(await failed()).toBeUndefined();
 		expect(lines.join("\n")).toContain("HTTP 403");
-	});
-});
-
-describe("waitForNpmVersion", () => {
-	it("accepts the per-version endpoint without spawning npm", async () => {
-		const clock = fakeClock();
-		const published = await waitForNpmVersion({
-			name: NAME,
-			version: VERSION,
-			cwd: "/tmp",
-			now: clock.now,
-			sleep: clock.sleep,
-			npm: "pnpm-no-such-npm-binary",
-			fetchImpl: async () => ({ status: 200 }),
-		});
-		expect(published).toBe(true);
-	});
-
-	it("keeps polling a 404 instead of reporting it as final", async () => {
-		const clock = fakeClock();
-		let calls = 0;
-		const published = await waitForNpmVersion({
-			name: NAME,
-			version: VERSION,
-			cwd: "/tmp",
-			now: clock.now,
-			sleep: clock.sleep,
-			intervalMs: 5000,
-			npm: "pnpm-no-such-npm-binary",
-			fetchImpl: async () => (++calls >= 3 ? { status: 200 } : { status: 404 }),
-		});
-		expect(published).toBe(true);
-		expect(calls).toBe(3);
-	});
-
-	it("gives up after the timeout when only 404s arrive", async () => {
-		const clock = fakeClock();
-		const published = await waitForNpmVersion({
-			name: NAME,
-			version: VERSION,
-			cwd: "/tmp",
-			now: clock.now,
-			sleep: clock.sleep,
-			timeoutMs: 20_000,
-			intervalMs: 5000,
-			npm: "pnpm-no-such-npm-binary",
-			fetchImpl: async () => ({ status: 404 }),
-		});
-		expect(published).toBe(false);
-	});
-});
-
-describe("waitForAttestations", () => {
-	it("returns the registry attestations without spawning npm", async () => {
-		const clock = fakeClock();
-		// `npm` is a binary that cannot exist: reaching the fallback would be a
-		// regression, and this makes it fail loudly instead of quietly.
-		const entries = await waitForAttestations({
-			name: NAME,
-			version: VERSION,
-			cwd: "/tmp",
-			now: clock.now,
-			sleep: clock.sleep,
-			npm: "pnpm-no-such-npm-binary",
-			fetchImpl: async () => ({
-				status: 200,
-				json: async () => ({ attestations: [{ predicateType: "x" }] }),
-			}),
-		});
-		expect(entries).toHaveLength(1);
-	});
-
-	it("gives up after the timeout", async () => {
-		const clock = fakeClock();
-		const entries = await waitForAttestations({
-			name: NAME,
-			version: VERSION,
-			cwd: "/tmp",
-			now: clock.now,
-			sleep: clock.sleep,
-			timeoutMs: 20_000,
-			intervalMs: 5000,
-			fetchImpl: async () => ({ status: 404, json: async () => ({}) }),
-		});
-		expect(entries).toEqual([]);
 	});
 });
