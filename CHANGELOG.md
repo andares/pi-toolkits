@@ -11,6 +11,10 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+## 1.2.2 — 2026-11-26
+
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
 - **release** — `pnpm release` now treats a green `publish` workflow run as the release's success criterion and stops there: no more polling npm for the version and its attestation, just a summary with the tag, the run URL, the Release URL and a package-page link. Every child process it spawns has a deadline (ssh included), so the wait can no longer sit silently on a dead connection.
 - **quit-guard** — removed: `/quit-guard`, its settings file and the hang reports are gone. Force-exiting a hung shutdown never fixed the hang and hid the real cause, so pi is left to hang instead.
 
@@ -95,6 +99,7 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
 
 
