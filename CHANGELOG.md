@@ -11,6 +11,10 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+## 1.2.3 — 2026-11-26
+
+<!-- Notes for the next release go here; `pnpm release` renames this heading. -->
+
 - **spec/talk** — the contents panel keeps every heading row at its full height (a document with ~19 headings no longer squashes the rows into each other) and scrolls to the section you are reading when it opens.
 - **talk** — when a new reply replaces the snapshot, a draft still waiting to be saved belongs to the old reply and is dropped, so it no longer lands in the new one.
 - **release** — `pnpm release` reports a failed remote-tag probe as unknown with recovery steps instead of calling the tag missing, and every child process it spawns directly now has a deadline.
@@ -103,6 +107,7 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
 
 
