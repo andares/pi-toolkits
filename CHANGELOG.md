@@ -11,6 +11,9 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+- **release** — `pnpm release` now treats a green `publish` workflow run as the release's success criterion and stops there: no more polling npm for the version and its attestation, just a summary with the tag, the run URL, the Release URL and a package-page link. Every child process it spawns has a deadline (ssh included), so the wait can no longer sit silently on a dead connection.
+- **quit-guard** — removed: `/quit-guard`, its settings file and the hang reports are gone. Force-exiting a hung shutdown never fixed the hang and hid the real cause, so pi is left to hang instead.
+
 ## 1.2.1 — 2026-11-26
 
 - **spec/talk** — both pages have a confirmed **Close** action that stops the review server without sending a decision or a reply, including a closed-state fallback when the server is already gone.

@@ -264,9 +264,9 @@ const REDACTIONS: ReadonlyArray<readonly [RegExp, Replacer]> = [
 /**
  * Apply the credential patterns below to one string.
  *
- * Exported for the quit-guard hang report, which writes process arguments and
- * must not store `pi --api-key …` verbatim; the approval log ships one copy of
- * these rules so the two artifacts cannot drift apart.
+ * The approval log owns the only copy of these rules; anything else that writes
+ * process arguments to disk (the retired quit-guard hang report was one) imports
+ * this instead of growing a second, drifting list.
  */
 export function redactText(value: string): string {
 	let out = value;

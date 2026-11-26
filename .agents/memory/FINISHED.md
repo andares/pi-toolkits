@@ -91,3 +91,20 @@
 - 证据：change record `.agents/implementations/2026-11-25_0116_keep-session-backlog.md`；规格
   `specs/keep-sessions.md`；决策 `.agents/memory/ARCHITECTURE.md` D9；
   `pnpm test` 54 文件 / 991 测试全绿，`pnpm check:compat` 0.99.0 → 1.6.0 全绿（floor 仍 0.99.0）。
+
+### M7 — quit-guard 移除（2026-11-26）
+
+- **决定（崔总 2026-11-26）**：把「退出卡住超时后强制退出」的看门狗整个移除，`/quit-guard`
+  命令与 `pi-toolkits-quit-guard.json` 配置一并退场。理由是实测下来卡住并不总是我们自己的
+  问题（与外部系统有关），强制退出既没解决卡住、又把真正的现场抹掉了——「该卡就卡」比
+  「假装解决」更诚实。
+- 删掉的东西：`src/features/quit-guard/`（状态机、配置存储、诊断报告、线程杀手、命令，
+  含 55 个测试）、`src/index.ts` 的注册、`package.json` 的关键词与描述、README 中英双语
+  章节与命令表、`AGENTS.md` 的 feature 章节。
+- 保留的东西：`redactText` 仍在 `src/lib/approval-log.ts`（审批日志自己用），只是不再为
+  看门狗导出；历史上写下的 `~/.pi/agent/quit-guard/` 报告与配置文件不删（属于操作者磁盘）。
+- 已知后果：宿主 `runtimeHost.dispose()` 仍是无超时串行 await，某个扩展的 `session_shutdown`
+  永不 settle 时进程会一直挂着（`/quit` 后终端已还原、画面停在最后一帧）。这是**有意的**：
+  没有兜底，卡住时只能看到现场，而不是被一个 8 秒后的 SIGKILL 抹掉。
+- 证据：change record `.agents/implementations/2026-11-26_1506_quit-guard-removal.md`；
+  `pnpm test` 全绿（文件数与用例数见该记录）。

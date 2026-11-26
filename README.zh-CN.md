@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-一句话介绍:目前包含十四个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**回复批注** `ask-talk`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**并行任务的会话暂存** `keep`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
+一句话介绍:目前包含十三个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**回复批注** `ask-talk`、**验收台账与浏览器页面** `ask-uat`、**并行任务的会话暂存** `keep`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
 
 **版本要求**:pi `>=0.99.0`。0.99.0 到 1.6.1 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
@@ -57,7 +57,6 @@ pi -e ./src/index.ts
   - [🗜️ compact — 独立压缩模型](#compact)
   - [🚀 autostart — 会话启动自动化](#autostart)
   - [🧠 init — agent 记忆框架](#init)
-  - [🧯 quit-guard — 退出看门狗](#quit-guard)
   - [🧷 keep — 会话暂存](#keep)
   - [🆕 whats-new — 升级后的版本变更提示](#whats-new)
 - [开发](#development)
@@ -83,7 +82,6 @@ pi -e ./src/index.ts
 | 🗜️ **compact** 独立压缩模型 | `/compact-model` | 给 `/compact` 与 auto-compact 配一个便宜快模型做总结,主模型专注对话;未配置零开销、任何异常回落 pi 默认 |
 | 🚀 **autostart** 会话启动自动化 | `.pi/autostart.toml` | 项目内声明启动时自动执行的斜杠命令(首批用例:`/add-dir` 多仓库挂载);未信任不执行、未注册命令跳过不发给模型 |
 | 🧠 **init** agent 记忆框架 | `/ask-init` | 安装或接管一套固定的记忆结构(`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`),带快照与覆盖表迁移旧文档,之后可随时审计/刷新漂移、预算与重复事实 |
-| 🧯 **quit-guard** 退出看门狗 | `/quit-guard` | 交互式退出卡死时，无论发生在 TUI 收尾之后、还是信号触发路径的收尾之前，超时后写诊断报告并强制退出，把命令行提示符还给你；TUI 重启与 Ctrl+Z 恢复都会解除看守 |
 | 🧷 **keep** 会话暂存 | `/keep-quit` · `/keep-load` · `/keep-drop` | 退出时一条命令把当前会话标记为未完成,下次进来直接看这个待办列表(已载入的置灰但仍可选);做完的用 `/keep-drop` 或列表里的 `ctrl+r` 移出。只追加账本,没有锁,也不读宿主的会话列表 |
 | 🆕 **whats-new** 升级后的版本变更提示 | 自动 | 升级后的首次 `pi` 启动展示「从你上次运行的版本到现在改了什么」，只展示一次；不注册斜杠命令，不占用宿主的全局命令命名空间 |
 
@@ -579,48 +577,6 @@ refresh 就会正常更新它。
 > **跑完记得 `/reload`**,让新的 `AGENTS.md` 进入提示词。框架版本记在
 > `.agents/framework/state.toml`;若项目的状态版本比当前工具新,则拒绝迁移。
 
-## 🧯 quit-guard — 退出看门狗
-
-<a name="quit-guard"></a>
-
-**要解决的问题**。pi 的 `/quit` 先停 TUI，然后**逐个 await** 每个扩展的 `session_shutdown` 处理器,且**没有任何超时**(`runtimeHost.dispose()` → `emitSessionShutdownEvent()`;上游
-[issue #9997](https://github.com/earendil-works/pi/issues/9997),1.5.1 与 `main` 至今未修,1.5.1 还在处理器循环前加了 `await session.abort()`、之后加了凭据写盘等待——同一条没有超时的链上又多了两个 await)。只要有一个处理器永不 settle,pi 就会在终端已还原、最后一帧已重绘之后,以 0% CPU 永远挂着:画面看起来像「停在退出界面」,提示符再也不回来;实测 Ctrl+C 与 SIGTERM 都无法结束这个进程(只有 SIGKILL 有效)——进了这段收尾,宿主自己也没有出口。20 个扩展的环境实测(2026-11-05):健康退出在这段收尾上花 0.1–3 秒,`pi -ne` 0.12 秒;同一环境三次 `/quit` 就有一次**永远不结束**。
-
-**这个功能做什么**。看守盯的是**终端写出的收尾序列**,而不是事件流——所以即使卡死的处理器比本包**先**加载(那样我们自己的 `session_shutdown` 根本不会运行),它照样能触发。它在 TUI 收尾序列(`\x1b[?2004l` / `\x1b[?1049l`)出现时开始计时;**信号触发的退出**(`kill -TERM`、关窗 SIGHUP)另有一只触发源:`session_shutdown` 且 reason 为 `quit`——那条路是**先跑完所有扩展处理器再停 TUI**,处理器挂住时收尾序列永远写不出来,只靠序列就会漏掉。若 `timeoutMs` 之后进程还活着,它写一份诊断报告;若 TUI 从没恢复过终端,它先做恢复(退备用屏、关括号粘贴、显示光标)再强制退出。TUI **回来**时自动解除:`/settings` 里切换 TUI 显示模式、Ctrl+Z 挂起后 `fg` 恢复,都会让 TUI 重新进入,绝不能误杀活着的会话。事件触发源只限 TUI 模式:RPC/JSON/print 的 stdout 是机器可读协议,绝不会被写入终端转义序列。
-
-### 命令
-
-| 命令 | 作用 |
-| --- | --- |
-| `/quit-guard` | 查看状态:开关、超时、报告开关、最近一份诊断报告 |
-| `/quit-guard on` / `/quit-guard off` | 开启/关闭,并持久化 |
-| `/quit-guard <ms>` | 设置超时(钳制在 2000–60000 ms),并持久化 |
-
-**配置** —— 看守**默认开启**(收尾序列写出后 8 秒、写诊断报告),装上就有保护,不用先配置。状态持久化在 `<agent-dir>/pi-toolkits-quit-guard.json`,由命令写入;所有字段都可省略:
-
-```json
-{
-  "enabled": true,
-  "timeoutMs": 8000,
-  "report": true
-}
-```
-
-`timeoutMs` 从**收尾序列写出**那一刻开始算,不是从你按下 Enter 开始算——TUI 自己停下来的时间不计入,所以「慢但能完成」的收尾(记忆库 flush、MCP 关闭)不会被误杀。默认 **8 秒**;上例实测最慢的健康退出端到端 5 秒(其中约 2 秒发生在收尾之后),余量约 3 秒。
-
-**诊断报告** —— `<agent-dir>/quit-guard/quit-hang-<时间戳>-<pid>.json`,记录开始计时/触发的时间、触发用的收尾序列,以及截止时进程的状态(`activeHandles`、`activeRequests`、宿主 libuv 句柄表)。**进程还活着但 `libuv` 表是空的**,就是「有个 Promise 永远不会 settle」的特征,区别于阻塞的 socket 或残留子进程。报告文件**仅本人可读**(0700 目录下的 0600 文件),进程参数按审批日志同一套规则脱敏,所以 `pi --api-key …` 不会把密钥留在盘上。
-
-`PI_QUIT_GUARD_DEBUG=<文件>` 会把每次 `arm` / `disarm` / `fire`(以及每次扩展注册)追加一行;TUI 已经没了的时候,这是唯一还能观察的通道。
-
-### 边界
-
-- 只覆盖交互式 TUI。`-p`(print)、JSON、RPC 模式不会写这些收尾序列,看守在那里完全不生效。
-- 计时覆盖的是**收尾之后**的阶段;在 TUI 停下之前就卡住的情况(未观察到;`drainInput` 上限 1 秒)不在范围内。
-- 触发时**按设计跳过**剩余扩展清理——挂住的就是它。会话条目是随发生随写入 JSONL 的,所以最后一条已写入的记录不会丢。正常路径退出码 0;若 `process.exit()` 本身被 `exit` 监听器变成空操作,500 ms 后会补一记 `SIGKILL`。
-- 这是对宿主缺口的权宜之计:哪天 pi 给 `session_shutdown` 加上限时,看守就退化成无害的保险,可以直接删掉。
-
----
-
 ## 🧷 keep — 并行任务的会话暂存
 
 <a name="keep"></a>
@@ -708,8 +664,6 @@ src/
     │                     #           审计 payload、测试
     ├── spec/             # 浏览器内规格评审:相位、块级 diff、
     │                     #           评审服务器、UI、测试
-    ├── quit-guard/       # 退出看门狗:TUI 收尾 + quit 事件双触发、
-    │                     #           配置存储、诊断报告、测试
     ├── review/           # 第三方评审:指令触发、
     │                     #           评审模型配置存储、提示词、测试
     ├── stash/            # 提示词暂存:热键状态机 + 测试
@@ -733,7 +687,7 @@ pnpm release:github                 # 为当前版本创建/校验 GitHub Releas
 pnpm release:github --audit         # 列出 npm 版本 vs GitHub Release vs 远端 tag
 ```
 
-**发版 = 推 tag。** `pnpm release` 跑完门禁(`typecheck`、`test`、UI 检查)、把 `CHANGELOG.md` 的 `## Unreleased` 提升为即将发布的版本号(段落为空则中止,`--skip-changelog` 可跳过)、改版本、commit、打 `vX.Y.Z` tag、推分支和 tag,然后等 GitHub Actions 的 `publish` 工作流。该工作流用 **npm trusted publishing(OIDC)** 发布:不需要 npm token、不需要交互式 2FA,每个版本自动附 provenance。脚本只在 npm 上真的出现该版本、且 `dist.attestations` 非空时才报成功。
+**发版 = 推 tag。** `pnpm release` 跑完门禁(`typecheck`、`test`、UI 检查)、把 `CHANGELOG.md` 的 `## Unreleased` 提升为即将发布的版本号(段落为空则中止,`--skip-changelog` 可跳过)、改版本、commit、打 `vX.Y.Z` tag、推分支和 tag,然后等 GitHub Actions 的 `publish` 工作流。该工作流用 **npm trusted publishing(OIDC)** 发布:不需要 npm token、不需要交互式 2FA,每个版本自动附 provenance。**workflow run 绿了就是发版成功的判据** —— 脚本之后不再去查 npm;registry 的传播与 provenance 点开包页面自己看。
 
 `--prepare-only` 是「都准备好、发不发最后再说」的开关:停在 commit+tag 后,打印确切的推送命令。`--no-wait` 推完就返回;`--local` 是应急路径(本机用旧 token 发布)。工作流失败后重跑同一个 tag 即可(`gh workflow run publish.yml -f tag=vX.Y.Z`):已发布的版本会跳过,所以重跑是幂等的。
 

@@ -14,7 +14,6 @@
  *  - permission — session-scoped boundary permission checks (/ask-perm)
  *  - init — agent memory framework install / adoption (/ask-init)
  *  - uat — acceptance ledger and browser page (/ask-uat, record_change)
- *  - quit-guard — quit watchdog: force-exit when pi's shutdown hangs (/quit-guard)
  *  - keep — session backlog: keep-quit / keep-load / keep-drop
  *  - whats-new — automatic release notes on the first start after an upgrade
  *
@@ -33,7 +32,6 @@ import { registerInit } from "./features/init/index.js";
 import { registerKeep } from "./features/keep/index.js";
 import { registerPermission } from "./features/permission/index.js";
 import { registerSpec } from "./features/spec/index.js";
-import { registerQuitGuard } from "./features/quit-guard/index.js";
 import { registerReview } from "./features/review/index.js";
 import { registerStash } from "./features/stash/index.js";
 import { registerTalk } from "./features/talk/index.js";
@@ -58,7 +56,6 @@ export default function piToolkits(pi: ExtensionAPI): void {
 	registerFavorites(pi);
 	registerInit(pi);
 	registerKeep(pi);
-	registerQuitGuard(pi);
 	registerReview(pi);
 	registerStash(pi);
 	// Not a phase: no tools, no gates, no prompt banner. Registered after the

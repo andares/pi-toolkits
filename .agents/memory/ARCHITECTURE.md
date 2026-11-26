@@ -9,12 +9,12 @@
 - **一个 npm 包** `@andares/pi-toolkits`，`pi.extensions` 指向 `./src/index.ts`；`files: ["src", "CHANGELOG.md"]`，
   没有 build 步骤（宿主直接加载 TypeScript 源）。`LICENSE` 为 MIT（2026 Andares Cui）。
 - **入口** `src/index.ts` 默认导出 `piToolkits(pi: ExtensionAPI)`：先建一个 gate 总线
-  （`createGateHub`）与一个审批日志（`createApprovalLog`），再顺序注册 13 个 feature，
+  （`createGateHub`）与一个审批日志（`createApprovalLog`），再顺序注册 12 个 feature，
   最后 `gates.install(pi)`。注册顺序有语义：`permission` 在 `autostart` 之前，好让项目声明的
   `/ask-perm ...` 面对干净状态；`uat` 在 `spec` 之后，让 `record_change` 追加到 spec 装好的
   工具集上（`src/index.ts` 的注释即此依据）。
-- **feature 层** `src/features/<name>/`，每个导出 `registerXxx(pi, …)`；当前 13 个：
-  `ask`、`autostart`、`compact`、`favorites`、`init`、`keep`、`permission`、`quit-guard`、
+- **feature 层** `src/features/<name>/`，每个导出 `registerXxx(pi, …)`；当前 12 个：
+  `ask`、`autostart`、`compact`、`favorites`、`init`、`keep`、`permission`、
   `review`、`spec`、`stash`、`uat`、`whats-new`。
   新增 feature = 新建目录 + 入口加一行，不改既有模块。
 - **共享层** `src/lib/`：`gates.ts`（闸门总线 + 弹窗串行队列 + 审计计数）、`approval-log.ts`

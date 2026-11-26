@@ -1,7 +1,7 @@
 {
   "name": "@andares/pi-toolkits",
   "version": "1.2.1",
-  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), browser-reviewed planning, reply notes in the browser (/ask-talk), an acceptance ledger with a browser page, session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, a dedicated compaction model, an agent memory framework (/ask-init), a session backlog (/keep-quit, /keep-load, /keep-drop), a quit watchdog, and release notes on the first start after an upgrade",
+  "description": "Integrated toolkit extension for pi — ask mode (read-only Q&A), browser-reviewed planning, reply notes in the browser (/ask-talk), an acceptance ledger with a browser page, session-scoped permission checks, model favorites, prompt stash, third-party code review, session autostart, a dedicated compaction model, an agent memory framework (/ask-init), a session backlog (/keep-quit, /keep-load, /keep-drop), and release notes on the first start after an upgrade",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -47,8 +47,6 @@
     "acceptance",
     "acceptance-testing",
     "change-record",
-    "quit-guard",
-    "watchdog",
     "whats-new",
     "release-notes",
     "changelog",

@@ -304,7 +304,8 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
   `blocked` 对 overlay 改为「显示到 `done()` 为止」（含 `setHidden()` 期间）。我们都不使用。
 - `interactive-mode.js` / `agent-session-runtime.js`：收尾仍是无超时的
   `await runtimeHost.dispose()`；`dispose()` 新增 `await session.abort()` 与
-  `await settleCredentialWrites()`，即同一条无界链上又多了两个 await——quit-guard 仍然必要。
+  `await settleCredentialWrites()`，即同一条无界链上又多了两个 await（宿主至今没有收尾
+  超时；我们自己的看门狗已于 2026-11-26 移除，见 FINISHED）。
 - pi-tui 1.5.1：`SelectList`/`SettingsList`/键位相关文件**一字未动**；变化只有编辑器粘贴占位符
   修复、Markdown/Mermaid、终端图片、光标标记清理，以及 `tui-alt-screen.js` 的 Kitty 图片
   绘制顺序（搜索键分支仍在最上面，`ctrl+f` 依旧是选择器的死键）。键位表唯一变化是
@@ -336,9 +337,8 @@ assistant thinking 写进摘要请求（thinking 可能不在模型活动上下�
   对选择器仍是死键，我们的键位结论不变。
 - `interactive-mode.js` / `agent-session-runtime.js`：收尾链仍是无超时的
   `await runtimeHost.dispose()`（交互式路径：drainInput → stop → dispose → flushStdout → exit；
-  信号路径仍是先 dispose 后 stop），quit-guard 的两个触发源都继续必要；新增的只是
-  `await flushStdout()`。Ctrl+Z 现在也走 `ui.setSuspendSignalHandler()`（外部 SIGTSTP 同效），
-  我们的 disarm 依据（SIGCONT / TUI 重启序列）不变。
+  信号路径仍是先 dispose 后 stop）；新增的只是 `await flushStdout()`。Ctrl+Z 现在也走
+  `ui.setSuspendSignalHandler()`（外部 SIGTSTP 同效）。
 - 其他：`extensions/runner.js` 只加了上面那个 `reportError`（ask 的拒绝结果路径未动）；
   `resource-loader.js` 只加了包管理器进度回调，`HOST_PROVIDED_EXTENSION_PACKAGES` 仍含
   `typebox` / `@sinclair/typebox` / 四个 `@earendil-works/pi-*` —— peer 声明规则不变。
@@ -405,9 +405,9 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   bump → commit（`package.json` + `CHANGELOG.md`）+ tag（`scripts/tag-current.mjs` 打
   `vX.Y.Z`，已存在则跳过）→ **自检：tag == HEAD 且工作区干净**（否则中止）→ `git push
   origin <branch>` + `git push origin refs/tags/vX.Y.Z`（**这一步就是发版**）→ 等 CI
-  （registry 直接 HTTP 轮询、分阶段打印进度、排队卡死的 run 自动补发；workflow run
-  失败立即中止并给 run URL；npm 上出现该版本且 provenance 非空才算完成）
-  → 远端 tag 校验 + 幂等创建 GitHub Release → 尾部自检。
+  （只看 tag 触发的 workflow run：分阶段打印进度、排队卡死的 run 自动补发、失败立即
+  中止并给 run URL；**run 绿了就算完成**）
+  → 远端 tag 校验 + 幂等创建 GitHub Release → 收尾摘要（tag / run / Release，不查 npm）。
   - `--dry-run`：只打印计划。
   - `--prepare-only`：停在 push 之前并打印推送命令——「准备都做完、发不发由人按
     最后一次」用这一档。
@@ -418,14 +418,12 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   - `--skip-tail-check`：跳过「上一版尾部必须完成」的硬闸。
 
 - **等 CI 的那一步（`scripts/lib/ci-publish.mjs`）**——三个实测结论换来的写法：
-  - **registry 直接 HTTP 轮询**，不再每轮 spawn `npm view`：`GET
-    registry.npmjs.org/<name>/<version>` 每 1.5 s 一次；`npm view` 只在 HTTP 不可达时
-    兜底（每 10 s），其余情况每 30 s 做一次权威复核。本机 WSL 实测 2026-11-12：
-    HTTP 稳定 ~290 ms/次，`npm view` ~1.15 s/次（大头是子进程启动）。HTTP 返回
-    `undefined`（离线/5xx）**不能**当成「版本不在」。
-  - **进度按阶段打印**：run 未出现 / `queued` / `in_progress` / **CI 已绿、等 registry
-    传播**，每行带 `t=Ns`。v0.14.0 那次 CI 只跑了 49 s（18:26:38→18:27:27），之后
-    ~2 min 全在等 npm 读副本，而旧日志只会重复 `completed / success`——看起来像 CI 卡死。
+  - **判据只有「run 绿了」**（2026-11-26 崔总定）：不再回头轮询 npm 上的版本与
+    provenance attestation。Action 之前也没有人问过 npmjs「处理好了没」；registry 的
+    传播与扫描是 npm 的事，想看就点开包页面（脚本最后会打印链接）。workflow 自带
+    「已发布则跳过」，所以绿 = 这一版发出去了。
+  - **进度按阶段打印**：run 未出现 / `queued` / `in_progress`，每行带 `t=Ns`。旧版只有
+    一行 30 s 节流的日志，「run 还没被创建」与「run 卡住了」看起来一模一样。
   - **僵尸 run 自动补发**：run 是 `queued`、`started_at` 为空、创建已超 60 s
     （`PI_RELEASE_RESCUE_QUEUE_MS` 可调，`0`/`off` 关闭；需要 `GITHUB_TOKEN`，没有就
     明确打印「不会自动补发」）→ 补发**一次** `workflow_dispatch`（同 tag、ref=当前分支），
@@ -462,7 +460,7 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   永远会再 bump 一版，所以以前的提示语「修好 tag 后重跑本脚本（幂等）」是错的
   （已删）。`--audit` 列出 npm 已发布版本 ↔ GitHub Release ↔ 远端 tag 的差集
   （`--allow-gaps` 把历史缺口降为警告）。**日常不需要再手动跑 `--audit`**：
-  `pnpm release` 的尾部自检已经逐版核实 npm / 远端 tag / Release 三处；`--audit`
+  `pnpm release` 只核实这一版的 tag 与 Release；`--audit`
   是「怀疑历史漂移」时的全量体检（比如某次被打断的发版没人补、或换了机器丢了
   本地 tag）。只在 npm 上、没有 Release 的版本，其提交会被下一版的
   `generate_release_notes` 吞进下一版（对照的是上一个已发布 Release），GitHub
@@ -471,17 +469,16 @@ commit、打 `vX.Y.Z` tag，然后推分支 + tag；`.github/workflows/publish.y
   tag 指向 `8a0e2fb`，建 Release 时用 `make_latest: false` + 回填 `created_at`，
   所以 Latest 与 `git describe` 仍是 v0.11.3（证据：
   `.agents/implementations/2026-11-04_backfill-v0.1.0-release.md`）。
-- **尾部自检（现在四项）**：npm 版本、**provenance attestation**（`npm view
-  <name>@<version> dist.attestations` 非空）、远端 tag 同哈希、公开 Release。npm 缺
-  版本或 provenance 为空 → **退出码 1**（这是这次迁移的验收标准，不能只打印一行 ❌
-  就算过）；Release 缺失仍只提示补建。
-  - **npm 那一项读的是 per-version 端点，不是 `npm view` 的 packument**：v1.2.0
-    （2026-11-25 实测）publish 步骤 17:20:42Z 成功、等 CI 的循环也看到了版本，尾部自检
-    却在同一分钟报 `E404 No match found for version 1.2.0`——因为 `npm view` 读的是
-    packument，而副本更新滞后于 per-version 端点。当时的日志会让人以为这一版没发出去，
-    并按提示去重跑工作流（幂等、什么都不会做）。现在 `waitForNpmVersion` 先探
-    per-version（与等 CI 同源），只在 HTTP 完全不可达时才回落 `npm view`，并给 60 s
-    重试窗口；判「没发出去」之前必须真的等满。
+- **收尾只报已确定的事实**：tag、run URL、Release URL，外加一条 npm 包页面链接；
+  不再探测 npm 版本与 provenance。原先那套四项尾部自检（npm 版本 / attestation /
+  远端 tag / Release，缺一项就 exit 1）属于过度设计，2026-11-26 撤掉。
+- **子进程一律有上限**（`scripts/lib/github-release.mjs`）：`git` / `curl` 的 spawnSync
+  带 20 s 超时 + `SIGKILL`，ssh 补 `BatchMode` / `ConnectTimeout=10` /
+  `ServerAliveInterval=5`（让它自己先放手，且保留操作者的 `-i` 等参数）。先例：
+  v1.2.1（2026-11-26）尾部自检在标题后静默 47 分钟——`git ls-remote` 卡在一条已死掉的
+  ssh 连接上，而 spawnSync 没有超时、事件循环被占住，连定时器都跑不了。**超时一律报
+  `unknown`（无法确认），不得报成 `absent`（远端缺失）**：两者含义不同，混用会把网络
+  卡顿误诊成「tag 没推上去」。
 - GitHub Release 依赖 `GITHUB_TOKEN` 环境变量（classic token 的 `repo` scope 或
   fine-grained 的 Contents: write 都够用；本机用的是 **classic token**）；未设置时
   只提示，npm 发布与 provenance 不受影响，Release 事后用 `pnpm release:github` 补。
@@ -1108,155 +1105,6 @@ ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`�
   （绝对盘符/UNC 仍识别；实测目标是 POSIX）、PowerShell 不拆解、子代理会话不继承父会话状态。
 - 项目内的破坏性操作靠固定表兜，不靠沙箱。
 
-## Feature: quit-guard（退出看门狗，2026-11-05 立项并实现）
-
-### 起因（实测，2026-11-05）
-
-pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（还原终端、重绘最后一帧）
-→ `await runtimeHost.dispose()`（**串行 await 每个扩展的 `session_shutdown`，无超时**）
-→ `process.exit(0)`。任一扩展的收尾 Promise 永不 settle，进程就在「终端已还给你、画面
-却停在最后一帧」的状态下永远挂着；宿主 `isShuttingDown` 置位后 Ctrl+C / SIGTERM / SIGHUP
-都会被吞掉，只有 `kill -9` 有效。上游 issue
-[#9997](https://github.com/earendil-works/pi/issues/9997)（0.86/0.87 就有，机器人自动关闭），
-1.5.1 与 `main` 的 `interactive-mode.ts` 仍是同一个无界 await（1.5.1 只是在它前后又
-各加了一个 await：`session.abort()` 与凭据写盘等待 `settleCredentialWrites()`；1.6.0 又
-在 dispose 之后多了 `await flushStdout()`，同一串无 timeout 的 await 又长了一格）。
-
-本机实测（20 个扩展包，tmux，`PI_TUI_WRITE_LOG` 计时）：健康退出 2.1 s / 5.0 s；
-`pi -ne` 121 ms；同一环境三次 `/quit` 有一次**永不退出**。卡死时进程 0% CPU，
-`pgrep -a pi` 可见（PPID=1、无 tty 的孤儿就是关窗后残留的实体）。
-
-### 决策
-
-- **触发源用终端收尾序列，不用 `session_shutdown`**：pi 串行 await，卡死处理器若比本包先
-  加载，我们自己的 `session_shutdown` 根本不会运行——按事件挂看门狗会正好漏掉要抓的场景。
-  `\x1b[?2004l`（`ProcessTerminal.stop()`，regular/fullscreen 都写）与
-  `\x1b[?1049l`（fullscreen 退备用屏）都早于收尾阶段。
-- **解除条件**：`\x1b[?2004h` / `\x1b[?1049h`（TUI 重新进入）与 `SIGCONT`。覆盖两种合法
-  的「停 TUI 但会话还活着」：`/settings` 切 TUI 模式（`switchTuiMode` 先 stop 旧渲染器再
-  start 新的）与 Ctrl+Z 挂起/resume（`handleCtrlZ` 先 `ui.stop()`，SIGCONT 里 `ui.start()`）。
-  到期回调延迟一拍（setImmediate），保证 resume 赢过已过期的定时器。
-- **触发前再验一次 `process.stdin.isRaw`**：收尾序列也可能出现在被渲染的内容里（工具输出、文件正文
-  恰好含该转义序列），而 raw mode 不会撒谎——TUI 收尾时把 raw mode 关掉，所以 `isRaw===true`
-  说明 TUI 还活着，直接解除而不杀。**事件触发的武装不受这条约束**（见下）。
-- **第二触发源：`session_shutdown`（reason 仅 `"quit"`）**。信号触发的退出
-  （`shutdown({ fromSignal: true })`，如关窗 SIGHUP、`kill -TERM`）**先跑完所有扩展处理器再
-  `ui.stop()`**，所以处理器一旦挂住，收尾序列永远不会写出、只靠终端的看守永远不武装——进程
-  带着 raw mode 和冻结画面活到被 SIGKILL（2026-11-10 在真实 pty + 本机全套扩展上复现）。
-  `session_shutdown` 是那一刻唯一的进程内信号，因此它也武装看守；`"reload"`/`"new"`/
-  `"resume"`/`"fork"` 绝不武装。事件武装不查 raw mode（TUI 正活着就是它要抓的状态），
-  到期时先写 `TERMINAL_RESTORE`（关括号粘贴、退备用屏、显示光标）再退出，否则提示符会回到
-  备用屏上。**边界**：处理器按加载顺序串行执行，挂在**本包之前**加载的处理器仍能让我们的
-  处理器根本不运行（实测成立），那条路只能靠交互式 `/quit` 的收尾序列。
-- **默认开启、8 s、写报告**（2026-11-10 崔总定：默认值由 10 s 改为 8 s）。8 s 从「收尾序列
-  写出」（或 `session_shutdown` 事件）起算，不把你按 Enter 到 TUI 停下的时间算进去；实测健康
-  退出端到端最慢 5 s、收尾后最多 2 s，余量约 3 s。可 `/quit-guard <ms>` 调（钳制
-  2000–60000），`/quit-guard off` 关闭，配置落 `<agent-dir>/pi-toolkits-quit-guard.json`。
-- **触发时写报告再退出**：`<agent-dir>/quit-guard/quit-hang-<ts>-<pid>.json`，含
-  `activeHandles` / `activeRequests` / 宿主 `process.report` 的 libuv 表。空表 + 活进程
-  = 卡在永不 settle 的 Promise 上（区别于阻塞 socket / 残留子进程）。报告是 0700 目录下的
-  0600 文件，`argv` 走上游 `redactText` + 位置式旗标脱敏（`--api-key <opaque>`、`--token=…`），
-  避免把密钥写进盘。**报告链路整体 try/catch**：`process.cwd()` 在目录被删后会抛 ENOENT
-  （pi 1.5.1 自己也为此加了启动保护），诊断失败绝不能挡住强制退出。
-- **退出用 `process.exit(0)`，三层兜底**（2026-11-13 实测教训：fire 全部完成后
-  `process.exit(0)` 本身卡死在宿主 exit 路径里——pi-tui 的 `exitRestoreHandler`、bundle 里的
-  graceful-fs 补丁、stdio flush 都在这条链上——进程以 `futex_wait` 挂了 18 分钟，pty 已被
-  用户关窗口删掉，`setTimeout` 排的 SIGKILL 兜底因为主线程同步阻塞永远不触发）：
-  ① 同一事件循环上的 `setTimeout` SIGKILL（覆盖循环还活着的挂法）；② fire 时启动的
-  独立线程 worker（500 ms 后无条件 SIGKILL，覆盖主线程阻塞在 exit 路径里的场景）；
-  ③ **arm 时启动的独立线程 watchdog**（`killer.ts`）：主循环以 1 Hz 向共享内存写心跳，
-  worker 在 deadline + 500 ms 头启动后两次采样心跳——还在跳说明事件循环活着（由主循环的
-  fire 定时器全权处理，含误杀防护与完整报告）；停跳说明主循环永远不可能 fire（含
-  「dispose 快速完成、`process.exit` 内同步死锁」的盲区——此时主线程连 fire 定时器都排不上），
-  worker 自己恢复终端、写精简的 `-thread.json` 报告并 SIGKILL。所有 disarm 路径
-  （TUI 重启、Ctrl+Z resume、/reload）都会取消 worker，回来的 TUI 绝不会被误杀。worker
-  构造失败仅在资源枯竭时发生，此时降级为加线程层之前的行为。会话 JSONL 是增量落盘的，
-  报告也已同步写完，硬杀不丢可恢复内容。
-
-### 落位
-
-| 文件 | 职责 |
-| --- | --- |
-| `src/features/quit-guard/constants.ts` | 收尾/重启标记、默认值与钳制区间、理由注释 |
-| `src/features/quit-guard/guard.ts` | 纯状态机（注入 clock/scheduler/defer），arm/disarm/fire |
-| `src/features/quit-guard/store.ts` | 配置读写（原子写、损坏回落默认、时长时间钳制） |
-| `src/features/quit-guard/report.ts` | 报告采集与同步落盘（失败只警告，绝不阻塞退出） |
-| `src/features/quit-guard/killer.ts` | 独立线程杀手：arm 级 watchdog（心跳判活 + 死锁时恢复终端/写精简报告/SIGKILL）与 fire 级 hard kill（2026-11-13 事故后新增） |
-| `src/features/quit-guard/index.ts` | 进程接线：stdout 单例包装、SIGCONT、TUI 限定的 `session_shutdown` 触发、onEvent 里的 watchdog/心跳接线、`/quit-guard` 命令 |
-| `src/features/quit-guard/quit-guard.test.ts` + `killer.test.ts` | 55 个用例（状态机、钳制、存储、报告与脱敏/权限位、命令面板、stdout 单例、raw-mode 兜底、事件原因与模式过滤、探针异常、线程杀手的心跳/取消语义） |
-
-不变量：stdout 包装**每进程只装一次**（`Symbol.for` 存在 `globalThis`，`/reload` 只刷新
-配置与状态，不重复包装）；计时用 `performance.now()`（单调时钟——测试里撞到过 WSL 墙上时钟
-回跳，`Date.now()` 会把 10 s 记成 7.2 s）；报告写盘失败不影响退出。
-
-### 已验证
-
-- `pnpm typecheck`、`pnpm test`：**61 文件 / 1064 测试**全绿（quit-guard 55 例，含 killer 4 例）。
-- **2026-11-13 真实事故与修复验证**：真实会话里 guard 已 fire、报告已落盘、"forcing exit"
-  已打印，但 `process.exit(0)` 卡死在宿主 exit 路径（主线程 `futex_wait`，18 分钟未退，
-  pty 被用户关窗口删掉，fd 0/1/2 → `/dev/pts/N (deleted)`；宿主 chunk 里确认 pi-tui
-  `start()` 注册 `process.on("exit", exitRestoreHandler)`、bundle 内含 graceful-fs 补丁）。
-  修复 = 三层退出（exit → 同循环 timer → 线程）+ arm 级心跳 watchdog（盲区：主线程在
-  fire deadline **之前**就同步死锁——如 dispose 快速完成后 `process.exit` 内死锁——
-  此时 fire 定时器根本没机会跑）。修复后四组真机冒烟（真实 pi 1.5.2、tmux、独立
-  `PI_CODING_AGENT_DIR`、探针先于/后于本包加载各验证过）：
-  1. guard ON + `process.on("exit")` 内同步死锁（盲区场景）：**10 s** pi 被线程 watchdog
-     杀掉，debug 记录 `arm → thread-kill heartbeat-stopped`，`quit-hang-*-thread.json`
-     （`source: thread-watchdog`）落盘，主线程从未 fire（符合预期）；
-  2. guard OFF + 同上探针：25 s 后仍挂（对照组，探针真实死锁）；
-  3. guard ON + 无探针：**1 s** 正常退出、无报告（线程层对健康退出零干扰）；
-  4. guard ON + dispose-await 挂 + exit 内死锁（原事故形态）：主线程 **8.007 s** fire
-     （完整报告 `marker=?2004l`）+ fire 级 500 ms 线程兜底 SIGKILL，总 **9 s** 退出。
-  另两个冒烟坑的教训：① /quit 后终端恢复**回显**，tmux `send-keys` 发的字符会被回显
-  到屏幕上，grep 式判定永远假阳性——必须用「pane 子进程里 pi 是否存活」判定；
-  ② 反引号模板里要给 worker 源码写字面 `\n`，文件里必须是 `\\n`（写成 `\n` 会让
-  worker 源码字符串断行，SyntaxError 静默吞进 uncaughtException，watchdog 看似装好
-  实则必死）。
-- 真实 pi 1.5.1 冒烟（tmux，`-ne -e ./src/index.ts`，卡死探针为「`session_shutdown` 返回
-  永不 resolve 的 Promise」，且探针**先于**本包加载以证明不依赖处理器顺序；每轮独立
-  `PI_CODING_AGENT_DIR` + `timeoutMs: 2000`）：
-  - fullscreen：收尾后 **2.11–2.15 s** 退出（8 轮中 7 轮；报告写出，`marker=?2004l`）；
-  - `tuiMode: "regular"`：**2.10–2.13 s** 退出（走 `?2004l`）；
-  - 无卡死探针：**0.12 s** 退出（2 轮，看守不拖慢正常退出）；
-  - 默认值（**无配置文件**、`enabled=true`、`timeoutMs=8000`）实测：卡死探针下 **8.12 s**
-    退出，报告 `timeoutMs=8000 / elapsedMs=8005 / marker=?2004l`；健康退出 **0.12 s**（5 轮，
-    含先执行 `/quit-guard` 查看状态的两轮）；`/quit-guard` 状态行显示
-    `on · timeout 8000ms · report on`；
-  - 真实 pty + 本机全套扩展（`/tmp` 下探针，2026-11-10）：`/quit` + 卡死 → 收尾序列武装、
-    **10.12 s** 退出（当时默认 10 s）并写报告；`SIGTERM` + 卡死 → **1.5.1 的 `fromSignal`
-    先 dispose 后 stop，序列永不写出，看守不武装、进程活到被 SIGKILL**（这是第二触发源要补的洞）；
-    补上之后：`-e 本包 -e 探针`（本包先加载）SIGTERM → 事件武装、**8.03 s** 退出、输出含
-    `TERMINAL_RESTORE`；`-e 探针 -e 本包`（探针先加载）SIGTERM → 仍然不武装（处理器串行，
-    边界如实保留）；交互式 `/quit` 两种加载顺序都由收尾序列武装并按时触发；
-  - 1.5.1 新增的 `await session.abort()` / `settleCredentialWrites()` 都在同一条无界链上，
-    没有改变结论；
-  - 一轮测得 0.28 s 的墙上时钟退出、而报告 `elapsedMs=2032`（单调时钟）——WSL 墙上时钟回跳
-    的已知现象（`Date.now()` 曾把 10 s 记成 7.2 s），不是看守提前放手；
-  - 历史（1.5.0）：fullscreen/regular 2.15 s、无探针 0.11 s、`/quit-guard 4500` → 4.66 s、
-    默认 10 s → `elapsedMs≈10000`。
-- 宿主事实：`?2004l` 由 `ProcessTerminal.stop()` 直接 `process.stdout.write`，**不经过**
-  `PI_TUI_WRITE_LOG`（该日志只记 `terminal.write`）；所以调试看门狗用
-  `PI_QUIT_GUARD_DEBUG=<file>`（记录 register/arm/disarm/fire），不要拿 TUI 写日志对时间。
-
-### 已知边界（有意为之）
-
-- **只覆盖交互式 TUI**：print/JSON/RPC 不写收尾序列；它们的 `session_shutdown(reason=quit)`
-  也被显式过滤，避免把终端恢复转义序列写进机器可读的 stdout 协议。
-- 交互式 `/quit` 只覆盖**收尾序列之后**的卡死（`ui.stop()` 在 dispose 之前，正常情况序列
-  一定会写出）。信号触发路径靠 `session_shutdown` 补位，但**处理器按加载顺序串行**：挂在
-  本包之前加载的处理器会让我们的处理器不运行，那条路仍然无解。
-- TUI 停下之前就卡住、且不来自 `session_shutdown` 的情况（例如 `/quit` 被延后到 idle）不管：
-  没有可观测信号，看守不会被武装。
-- 线程层依赖 worker 构造成功（资源枯竭时降级为加线程层之前的行为）；watchdog 判活
-  粒度 = 心跳 1 s + 采样窗 1.5 s，即主线程在 deadline 前死锁的最坏确认延迟约
-  `timeoutMs + 2 s`；心跳还在跳就绝不杀（误杀防护归主循环 fire 路径的 raw-mode 探测）。
-  worker 的 `Atomics.wait` 只等 signal cell（值恒 0）——**不能等心跳 cell**：wait 的第三参是
-  期望值，心跳每 tick 都变，会立即 not-equal 返回伪造死锁判定（实测误杀过 vitest fork）。
-- 触发即跳过剩余扩展清理（挂住的就是它）；不判断「哪个扩展」——报告只给进程状态。
-- `/reload` + `-e` TypeScript 扩展在 tmux 夹具里表现不稳定（换掉本包、甚至完全不加包装也
-  一样），属宿主/夹具噪声，不是本功能的回归；真实会话里 `/reload` 后看守仍按单例接线工作。
-- 这是对宿主缺口的权宜之计：pi 若给 `session_shutdown` 加上限，本功能可整体删除。
-
 ## Feature: keep（会话暂存：`/keep-quit` · `/keep-load` · `/keep-drop`，2026-11-25 立项并实现）
 
 问题：一个项目里多条任务并行时，会话一多就记不住哪个做完、哪个没做完；`/resume` 把所有会话按时间混排，既不分「做完/没做完」，
@@ -1295,7 +1143,7 @@ pi 1.0 起默认 fullscreen（备用屏）。`/quit` 的顺序是：停 TUI（�
 
 - `ctx.switchSession(path, {withSession})` 真的切换，事件序 `session_before_switch(resume)` → `session_shutdown(resume)`（旧）→
   `session_start(resume)`（新）→ `withSession`；**切换后旧 ctx 立即 stale**，后续动作只能写在 `withSession` 里。
-- `ctx.shutdown()` 走 `/quit` 的同一交互式关停路径（`session_shutdown(quit)` 后退出），quit-guard 照管。
+- `ctx.shutdown()` 走 `/quit` 的同一交互式关停路径（`session_shutdown(quit)` 后退出）；宿主收尾链无超时，别的处理器挂住时这里就只能等。
 - 空会话从不落盘：`getSessionFile()` 有值但文件不存在，所以 `/keep-quit` 必须先查「有对话」。
 - `pi.appendEntry`（`custom` 条目）不进模型上下文，`sendMessage`（`custom_message`）才进——备注走后者、面包屑走前者。
 

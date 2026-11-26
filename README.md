@@ -13,7 +13,7 @@
 [![pi >= 0.99](https://img.shields.io/badge/pi-%3E%3D0.99.0-blueviolet)](https://github.com/earendil-works/pi)
 [![GitHub](https://img.shields.io/badge/github-andares%2Fpi--toolkits-181717?logo=github)](https://github.com/andares/pi-toolkits)
 
-In a nutshell: fourteen ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **spec review in the browser** `ask-spec`, **reply notes in the browser** `ask-talk`, an **acceptance ledger with a browser page** `ask-uat`, a **quit watchdog** `quit-guard`, a **session backlog for parallel work** `keep`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
+In a nutshell: thirteen ready-to-use capabilities — **read-only consult mode** `ask`, **session-scoped boundary permission** `ask-perm`, **model favorites** `favorites`, **prompt stash** `stash`, **third-party code review** `ask-review`, **dedicated compaction model** `compact-model`, **session startup automation** `autostart`, an **agent memory framework** `ask-init`, a **spec review in the browser** `ask-spec`, **reply notes in the browser** `ask-talk`, an **acceptance ledger with a browser page** `ask-uat`, a **session backlog for parallel work** `keep`, and **release notes on the first start after an upgrade** `whats-new` — with more to come.
 
 **Requirements**: pi `>=0.99.0`. Every published pi release from 0.99.0 through 1.6.1 has been verified with the full gate (install → `tsc --noEmit` → full test suite → keybinding audit → hash compare of the host files this package patches), each in a sandbox with the whole `@earendil-works/*` family pinned to the version under test. Newer releases are verified as they ship and the floor moves only when the measurement says so; `pnpm check:compat` reproduces the result. Note: pi ≥ 0.99 hosts require host-provided packages to be declared in `peerDependencies` with a `"*"` range — `@earendil-works/pi-tui` and `typebox` (the `scratchpad` tool builds a TypeBox schema) are declared that way; an installed copy in `dependencies` would make pi warn.
 
@@ -57,7 +57,6 @@ After installing, verify in any pi session:
   - [🗜️ compact — dedicated compaction model](#compact)
   - [🚀 autostart — session startup automation](#autostart)
   - [🧠 init — agent memory framework](#init)
-  - [🧯 quit-guard — quit watchdog](#quit-guard)
   - [🧷 keep — session backlog](#keep)
   - [🆕 whats-new — release notes after an upgrade](#whats-new)
 - [Development](#development)
@@ -83,7 +82,6 @@ After installing, verify in any pi session:
 | 🗜️ **compact** dedicated compaction model | `/compact-model` | give `/compact` and auto-compact a cheap fast model to summarize with, leaving the main model free to focus on the conversation; zero overhead when unconfigured, falls back to pi's default on any failure |
 | 🚀 **autostart** session startup automation | `.pi/autostart.toml` | declare slash commands to run automatically at session start, per project (first use case: mounting multi-repo directories with `/add-dir`); never runs in untrusted directories, unregistered commands are skipped instead of being sent to the model |
 | 🧠 **init** agent memory framework | `/ask-init` | install or adopt a fixed memory layout (`AGENTS.md` + `specs/` + `.agents/memory` + `.agents/implementations`), migrate an existing one with a snapshot and a coverage table, then audit/refresh it for drift, budgets and duplicated facts |
-| 🧯 **quit-guard** quit watchdog | `/quit-guard` | force-exit when an interactive shutdown hangs, whether after the TUI teardown or before it on a signal-triggered quit; write a hang report and give the shell prompt back; TUI restarts and Ctrl+Z resume disarm it |
 | 🧷 **keep** session backlog | `/keep-quit` · `/keep-load` · `/keep-drop` | mark a session unfinished as you quit, reopen the backlog next time (loaded rows dimmed but still selectable), drop what you finished; an append-only ledger, no lock and no host session listing |
 | 🆕 **whats-new** release notes after an upgrade | automatic | the first `pi` start after an upgrade shows what changed since the version you last ran, once; no slash command or other global namespace is claimed |
 
@@ -604,113 +602,6 @@ package never directs the model which language to write or reply in.
 > framework version lives in `.agents/framework/state.toml`; a project whose state
 > version is newer than the installed tool is never migrated.
 
-## 🧯 quit-guard — quit watchdog
-
-<a name="quit-guard"></a>
-
-**The problem.** pi's interactive `/quit` stops the TUI and then awaits every extension's
-`session_shutdown` handler, one after another, **with no timeout**
-(`runtimeHost.dispose()` → `emitSessionShutdownEvent()`; upstream
-[issue #9997](https://github.com/earendil-works/pi/issues/9997), still unbounded in 1.5.1 and on
-`main` — 1.5.1 added `await session.abort()` before the handler loop and a credential-write
-settle after it, i.e. more awaits in the same untimed chain). One handler that never settles leaves pi alive at 0% CPU *after* the terminal has
-already been restored and the final frame reprinted: the screen looks like a frozen "exit
-screen", and the shell prompt never comes back. Ctrl+C and SIGTERM did not end the hung process
-in our measurements (SIGKILL did); once that phase starts, the host has no way out of it.
-Measured with a 20-extension setup (2026-11-05): a healthy quit spends 0.1–3 s in that phase,
-`pi -ne` 0.12 s — and one of three quits with the same setup never finished at all.
-
-**What this does.** The guard watches the terminal instead of the event stream, so it still
-works when the handler that hangs was loaded *before* this package (in that case our own
-`session_shutdown` would never run). It arms on the TUI's teardown sequence
-(`\x1b[?2004l` / `\x1b[?1049l`) — and, for the signal-triggered path (`kill -TERM`, a closed
-window), on `session_shutdown` with reason `quit`, because that path runs every extension
-handler *before* the TUI writes its teardown sequence: a stuck handler there would never produce
-a marker. If the process is still alive `timeoutMs` later, it writes a hang report, restores the
-terminal if the TUI never did (alternate screen, bracketed paste, cursor) and forces the exit.
-A TUI that comes back disarms it — an interactive mode switch (`/settings` → TUI mode) and
-Ctrl+Z suspend/resume both re-enter the TUI, and a live session must never be killed. The event
-trigger is deliberately limited to TUI mode: RPC/JSON/print stdout is machine-readable and is
-never given terminal escape sequences.
-
-**Two hangs, two layers.** The fire path above lives on the main event loop — which is exactly
-what can also die: on 2026-11-13 the guard fired, wrote its report, printed "forcing exit" and
-called `process.exit(0)` … and the process hung for 18 minutes in `futex_wait` with the pty
-already deleted (the user had closed the terminal window to escape). Host code on the exit path
-(`process.on("exit")` listeners, bundled graceful-fs patches, stdio flush) can deadlock
-synchronously, and a `setTimeout` fallback cannot fire inside a dead loop. Therefore:
-
-- **arm-time watchdog thread** — arming also starts a `worker_threads` worker that does not
-  live on the main loop. The main loop beats a 1 Hz heartbeat into shared memory; after the
-  deadline (plus a head start for the main-loop fire timer, which handles the common hangs with
-  full context: raw-mode probe, full report, terminal restore) the worker samples the heartbeat
-  twice. Still beating → the event loop is alive → it steps aside (the fire timer owns the
-  outcome, including its stray-marker protection). Stopped → the main loop can never fire → the
-  worker restores the terminal, writes a minimal `-thread.json` report and SIGKILLs. This also
-  covers the blind spot where the main thread deadlocks *before* the fire deadline — e.g.
-  synchronously inside `process.exit` right after a fast dispose — because the worker never
-  needed the main loop in the first place. Every disarm (TUI restart, Ctrl+Z resume, `/reload`)
-  cancels the worker, so a returning TUI is never killed.
-- **fire-time hard kill** — after the report is on disk and "forcing exit" printed, fire()
-  starts a second worker that unconditionally SIGKILLs 500 ms later; `process.exit(0)` and a
-  same-loop `setTimeout` SIGKILL run before it, so the worker only matters when the main thread
-  is blocked inside the exit path (the exact 2026-11-13 shape).
-
-### Commands
-
-| Command | Effect |
-| --- | --- |
-| `/quit-guard` | status: on/off, timeout, report on/off, newest hang report |
-| `/quit-guard on` / `/quit-guard off` | enable/disable, persisted |
-| `/quit-guard <ms>` | set the deadline (clamped to 2000–60000 ms), persisted |
-
-**Configuration** — the guard is **on by default** (8 s after the teardown write, hang report
-on), so an install is protected without any setup. It persists to
-`<agent-dir>/pi-toolkits-quit-guard.json`, written by the commands; every field is optional:
-
-```json
-{
-  "enabled": true,
-  "timeoutMs": 8000,
-  "report": true
-}
-```
-
-`timeoutMs` counts **from the teardown write**, not from the moment you press Enter, so the time
-the TUI spends stopping is not charged against a slow-but-finishing shutdown. Keep it above your
-slowest healthy quit: the default is **8 s**, and the slowest healthy quit measured above was 5 s
-end to end (of which ~2 s came after the teardown), leaving ~3 s of margin.
-
-**Hang reports** — `<agent-dir>/quit-guard/quit-hang-<timestamp>-<pid>.json` records the
-arm/fire timing, the teardown marker, and the process state at the deadline (`activeHandles`,
-`activeRequests`, and the host's libuv handle table). An empty `libuv` table next to a live
-process is the signature of a promise nobody will ever resolve, as opposed to a blocked socket
-or a lingering child process. The file is owner-only (0600 in an 0700 directory) and process
-arguments are redacted with the same rules as the approval log, so `pi --api-key …` does not
-leave the key on disk.
-
-`PI_QUIT_GUARD_DEBUG=<file>` appends one line per `arm` / `disarm` / `fire` (plus one per
-extension registration); once the TUI is gone it is the only channel left. A thread-watchdog
-kill appends `thread-kill heartbeat-stopped …` there.
-
-### Boundaries
-
-- Interactive TUI only. Print (`-p`), JSON, and RPC sessions never write the teardown
-  sequences, so the guard stays inert there.
-- The deadline covers the **post-teardown** phase. A shutdown that hangs before the TUI stops
-  (not observed; `drainInput` is bounded at 1 s) is out of scope.
-- When it fires, the remaining extension cleanup is skipped **by design** — that cleanup is what
-  was hanging. Session entries are appended to the session JSONL as they happen, so the
-  transcript is intact up to the last written entry. The process exits 0; if the exit path
-  itself deadlocks (observed for real: host `exit` listeners, stdio flush), the layered
-  fallbacks — same-loop `setTimeout` SIGKILL, then the watchdog/hard-kill worker threads — end
-  the process anyway. A worker cannot be constructed only under resource exhaustion; the guard
-  then degrades to the behavior it had before the thread layers existed.
-- This is a workaround for a host gap. If pi ever bounds `session_shutdown`, the guard becomes
-  a no-op safety net and can be removed.
-
----
-
 ## 🧷 keep — session backlog for parallel work
 
 <a name="keep"></a>
@@ -818,8 +709,6 @@ src/
     │                     #           audit payload, tests
     ├── spec/             # browser-reviewed specs: phases, block diff,
     │                     #           review server, UI, tests
-    ├── quit-guard/       # quit watchdog: TUI teardown + quit-event triggers,
-    │                     #           settings store, hang report, tests
     ├── review/           # third-party review: command trigger,
     │                     #           review model config store, prompt, tests
     ├── stash/            # prompt stash: hotkey state machine + tests
@@ -843,7 +732,7 @@ pnpm release:github                 # create/verify the GitHub Release for the c
 pnpm release:github --audit         # list npm versions vs GitHub Releases vs remote tags
 ```
 
-Releasing is a **tag push**. `pnpm release` runs the gates (`typecheck`, `test`, UI checks), promotes the `## Unreleased` section of `CHANGELOG.md` to the new version (an empty section aborts the release — `--skip-changelog` opts out), bumps the version, commits, tags `vX.Y.Z`, pushes the branch and the tag — then waits for the GitHub Actions `publish` workflow. That workflow publishes with **npm trusted publishing (OIDC)**: no npm token, no interactive 2FA, and a provenance attestation on every version. The script only reports success once the version is on npm with `dist.attestations` non-empty.
+Releasing is a **tag push**. `pnpm release` runs the gates (`typecheck`, `test`, UI checks), promotes the `## Unreleased` section of `CHANGELOG.md` to the new version (an empty section aborts the release — `--skip-changelog` opts out), bumps the version, commits, tags `vX.Y.Z`, pushes the branch and the tag — then waits for the GitHub Actions `publish` workflow. That workflow publishes with **npm trusted publishing (OIDC)**: no npm token, no interactive 2FA, and a provenance attestation on every version. **A green workflow run is the release's success criterion** — the script does not poll npm afterwards; the package page is the place to check propagation and provenance.
 
 `--prepare-only` is the "prepare everything, decide later" switch: it stops after commit+tag and prints the exact push command. `--no-wait` returns right after the push; `--local` is the emergency path that publishes from this machine with the old token. A failed workflow is retried on the same tag (`gh workflow run publish.yml -f tag=vX.Y.Z`); an already-published version is skipped, so the rerun is idempotent.
 

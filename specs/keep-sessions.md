@@ -43,7 +43,7 @@
 | --- | --- |
 | `ctx.switchSession(path, {withSession})` | 真的切换；事件序 `session_before_switch(resume)` → `session_shutdown(resume)`（旧）→ `session_start(resume)`（新）→ `withSession` |
 | 切换后旧 `ctx` | 立即 stale，任何调用都抛错——所有后续动作必须写在 `withSession` 里 |
-| `ctx.shutdown()` | 走 `/quit` 的同一交互式关停路径，`session_shutdown(quit)` 后退出，quit-guard 照管 |
+| `ctx.shutdown()` | 走 `/quit` 的同一交互式关停路径，`session_shutdown(quit)` 后退出；宿主收尾链无超时 |
 | 空会话 | 从不落盘（`getSessionFile()` 有值但文件不存在）→ `/keep-quit` 必须拒绝 |
 | `session_shutdown.reason` | `quit` / `reload` / `new` / `resume` / `fork`；只有 `reload` 不是「会话真的走了」 |
 | 原语可用性 | `switchSession` / `shutdown` / `appendEntry` / `registerEntryRenderer` / `setSessionName` 在 **0.99.0** 的 `types.d.ts` 里就有 → 不动兼容下限 |
@@ -141,7 +141,7 @@ Keep backlog — 2 not loaded, 1 loaded
 2. **账本会长期留脏条目**：会话文件删掉后条目只能靠 `ctrl+r` 清；列表里表现为红字 `missing`，不会自动清理（自动清理要猜，猜错就是丢任务）。
 3. **新 UI 组件**：`SelectList` 的 `SelectItem` 只有 `{value,label,description}`，没有分组、没有单行置灰、没有 `setItems`（`ctrl+r` 后要重建）——所以写一个约 120 行的专用列表组件，逐行用 `theme.fg()` 渲染（先例：`src/features/favorites/patch-selector.ts` 也是逐行自绘）。宽度、置灰与选中态叠加的转义序列必须在真实终端目检，不能只靠单测。
 4. **`ctrl+r` 与宿主同名键分属不同作用域**：宿主只在会话选择器里绑 `app.session.rename`，将来若提到全局或 `tui.altScreen.*`，我们的键就成了死键——升级时 `pnpm check:keybindings` 会报出来，届时按仓库纪律先上报再换键。
-5. **`keep-quit` 依赖 `session_shutdown` 写 `unload`**：比本扩展更早加载的处理器挂住时，`session_shutdown` 可能根本轮不到我们跑（quit-guard 会硬退）——结果是「已载入」脏标记，同样由探活与强行载入兜住。
+5. **`keep-quit` 依赖 `session_shutdown` 写 `unload`**：比本扩展更早加载的处理器挂住时，`session_shutdown` 可能根本轮不到我们跑（宿主收尾链无超时，进程就停在那里）——结果是「已载入」脏标记，同样由探活与强行载入兜住。
 
 ## 10. 明确不做（2026-11-25 崔总定）
 
