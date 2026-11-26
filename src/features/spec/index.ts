@@ -98,7 +98,7 @@ export interface SpecOptions {
 	closeDelayMs?: number;
 	/** Port search starts here; the review server walks upward. */
 	portStart?: number;
-	/** How many ports the review server may try before giving up (default 20). */
+	/** How many ports the review server may try before giving up (default: the whole 7600–7699 pool). */
 	portAttempts?: number;
 }
 

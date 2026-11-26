@@ -17,6 +17,21 @@ import { RECORD_CHANGE_TOOL, UAT_COMMAND, UAT_ITEM_TOOL } from "./constants.js";
 import { createRecord, isoMinute } from "./records.js";
 
 /**
+ * Distinct port per server, never reused inside this file.
+ *
+ * The HTTP clients keep connections alive, and those pools are keyed by port:
+ * handing a new test a port whose previous server has just closed gives its
+ * first request a dead socket ("socket hang up"). A counter is also immune to
+ * the birthday collisions a narrow random range produces once the whole suite
+ * runs under the 4-way compatibility matrix.
+ */
+let nextPort = 47_001;
+function takePort(): number {
+	nextPort += 3;
+	return nextPort;
+}
+
+/**
  * Every timestamp in this file is derived from this one date. Headers carry the
  * machine's UTC offset, so writing the offset out by hand makes the assertion
  * pass only in the author's timezone (CI is UTC and caught exactly that).
@@ -89,7 +104,7 @@ function harness(): Harness {
 		openBrowser,
 		root: (cwd) => cwd,
 		now: () => fixedNow,
-		portStart: 47_000 + Math.floor(Math.random() * 800),
+		portStart: takePort(),
 		idleCloseMs: 0,
 	});
 	return {
@@ -120,6 +135,9 @@ async function post(url: string, path: string, body: unknown): Promise<{ status:
 				path,
 				method: "POST",
 				headers: { "content-type": "application/json", "x-plan-token": token },
+				// Fresh socket per call: pooled sockets outlive the server that opened
+				// them, and reusing one turns the next request into ECONNRESET.
+				agent: false,
 			},
 			(res) => {
 				const chunks: Buffer[] = [];

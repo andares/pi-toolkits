@@ -15,7 +15,7 @@
 
 一句话介绍:目前包含十四个开箱即用的功能——**只读咨询模式** `ask`、**会话级边界权限** `ask-perm`、**模型收藏** `favorites`、**提示词暂存** `stash`、**第三方代码评审** `ask-review`、**独立压缩模型** `compact-model`、**会话启动自动化** `autostart`、**agent 记忆框架** `ask-init`、**浏览器内规格评审** `ask-spec`、**回复批注** `ask-talk`、**验收台账与浏览器页面** `ask-uat`、**退出看门狗** `quit-guard`、**并行任务的会话暂存** `keep`、**升级后首次启动的版本变更提示** `whats-new`,后续持续追加。
 
-**版本要求**:pi `>=0.99.0`。0.99.0 到 1.6.0 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
+**版本要求**:pi `>=0.99.0`。0.99.0 到 1.6.1 的每一个已发布版本都用完整门禁实测过(install → `tsc --noEmit` → 全量测试 → 键位审计 → 对 patch 目标宿主文件做哈希比对),每个版本都在沙箱中把整个 `@earendil-works/*` 家族钉在同一版本。更新的版本随发布逐个验证,下限只在实测结果允许时移动;`pnpm check:compat` 可复现该结论。注:pi ≥ 0.99 的宿主要求「宿主提供的包」一律声明为 peerDependencies `"*"` —— `@earendil-works/pi-tui` 与 `typebox`(ask 的 `scratchpad` 用它构造参数 schema)都按此声明;若放进 `dependencies`,pi 会告警。
 
 ---
 
@@ -301,7 +301,8 @@ run = ["/ask-perm allow allow allow ask"]
 - **批准和提意见都携带批注。** 它们只决定下一步：批准是「开始实施」（所有批注都带上），提意见是「改完 spec 再提交一版」。
 - **历史留档。** 每次提交都存在 `<agent-dir>/ask-spec/<slug>/`，页头可以只读回看任意一版；旧的 `<agent-dir>/ask-plan/` 历史会在第一次使用时迁移。
 - **评审期走边界检查。** `/ask-perm` 在评审开始时按默认值开启，结束时恢复；评审期唯一能写的是 markdown。
-- **每一版都有自己的新窗口。** 你提交决定后评审服务很快关端口，所以下一次提交修订会重起服务（20 个端口段里取下一个空闲的）并弹新窗口，而不是把你指向一个死链接。重启的是页面，不是评审：每一版、每条批注和决定都保留，历史抽屉里前几轮仍在。
+- **每一版都有自己的新窗口。** 你提交决定后评审服务很快关端口，所以下一次提交修订会重起服务（从共享的 7600–7699 端口池取下一个空闲端口）并弹新窗口，而不是把你指向一个死链接。重启的是页面，不是评审：每一版、每条批注和决定都保留，历史抽屉里前几轮仍在。
+- **可以不回复直接关闭。** 顶栏右侧的「关闭」会先二次确认，然后停止本次评审服务并尝试关闭标签页，不向 agent 发送决定或任何消息。如果 `/reload` 后服务已经消失，页面也会进入关闭终态，不会一直重连。
 - **目录与回到顶部。** 阅读列右缘有一列暖灰小横杠，指向即展开标题索引（一根横杠对应一个标题，当前章节高亮），点击跳转；单栏布局下整组隐藏。右侧栏整体滚出视口后，页脚上方出现「回到顶部」。两者与 `/ask-talk` 共用。
 - **绝不切模型。** spec 评审与实施都用会话当前的模型。（`/ask-review` 是唯一会切模型的命令，那是你要求的。）
 
@@ -331,7 +332,9 @@ UAT 页面开着时先退出：两个相位不叠在一起跑。
 - **只发批注。** 消息是 `## Notes on your last reply`（每条批注 + 它引用的块，引用裁到 600 字符）加 `## Operator's message`；回复原文不重复，因为它本来就在模型上下文里。若中途 compact 把它挤掉了，才整篇附一次。
 - **每个段落一条批注、无 verdict。** 对话里的批注就是「这段我想说这句」，点开可改；标题只做索引导航，不带批注。
 - **没有版本、没有 diff、没有批准。** 这是快照不是待修订的文档；再跑一次等于刷新：同一条回复保留批注，换了回复就清空。
+- **标题就是会话标题，且每次都开窗。** 页面以当前会话命名（会话还没名字时用第一条 prompt），并行开发时几个窗口一眼分得清；每次 `/ask-talk` 都会重新打开窗口——同一条回复也一样，因为上一个标签页可能已经关了。
 - **继续只提交一次。** 保存批注与输入框、发一条消息、关掉端口；页面随后提示可以关闭（外部打开的标签页脚本关不掉）。
+- **也可以不走继续直接关闭。** 顶栏右侧的「关闭」会先二次确认，再停止评审服务，不把批注、草稿或任何消息发给 agent。若 `/reload` 后服务已不可达，也会进入关闭终态。
 - **agent 还在跑时拒绝。** 宿主在回合结束才落盘 assistant 消息，跑到一半打开只会静默显示**上一轮**。
 
 ```text
@@ -407,7 +410,7 @@ pi 的 `/compact` 与 auto-compact 默认**用当前会话模型**做上下文�
 | auto-compact 阈值触发 | 压缩模型总结 |
 | context overflow 恢复 | 压缩模型总结,重试行为不变 |
 
-**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在 1.2.0 → 1.6.0 内字节级不变 —— 除了此处采纳的两项 1.4.0 修正:摘要请求使用模型自身的输出上限而非 `reserveTokens` 的固定比例,以及 `/compact <instructions>` 也会进入 split-turn 前缀,外加 1.5.0 的 `cost.totalFromProvider` 合并规则(用量统计);只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
+**接管后与 pi 内建行为完全一致的部分**(逐字同步 pi 内建实现,复制自 0.87.1、在 1.2.0 → 1.6.1 内字节级不变 —— 除了此处采纳的两项 1.4.0 修正:摘要请求使用模型自身的输出上限而非 `reserveTokens` 的固定比例,以及 `/compact <instructions>` 也会进入 split-turn 前缀,外加 1.5.0 的 `cost.totalFromProvider` 合并规则(用量统计);只换执行模型;对话序列化函数(`serializeConversation`)是直接从宿主导入的,因此跟随宿主行为 —— 例如 1.2.0 起不再把 assistant thinking 回填进摘要请求):
 
 - **摘要格式** —— Goal / Progress / Key Decisions 结构化 checkpoint;已有摘要时用迭代更新版 prompt,信息延续不丢
 - **切分行为** —— 保留最近 `keepRecentTokens` 的策略、`firstKeptEntryId` / `tokensBefore` 原样回传,不动
@@ -488,7 +491,7 @@ run = [
 
 **关键约束:只支持扩展命令**。`/add-dir`(pi-add-dir)、`/cd`(pi-cd)等 `registerCommand` 注册的命令可以;内置命令(`/compact`、`/reload`、`/resume`…)在 TUI 层分发,扩展层触发不了;skill 命令(`/skill:name`)是展开机制而非执行机制。依赖的目标扩展(如 pi-add-dir)需要先安装。
 
-> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`;`_tryExecuteExtensionCommand` 在 1.2.0–1.6.0 全区间字节级一致,1.5.1 虽把 `sendUserMessage` 其余部分重构进 `_preparePrompt`,扩展命令分支仍是它最前面的早退路径,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
+> **实现说明**:执行用 `sendUserMessage(cmd, { expandPromptTemplates: true })` —— 该选项把 `/cmd args` 路由到命令分发而不是模型 prompt 路径(包装层默认 `false`;`_tryExecuteExtensionCommand` 在 1.2.0–1.6.1 全区间字节级一致,1.5.1 虽把 `sendUserMessage` 其余部分重构进 `_preparePrompt`,扩展命令分支仍是它最前面的早退路径,见 AGENTS.md 宿主兼容纪律)。预校验用 `pi.getCommands()`(只认 `source: "extension"`)。依赖 `smol-toml`(零依赖、~10KB、TOML 1.0)。
 
 ---
 

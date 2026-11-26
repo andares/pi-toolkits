@@ -20,7 +20,7 @@ export default defineConfig({
 		sourcemap: false,
 	},
 	server: {
-		// `pnpm ui:dev`: the page talks to a live review server on 3401.
-		proxy: { "/api": "http://127.0.0.1:3401" },
+		// `pnpm ui:dev`: the page talks to a live review server on 7600.
+		proxy: { "/api": "http://127.0.0.1:7600" },
 	},
 });

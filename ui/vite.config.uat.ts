@@ -21,7 +21,7 @@ export default defineConfig({
 		sourcemap: false,
 	},
 	server: {
-		// `pnpm --filter @andares/pi-toolkits-ui dev:uat`: talks to a live /ask-uat server.
-		proxy: { "/api": "http://127.0.0.1:3401" },
+		// `pnpm --filter @andares/pi-toolkits-ui dev:uat`: talks to the live /ask-uat server on 7600.
+		proxy: { "/api": "http://127.0.0.1:7600" },
 	},
 });

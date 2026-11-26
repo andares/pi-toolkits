@@ -8,6 +8,21 @@ import { renderBlockHtml } from "../review-page/render.js";
 import { buildSpecState, normalizeAnnotations, startSpecServer, type SpecServerHandle } from "./server.js";
 import { appendSpecVersion, createSpecSession, type SpecSession } from "./store.js";
 
+/**
+ * Distinct port per server, never reused inside this file.
+ *
+ * The HTTP clients keep connections alive, and those pools are keyed by port:
+ * handing a new test a port whose previous server has just closed gives its
+ * first request a dead socket ("socket hang up"). A counter is also immune to
+ * the birthday collisions a narrow random range produces once the whole suite
+ * runs under the 4-way compatibility matrix.
+ */
+let nextPort = 42_001;
+function takePort(): number {
+	nextPort += 3;
+	return nextPort;
+}
+
 let agentDir: string;
 
 beforeAll(() => {
@@ -35,7 +50,7 @@ async function serve(
 		session,
 		assetsDir: join(agentDir, "no-assets"),
 		render: renderBlockHtml,
-		portStart: 42_000 + Math.floor(Math.random() * 2000),
+		portStart: takePort(),
 		portAttempts: 20,
 		bindHost: "127.0.0.1",
 		urlHost: "127.0.0.1",
@@ -73,6 +88,11 @@ async function call(options: CallOptions): Promise<CallResult> {
 					...(options.body !== undefined ? { "content-type": "application/json" } : {}),
 					...options.headers,
 				},
+				// A fresh socket per call: a pooled keep-alive socket outlives the
+				// server it was opened to (these tests close servers mid-file), and
+				// the next request then dies with ECONNRESET instead of returning the
+				// status the test is about.
+				agent: false,
 			},
 			(res) => {
 				const chunks: Buffer[] = [];
@@ -286,7 +306,10 @@ describe("startSpecServer", () => {
 	it("accepts only the first decision", async () => {
 		const session = makeSession();
 		const onDecision = vi.fn();
-		const server = await serve(session, { onDecision, closeDelayMs: 50 });
+		// Long enough that the second decision lands before the port closes (50ms
+		// is a race once four sandboxes share the machine), short enough that the
+		// delayed onDecision still arrives inside the waitFor below.
+		const server = await serve(session, { onDecision, closeDelayMs: 1_000 });
 		const first = await call({
 			port: server.port,
 			path: "/api/decide",
@@ -303,7 +326,8 @@ describe("startSpecServer", () => {
 		});
 		expect(first.status).toBe(200);
 		expect(second.status).toBe(409);
-		await vi.waitFor(() => expect(onDecision).toHaveBeenCalledTimes(1));
+		// onDecision is delivered on the close timer, not on the request.
+		await vi.waitFor(() => expect(onDecision).toHaveBeenCalledTimes(1), { timeout: 5_000 });
 		expect(session.versions[0].decision?.action).toBe("deny");
 	});
 
@@ -389,7 +413,7 @@ describe("startSpecServer", () => {
 
 describe("review server lifecycle", () => {
 	it("walks to the next free port so two reviews can be open at once", async () => {
-		const portStart = 44_000 + Math.floor(Math.random() * 500);
+		const portStart = takePort();
 		const first = await serve(makeSession("# first"), { portStart });
 		const second = await serve(makeSession("# second"), { portStart });
 		try {
@@ -423,6 +447,26 @@ describe("review server lifecycle", () => {
 		// The extension keys "broadcast a revision" vs "start a new window" off
 		// this flag, so it must flip before the socket is actually gone.
 		expect(server.active()).toBe(false);
+		await vi.waitFor(async () => {
+			await expect(call({ port: server.port, path: "/api/state" })).rejects.toThrow();
+		});
+	});
+
+	it("closes manually without recording a decision or notifying the agent", async () => {
+		const session = makeSession();
+		const onDecision = vi.fn();
+		const server = await serve(session, { onDecision });
+		const response = await call({
+			port: server.port,
+			path: "/api/close",
+			method: "POST",
+			token: server.token,
+		});
+		expect(response.status).toBe(200);
+		expect(response.json()).toEqual({ ok: true });
+		expect(server.active()).toBe(false);
+		expect(session.versions[0].decision).toBeUndefined();
+		expect(onDecision).not.toHaveBeenCalled();
 		await vi.waitFor(async () => {
 			await expect(call({ port: server.port, path: "/api/state" })).rejects.toThrow();
 		});

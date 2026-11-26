@@ -25,6 +25,15 @@ export interface TalkSession {
 	text: string;
 	blocks: Block[];
 	headings: Heading[];
+	/**
+	 * Session title at the time the page was (re)opened.
+	 *
+	 * Several talk pages can be open at once across parallel sessions, and every
+	 * one of them annotates "the last reply" — without this, the windows are
+	 * indistinguishable. Undefined when the session has no name yet; the page
+	 * falls back to its own label.
+	 */
+	title?: string;
 	model?: string;
 	at: string;
 	/** Session entry id, rechecked when Continue actually arrives. */
@@ -48,6 +57,7 @@ export interface TalkStateItem {
 
 export interface TalkStatePayload {
 	mode: "talk";
+	title?: string;
 	reply: { model?: string; at: string; chars: number };
 	items: TalkStateItem[];
 	headings: Heading[];
@@ -60,6 +70,7 @@ export interface TalkStatePayload {
 export function buildTalkState(session: TalkSession): TalkStatePayload {
 	return {
 		mode: "talk",
+		title: session.title,
 		reply: { model: session.model, at: session.at, chars: session.text.length },
 		items: session.blocks.map((block) => ({
 			id: block.id,
@@ -145,7 +156,7 @@ export async function startTalkServer(
 
 	const server = await startWebServer({
 		assetsDir,
-		portStart: options.portStart ?? 3501,
+		portStart: options.portStart ?? 7600,
 		portAttempts: options.portAttempts,
 		bindHost: options.bindHost ?? bindHost(isWsl()),
 		urlHost: options.urlHost ?? urlHost(isWsl()),
@@ -173,6 +184,16 @@ export async function startTalkServer(
 				options.session.draft = draft;
 				options.onNotes?.({ notes, draft });
 				ctx.json({ ok: true });
+				return true;
+			}
+
+			if (ctx.url.pathname === "/api/close" && ctx.req.method === "POST") {
+				// Manual close is not Continue: leave the snapshot untouched, send no
+				// message to the agent, and only stop this page's HTTP server. Reply
+				// before closing on the next tick so the page gets the acknowledgement.
+				closing = true;
+				ctx.json({ ok: true });
+				setTimeout(() => void closeHandle(), 0).unref();
 				return true;
 			}
 

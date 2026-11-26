@@ -13,7 +13,15 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import * as api from "./api";
 import { initialLang, rememberLang, translate, type Lang, type MessageKey } from "./i18n";
-import { BackToTop, Composer, Outline, preferredScrollBehavior, useFooterHeight } from "./shared";
+import {
+	BackToTop,
+	ClosePageButton,
+	Composer,
+	ManualCloseNotice,
+	Outline,
+	preferredScrollBehavior,
+	useFooterHeight,
+} from "./shared";
 
 const SAVE_DEBOUNCE_MS = 300;
 
@@ -28,6 +36,9 @@ export function TalkPage(props: { initial: api.TalkState }) {
 	const [noteDraft, setNoteDraft] = createSignal("");
 	const [error, setError] = createSignal<string>();
 	const [tabClosed, setTabClosed] = createSignal(false);
+	/** undefined = open; true/false = manually closed, server reachable or not. */
+	const [manualClose, setManualClose] = createSignal<boolean>();
+	let stopEvents: (() => void) | undefined;
 
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -52,6 +63,19 @@ export function TalkPage(props: { initial: api.TalkState }) {
 		return Number.isNaN(date.getTime()) ? at : date.toLocaleString();
 	});
 
+	/**
+	 * The page's name is the session's name.
+	 *
+	 * Several talk pages can be open at once, one per parallel session; "the last
+	 * reply" is the same phrase in all of them, so the window has to say which
+	 * session it belongs to. The server sends the title; this only supplies the
+	 * fallback for a session that has not been named yet.
+	 */
+	const pageTitle = createMemo(() => {
+		const title = state().title?.trim();
+		return title !== undefined && title !== "" ? title : t("talkUntitled");
+	});
+
 	async function reload() {
 		try {
 			const next = await api.fetchState();
@@ -71,7 +95,7 @@ export function TalkPage(props: { initial: api.TalkState }) {
 	}
 
 	onMount(() => {
-		const stop = api.subscribe({
+		stopEvents = api.subscribe({
 			onRevision: () => void reload(),
 			onAnnotations: () => void reload(),
 			onDecided: () => undefined,
@@ -79,14 +103,27 @@ export function TalkPage(props: { initial: api.TalkState }) {
 			onSent: () => setSent(true),
 		});
 		onCleanup(() => {
-			stop();
+			stopEvents?.();
+			stopEvents = undefined;
 			if (saveTimer !== undefined) clearTimeout(saveTimer);
 		});
 	});
 
 	createEffect(() => {
-		document.title = t("talkTitle");
+		document.title = pageTitle();
 	});
+
+	function closedManually(serverClosed: boolean): void {
+		stopEvents?.();
+		stopEvents = undefined;
+		// A debounced notes write after the closed state would only produce a
+		// network error; more importantly, this path must never become Continue.
+		if (saveTimer !== undefined) {
+			clearTimeout(saveTimer);
+			saveTimer = undefined;
+		}
+		setManualClose(serverClosed);
+	}
 
 	function scheduleSave(nextNotes: Record<string, string>, nextDraft: string) {
 		if (saveTimer !== undefined) clearTimeout(saveTimer);
@@ -171,6 +208,10 @@ export function TalkPage(props: { initial: api.TalkState }) {
 	}
 
 	return (
+		<Show
+			when={manualClose() === undefined}
+			fallback={<ManualCloseNotice lang={lang()} serverClosed={manualClose() === true} />}
+		>
 		<div class="page">
 			<header class="topbar">
 				<div class="masthead">
@@ -195,11 +236,12 @@ export function TalkPage(props: { initial: api.TalkState }) {
 						>
 							{lang() === "en" ? "中文" : "EN"}
 						</button>
+						<ClosePageButton lang={lang()} onClosed={closedManually} />
 					</div>
 				</div>
 
 				<div class="title-block">
-					<h1>{t("talkHeading")}</h1>
+					<h1>{pageTitle()}</h1>
 					<div class="meta">
 						<span class="meta-path">{replyAt()}</span>
 						<span class="meta-dot" aria-hidden="true" />
@@ -387,5 +429,6 @@ export function TalkPage(props: { initial: api.TalkState }) {
 			<Outline headings={state().headings} />
 			<BackToTop />
 		</div>
+		</Show>
 	);
 }

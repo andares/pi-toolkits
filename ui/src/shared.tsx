@@ -5,8 +5,9 @@
  * blocks themselves, the outline and the back-to-top button must not know which
  * mode they are in, or the two pages drift apart within one release.
  */
-import { For, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import type { Heading } from "./api";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { postClose, type Heading } from "./api";
+import { translate, type Lang, type MessageKey } from "./i18n";
 
 /** Same mapping the server uses for outline depth: the levels present, capped at 4. */
 function depthOf(level: number, levels: readonly number[]): number {
@@ -73,6 +74,7 @@ export function Outline(props: OutlineProps) {
 	let flashTimer: ReturnType<typeof setTimeout> | undefined;
 	let flashed: HTMLElement | undefined;
 	let scrollFrame: number | undefined;
+	let barsElement: HTMLDivElement | undefined;
 
 	const levels = createMemo(() => props.headings.map((heading) => heading.level));
 	const bars = createMemo(() => sampleHeadings(props.headings, activeId()));
@@ -122,6 +124,23 @@ export function Outline(props: OutlineProps) {
 		flashed?.classList.remove("is-target");
 	});
 
+	// CSS bounds the strip so it can never run off the screen; when that bound
+	// does bite (a very short window, a longer sample), the bar for the section
+	// being read has to stay visible — otherwise the red marker disappears at
+	// whichever end is scrolled out of the strip.
+	createEffect(() => {
+		const id = activeId();
+		const strip = barsElement;
+		if (!strip || id === undefined) return;
+		const index = bars().findIndex((heading) => heading.blockId === id);
+		const bar = strip.children[index] as HTMLElement | undefined;
+		if (!bar) return;
+		const box = strip.getBoundingClientRect();
+		const rect = bar.getBoundingClientRect();
+		if (rect.top < box.top) strip.scrollTop -= box.top - rect.top;
+		else if (rect.bottom > box.bottom) strip.scrollTop += rect.bottom - box.bottom;
+	});
+
 	function jump(blockId: string) {
 		props.onJump?.(blockId);
 		requestAnimationFrame(() => {
@@ -152,7 +171,7 @@ export function Outline(props: OutlineProps) {
 				onMouseEnter={openSoon}
 				onMouseLeave={closeSoon}
 			>
-				<div class="outline-bars" aria-hidden={open()}>
+				<div class="outline-bars" aria-hidden={open()} ref={(node) => (barsElement = node)}>
 					<For each={bars()}>
 						{(heading) => (
 							<span
@@ -293,6 +312,73 @@ export function useFooterHeight(): void {
 	});
 }
 
+export interface ClosePageButtonProps {
+	lang: Lang;
+	/** False means the server was already gone (for example after `/reload`). */
+	onClosed: (serverClosed: boolean) => void;
+}
+
+/**
+ * Close a review without producing a decision or a message for the agent.
+ *
+ * There is no dialog component in this UI to reuse; the browser's native
+ * confirmation supplies the second step without inventing a new visual system.
+ * The server may already be unreachable after `/reload`, so failure to reach it
+ * is not allowed to strand the tab: the parent still enters its closed state.
+ */
+export function ClosePageButton(props: ClosePageButtonProps) {
+	const [busy, setBusy] = createSignal(false);
+	const t = (key: MessageKey) => translate(props.lang, key);
+
+	async function close() {
+		let serverClosed = false;
+		try {
+			await postClose();
+			serverClosed = true;
+		} catch {
+			// The fallback page must not claim an unreachable server was stopped.
+		}
+		props.onClosed(serverClosed);
+		// External launchers usually create tabs that scripts may not close. The
+		// parent's closed state is therefore the reliable fallback, not this call.
+		window.close();
+	}
+
+	return (
+		<button
+			type="button"
+			class="ghost close-page"
+			disabled={busy()}
+			title={t("closePageHint")}
+			onClick={() => {
+				if (busy() || !window.confirm(t("closePageConfirm"))) return;
+				setBusy(true);
+				void close();
+			}}
+		>
+			{t("closePage")}
+		</button>
+	);
+}
+
+/** Terminal state shown when the browser refuses to close an external tab. */
+export function ManualCloseNotice(props: { lang: Lang; serverClosed: boolean }) {
+	const t = (key: MessageKey) => translate(props.lang, key);
+	return (
+		<div class="page page-closed">
+			<main class="manual-close-notice" role="status">
+				<div class="done">
+					<div class="done-title">{t("closePageDone")}</div>
+					<div class="done-hint">
+						{props.serverClosed ? t("closePageServerClosed") : t("closePageUnreachable")}
+					</div>
+					<div class="done-hint">{t("closeHint")}</div>
+				</div>
+			</main>
+		</div>
+	);
+}
+
 export interface ComposerProps {
 	value: () => string;
 	onInput: (value: string) => void;
@@ -306,21 +392,45 @@ export interface ComposerProps {
 const COMPOSER_MAX = 220;
 
 /**
+ * One line's worth of box, and the border widths that `scrollHeight` omits.
+ *
+ * `scrollHeight` is content + padding; a CSS `height` is the border box. Copying
+ * one into the other drops the borders, which clips the last line by a couple of
+ * pixels — visible as text sitting too high in the field.
+ */
+function composerMetrics(element: HTMLTextAreaElement): { oneLine: number; border: number } {
+	const style = getComputedStyle(element);
+	const px = (value: string) => Number.parseFloat(value) || 0;
+	const lineHeight = Number.parseFloat(style.lineHeight);
+	const fontSize = Number.parseFloat(style.fontSize);
+	const line = Number.isFinite(lineHeight) ? lineHeight : fontSize * 1.5;
+	const border = px(style.borderTopWidth) + px(style.borderBottomWidth);
+	const padding = px(style.paddingTop) + px(style.paddingBottom);
+	return { oneLine: line + padding + border, border };
+}
+
+/**
  * One line at rest, taller while focused, scrolling past ~40vh.
  *
  * Collapsing on blur is deliberate: the composer is a message box, not a
- * document pane. The text stays, the height does not.
+ * document pane. But "collapsed" is exactly ONE LINE, never less — a field
+ * shorter than its own line clips the first line too, which is the bug this
+ * function exists to not have. Text beyond the first line may be cut off while
+ * blurred; the text itself is kept and comes back on focus.
  */
 export function Composer(props: ComposerProps) {
 	let element: HTMLTextAreaElement | undefined;
 
 	const resize = (expanded: boolean) => {
 		if (!element) return;
-		element.style.height = "auto";
+		const { oneLine, border } = composerMetrics(element);
 		const cap = Math.min(window.innerHeight * 0.4, COMPOSER_MAX);
-		const wanted = expanded ? Math.min(element.scrollHeight, cap) : element.scrollHeight;
-		element.style.height = `${Math.max(expanded ? Math.min(wanted, cap) : 24, 24)}px`;
-		element.style.overflowY = expanded && element.scrollHeight > cap ? "auto" : "hidden";
+		element.style.height = "auto";
+		const content = element.scrollHeight; // content + padding, no border
+		const full = content + border;
+		const wanted = expanded ? Math.min(full, cap) : oneLine;
+		element.style.height = `${Math.max(wanted, oneLine)}px`;
+		element.style.overflowY = expanded && full > cap ? "auto" : "hidden";
 	};
 
 	onMount(() => resize(document.activeElement === element));

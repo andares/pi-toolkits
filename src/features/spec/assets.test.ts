@@ -15,6 +15,21 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { startSpecServer } from "./server.js";
 import { createSpecSession } from "./store.js";
 
+/**
+ * Distinct port per server, never reused inside this file.
+ *
+ * The HTTP clients keep connections alive, and those pools are keyed by port:
+ * handing a new test a port whose previous server has just closed gives its
+ * first request a dead socket ("socket hang up"). A counter is also immune to
+ * the birthday collisions a narrow random range produces once the whole suite
+ * runs under the 4-way compatibility matrix.
+ */
+let nextPort = 44_001;
+function takePort(): number {
+	nextPort += 3;
+	return nextPort;
+}
+
 const assetsDir = new URL("../review-page/assets/", import.meta.url).pathname;
 const built = existsSync(join(assetsDir, "index.html"));
 let agentDir: string;
@@ -32,7 +47,7 @@ describe.skipIf(!built)("built UI assets", () => {
 		const session = createSpecSession({ agentDir, slug: "assets", text: "## Spec\n\nbody" });
 		const server = await startSpecServer({
 			session,
-			portStart: 44_000 + Math.floor(Math.random() * 1000),
+			portStart: takePort(),
 			portAttempts: 20,
 			bindHost: "127.0.0.1",
 			urlHost: "127.0.0.1",

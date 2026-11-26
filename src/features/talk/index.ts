@@ -19,8 +19,15 @@ import { extractLastReply } from "./reply.js";
 import { startTalkServer, type TalkServerHandle, type TalkSession } from "./server.js";
 
 export const TALK_COMMAND = "ask-talk";
-/** 3501 — a different pool from spec/uat (3401), so a URL says which page it is. */
-const PORT_START = 3501;
+/**
+ * 7600 — the same pool `/ask-spec` and `/ask-uat` walk.
+ *
+ * Pages are told apart by their title, not by a port block: sharing the pool
+ * means several review pages can be open at once without a second range that
+ * only exists to be remembered. The block sits high because 34xx is routinely
+ * claimed by WSL / Windows port forwarders.
+ */
+const PORT_START = 7600;
 
 export interface TalkOptions {
 	openBrowser?: (url: string) => unknown;
@@ -40,6 +47,50 @@ function sessionIdOf(ctx: ExtensionContext): string {
 /** Notes as an ordered list, for the message builder. */
 function noteList(notes: Record<string, string>): TalkNote[] {
 	return Object.entries(notes).map(([blockId, text]) => ({ blockId, text }));
+}
+
+/** Plain text of a message content field (string or text blocks). */
+function contentText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	const parts: string[] = [];
+	for (const part of content) {
+		if (!part || typeof part !== "object") continue;
+		const block = part as { type?: unknown; text?: unknown };
+		if (block.type === "text" && typeof block.text === "string") parts.push(block.text);
+	}
+	return parts.join(" ");
+}
+
+/**
+ * The title of the session this page belongs to.
+ *
+ * The operator runs several sessions in parallel; "the last reply" is the same
+ * phrase in every window, so the page has to say WHICH session it is annotating.
+ * The session name is the host's own answer; before auto-naming has produced
+ * one, the first user message is what the operator recognizes.
+ */
+function sessionTitle(ctx: ExtensionContext): string | undefined {
+	try {
+		const named = ctx.sessionManager.getSessionName?.();
+		const name = typeof named === "string" ? named.trim() : "";
+		if (name !== "") return name;
+	} catch {
+		// Older host without session names: fall through to the first prompt.
+	}
+	try {
+		for (const entry of ctx.sessionManager.getBranch() as Array<{
+			type?: unknown;
+			message?: { role?: unknown; content?: unknown };
+		}>) {
+			if (entry?.type !== "message" || entry.message?.role !== "user") continue;
+			const text = contentText(entry.message.content).replace(/\s+/g, " ").trim();
+			if (text !== "") return text.length > 80 ? `${text.slice(0, 79)}…` : text;
+		}
+	} catch {
+		// A branch that cannot be read is not worth failing the command over.
+	}
+	return undefined;
 }
 
 export function registerTalk(pi: ExtensionAPI, options: TalkOptions = {}): void {
@@ -174,12 +225,16 @@ export function registerTalk(pi: ExtensionAPI, options: TalkOptions = {}): void 
 
 			if (sameReply && session) {
 				session.inContext = inContext;
+				session.title = sessionTitle(ctx) ?? session.title;
 				if (server?.active() !== true) {
 					await openFresh(session, ctx);
 					return;
 				}
-				// Nothing about the snapshot changed. Re-fetching here would overwrite
-				// keystrokes still inside the page's save debounce window.
+				// Nothing about the snapshot changed, but the command is an explicit
+				// "show me": re-open the window instead of printing a URL the operator
+				// has to find. Re-fetching here would overwrite keystrokes still inside
+				// the page's save debounce window, so only the tab is new.
+				open(server.url);
 				ctx.ui.notify(`ask-talk: already showing this reply — ${server.url}`, "info");
 				return;
 			}
@@ -189,6 +244,7 @@ export function registerTalk(pi: ExtensionAPI, options: TalkOptions = {}): void 
 				text: reply.text,
 				blocks,
 				headings: extractHeadings(blocks),
+				title: sessionTitle(ctx),
 				entryId: reply.entryId,
 				model: reply.model,
 				at: reply.at,
@@ -210,6 +266,10 @@ export function registerTalk(pi: ExtensionAPI, options: TalkOptions = {}): void 
 				Object.assign(previous, next);
 				session = previous;
 				server.broadcast("refresh", {});
+				// A refresh is also an explicit "show me": the old tab may have been
+				// closed, and a broadcast reaches no window. /ask-spec opens on every
+				// submit for the same reason.
+				open(server.url);
 				ctx.ui.notify(
 					`ask-talk: review refreshed${replaced ? " (notes cleared — this is a new reply)" : ""} — ${server.url}`,
 					"info",

@@ -9,6 +9,21 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { registerTalk, TALK_COMMAND } from "./index.js";
 
+/**
+ * Distinct port per server, never reused inside this file.
+ *
+ * The HTTP clients keep connections alive, and those pools are keyed by port:
+ * handing a new test a port whose previous server has just closed gives its
+ * first request a dead socket ("socket hang up"). A counter is also immune to
+ * the birthday collisions a narrow random range produces once the whole suite
+ * runs under the 4-way compatibility matrix.
+ */
+let nextPort = 48_001;
+function takePort(): number {
+	nextPort += 3;
+	return nextPort;
+}
+
 type Handler = (event: unknown, ctx: ExtensionContext) => void;
 
 interface Harness {
@@ -49,7 +64,7 @@ function harness(): Harness {
 	const messages = vi.fn();
 	const notify = vi.fn();
 	let entries: unknown[] = [];
-	let idle = true;
+	const idle = true;
 
 	const pi = {
 		registerCommand: (name: string, definition: { handler: (args: string, ctx: ExtensionContext) => Promise<void> }) => {
@@ -66,12 +81,13 @@ function harness(): Harness {
 		ui: { notify },
 		sessionManager: {
 			getSessionId: () => "session-one",
+			getSessionName: () => "Session Alpha",
 			getBranch: () => entries,
 			buildContextEntries: () => entries,
 		},
 	} as unknown as ExtensionContext;
 
-	const portStart = 48_000 + Math.floor(Math.random() * 1500);
+	const portStart = takePort();
 	registerTalk(pi, { openBrowser: opened, portStart, portAttempts: 20, closeDelayMs: 30 });
 	const definition = commands.get(TALK_COMMAND);
 	if (!definition) throw new Error("ask-talk was not registered");
@@ -113,6 +129,7 @@ function localUrl(url: string, path: string): string {
 }
 
 async function state(url: string): Promise<{
+	title?: string;
 	items: Array<{ id: string; label: string }>;
 	notes: Record<string, string>;
 	draft: string;
@@ -155,7 +172,10 @@ describe("ask-talk command", () => {
 
 		await post(url, "/api/notes", { notes: { [initial.items[1].id]: "rename" }, draft: "draft" });
 		await h.command();
-		expect(h.opened).toHaveBeenCalledTimes(1);
+		// The second run is an explicit "show me": it re-opens the same page (the
+		// operator may have closed the tab) without rebuilding the snapshot.
+		expect(h.opened).toHaveBeenCalledTimes(2);
+		expect(h.opened.mock.calls[1]?.[0]).toBe(url);
 		expect(await state(url)).toMatchObject({ notes: { [initial.items[1].id]: "rename" }, draft: "draft" });
 
 		await h.command("off");
@@ -176,7 +196,43 @@ describe("ask-talk command", () => {
 		expect(after.items.map((item) => item.label)).toEqual(["## Beta", "second reply"]);
 		expect(after.notes).toEqual({});
 		expect(after.draft).toBe("");
-		expect(h.opened).toHaveBeenCalledTimes(1);
+		// Same server, new content: the refresh is broadcast to the open tab AND the
+		// window is opened again, so a closed tab comes back with the new reply.
+		expect(h.opened).toHaveBeenCalledTimes(2);
+		expect(h.opened.mock.calls[1]?.[0]).toBe(url);
+	});
+
+	it("titles the page with the session name, falling back to the first prompt", async () => {
+		const h = harness();
+		await h.command();
+		const url = h.opened.mock.calls[0]?.[0] as string;
+		expect((await state(url)).title).toBe("Session Alpha");
+
+		// A session the host has not named yet: the first user message is what the
+		// operator recognizes in a row of parallel windows.
+		(h.ctx.sessionManager as unknown as { getSessionName: () => string | undefined }).getSessionName =
+			() => undefined;
+		h.setReply("## Gamma\n\nthird reply");
+		await h.command();
+		expect((await state(url)).title).toBe("q");
+	});
+
+	it("manual close sends nothing and the same snapshot can be reopened", async () => {
+		const h = harness();
+		await h.command();
+		const url = h.opened.mock.calls[0]?.[0] as string;
+		const response = await post(url, "/api/close", {});
+		expect(response.status).toBe(200);
+		expect(h.messages).not.toHaveBeenCalled();
+		await vi.waitFor(async () => {
+			expect((await fetch(localUrl(url, "/api/state")).catch(() => undefined))?.ok ?? false).toBe(false);
+		});
+
+		await h.command();
+		expect(h.opened).toHaveBeenCalledTimes(2);
+		expect(h.messages).not.toHaveBeenCalled();
+		const reopened = h.opened.mock.calls[1]?.[0] as string;
+		expect((await state(reopened)).items.map((item) => item.label)).toEqual(["## Alpha", "first reply"]);
 	});
 
 	it("sends notes for the CURRENT snapshot when Continue arrives", async () => {

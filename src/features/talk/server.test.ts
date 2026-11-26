@@ -1,8 +1,23 @@
 import { request } from "node:http";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseBlocks } from "../review-page/blocks.js";
 import { renderBlockHtml } from "../review-page/render.js";
 import { buildTalkState, sanitizeNotes, startTalkServer, type TalkServerHandle, type TalkSession } from "./server.js";
+
+/**
+ * Distinct port per server, never reused inside this file.
+ *
+ * The HTTP clients keep connections alive, and those pools are keyed by port:
+ * handing a new test a port whose previous server has just closed gives its
+ * first request a dead socket ("socket hang up"). A counter is also immune to
+ * the birthday collisions a narrow random range produces once the whole suite
+ * runs under the 4-way compatibility matrix.
+ */
+let nextPort = 45_001;
+function takePort(): number {
+	nextPort += 3;
+	return nextPort;
+}
 
 const REPLY = "## Approach\n\nfirst block\n\n## Milestones\n\nsecond block";
 
@@ -32,7 +47,7 @@ async function serve(
 		session,
 		assetsDir: "/nonexistent-assets",
 		render: renderBlockHtml,
-		portStart: 45_000 + Math.floor(Math.random() * 2000),
+		portStart: takePort(),
 		portAttempts: 20,
 		bindHost: "127.0.0.1",
 		urlHost: "127.0.0.1",
@@ -63,6 +78,9 @@ function call(
 				method: options.method ?? "GET",
 				path,
 				headers,
+				// Fresh socket per call: pooled sockets outlive the server that opened
+				// them, and reusing one turns the next request into ECONNRESET.
+				agent: false,
 			},
 			(res) => {
 				const chunks: Buffer[] = [];
@@ -81,9 +99,10 @@ function call(
 
 describe("buildTalkState", () => {
 	it("describes the snapshot without any version or diff fields", () => {
-		const session = makeSession();
+		const session = makeSession({ title: "Parallel session A" });
 		const state = buildTalkState(session);
 		expect(state.mode).toBe("talk");
+		expect(state.title).toBe("Parallel session A");
 		expect(state.reply).toEqual({ model: "provider/model", at: "2026-11-25T00:00:00.000Z", chars: REPLY.length });
 		expect(state.items).toHaveLength(4);
 		expect(state.items.every((item) => item.html === "")).toBe(true);
@@ -243,5 +262,23 @@ describe("talk server", () => {
 		} finally {
 			await server.close();
 		}
+	});
+
+	it("closes manually without sending Continue or changing the snapshot", async () => {
+		const session = makeSession({ draft: "unsent draft" });
+		const onContinue = vi.fn();
+		const onNotes = vi.fn();
+		const server = await serve(session, { onContinue, onNotes });
+		const response = await call(server.port, "/api/close", { method: "POST", token: server.token });
+		expect(response.status).toBe(200);
+		expect(response.json()).toEqual({ ok: true });
+		expect(server.active()).toBe(false);
+		expect(session.sent).toBe(false);
+		expect(session.draft).toBe("unsent draft");
+		expect(onContinue).not.toHaveBeenCalled();
+		expect(onNotes).not.toHaveBeenCalled();
+		await vi.waitFor(async () => {
+			await expect(call(server.port, "/api/state", { token: server.token })).rejects.toThrow();
+		});
 	});
 });

@@ -55,6 +55,7 @@ export interface WebServerOptions {
 	/** Called for authenticated `/api/*` requests; return true when handled. */
 	routes: (ctx: WebRequestContext) => boolean | Promise<boolean>;
 	portStart?: number;
+	/** How many ports to try; the walk still stops at the end of `portStart`'s hundred. */
 	portAttempts?: number;
 	/** Header the page echoes the token in. Default `x-plan-token`. */
 	tokenHeader?: string;
@@ -129,11 +130,33 @@ function parseHost(value: string | undefined): string {
 	return (value ?? "").toLowerCase();
 }
 
+/**
+ * Ports to try, in order.
+ *
+ * The walk never leaves the hundred block `portStart` lives in (7600 → 7600…7699):
+ * every review page shares one pool, so an exhausted pool must fail loudly
+ * instead of drifting into 7700+, where the URL stops telling the operator
+ * anything and the next feature's own pool begins.
+ *
+ * The block sits high on purpose: 34xx is a range WSL and Windows-side
+ * forwarders grab for themselves, and a review page that silently loses its
+ * port to a forwarder is indistinguishable from one that never started.
+ */
+export function portWalk(portStart: number, attempts = 100): number[] {
+	const blockEnd = Math.floor(portStart / 100) * 100 + 99;
+	// At least the start port: a zero attempt count must not turn the failure
+	// message into "ports undefined–undefined".
+	const last = Math.max(portStart, Math.min(portStart + Math.max(0, attempts) - 1, blockEnd));
+	const ports: number[] = [];
+	for (let port = portStart; port <= last; port += 1) ports.push(port);
+	return ports;
+}
+
 export async function startWebServer(options: WebServerOptions): Promise<WebServerHandle> {
 	const token = randomBytes(12).toString("hex");
 	const tokenHeader = options.tokenHeader ?? "x-plan-token";
-	const portStart = options.portStart ?? 3401;
-	const attempts = options.portAttempts ?? 20;
+	const portStart = options.portStart ?? 7600;
+	const ports = portWalk(portStart, options.portAttempts);
 	const host = options.bindHost ?? "127.0.0.1";
 	const displayHost = options.urlHost ?? "127.0.0.1";
 	const assetsRoot = resolve(options.assetsDir);
@@ -285,8 +308,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
 	const state = { closing: false };
 	let currentPort = 0;
 	let server: ReturnType<typeof createServer> | undefined;
-	for (let attempt = 0; attempt < attempts; attempt += 1) {
-		const port = portStart + attempt;
+	for (const port of ports) {
 		const candidate = createServer((req, res) => {
 			void handler(req, res, port, state).catch((error: unknown) => {
 				text(res, `internal error: ${error instanceof Error ? error.message : String(error)}`, 500);
@@ -304,7 +326,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
 		candidate.close();
 	}
 	if (!server) {
-		throw new Error(`cannot bind a review server on ports ${portStart}–${portStart + attempts - 1}`);
+		throw new Error(`cannot bind a review server on ports ${ports[0]}–${ports.at(-1)}`);
 	}
 	server.unref();
 	heartbeat = setInterval(() => {

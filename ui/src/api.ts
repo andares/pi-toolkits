@@ -62,6 +62,8 @@ export interface SpecState {
 /** `/ask-talk`: one reply, one note per block, one composer, no versions. */
 export interface TalkState {
 	mode: "talk";
+	/** Session title; several parallel sessions are indistinguishable without it. */
+	title?: string;
 	reply: { model?: string; at: string; chars: number };
 	items: SpecItem[];
 	headings: Heading[];
@@ -105,6 +107,17 @@ export function postContinue(notes: Record<string, string>, message: string): Pr
 		method: "POST",
 		body: JSON.stringify({ notes, message }),
 	});
+}
+
+/** Manual close: stop the page's server without a decision or a reply to pi. */
+export function postClose(): Promise<{ ok: true }> {
+	const controller = new AbortController();
+	// A disappeared host normally refuses immediately; a broken NAT route may
+	// not. Manual close must still reach its terminal state in either case.
+	const timeout = setTimeout(() => controller.abort(), 3_000);
+	return request<{ ok: true }>("/api/close", { method: "POST", signal: controller.signal }).finally(
+		() => clearTimeout(timeout),
+	);
 }
 
 export function postAnnotations(version: number, annotations: Annotations): Promise<{ ok: true }> {

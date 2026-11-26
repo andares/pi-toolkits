@@ -18,6 +18,21 @@ import { setAskControl } from "../../lib/ask-control.js";
 import { LEGACY_SPEC_PHASE_TOOL } from "../../lib/phases.js";
 import { registerSpec, SPEC_COMMAND, SPEC_COMMAND_ALIAS, SPEC_SUBMIT_TOOL } from "./index.js";
 
+/**
+ * Distinct port per server, never reused inside this file.
+ *
+ * The HTTP clients keep connections alive, and those pools are keyed by port:
+ * handing a new test a port whose previous server has just closed gives its
+ * first request a dead socket ("socket hang up"). A counter is also immune to
+ * the birthday collisions a narrow random range produces once the whole suite
+ * runs under the 4-way compatibility matrix.
+ */
+let nextPort = 46_001;
+function takePort(): number {
+	nextPort += 3;
+	return nextPort;
+}
+
 let agentDir: string;
 let workDir: string;
 
@@ -103,7 +118,7 @@ function harness(): Harness {
 	registerSpec(pi, { register: (def: never) => gates.push(def as never) } as unknown as GateHub, {
 		agentDir,
 		openBrowser,
-		portStart: 46_000 + Math.floor(Math.random() * 1000),
+		portStart: takePort(),
 		closeDelayMs: 25,
 	});
 	return { pi, commands, tools, gates, handlers, sendUserMessage, activeTools: () => activeTools, openBrowser, notify, ctx, control };
@@ -121,6 +136,7 @@ async function decide(url: string, action: "approve" | "deny"): Promise<number> 
 				path: "/api/decide",
 				method: "POST",
 				headers: { "content-type": "application/json", "x-plan-token": token },
+				agent: false,
 			},
 			(res) => {
 				res.resume();
@@ -149,6 +165,7 @@ async function reviewState(url: string): Promise<{
 				path: "/api/state",
 				method: "GET",
 				headers: { "x-plan-token": token },
+				agent: false,
 			},
 			(res) => {
 				const chunks: Buffer[] = [];
@@ -285,6 +302,30 @@ describe("ask-spec command", () => {
 		expect(secondUrl).not.toBe(firstUrl);
 		expect((await reviewState(secondUrl)).totalVersions).toBe(1);
 
+		await handler("off", h.ctx);
+	});
+
+	it("closes from the page without a decision or an agent message", async () => {
+		const h = harness();
+		const handler = h.commands.get(SPEC_COMMAND)!.handler;
+		await handler("topic", h.ctx);
+		writeSpec("specs/topic.md", "# SPEC: one");
+		const submitted = await h.tools.get(SPEC_SUBMIT_TOOL)!.execute("id", { path: "specs/topic.md" });
+		const url = (submitted.details as { url: string }).url;
+		const messagesBefore = h.sendUserMessage.mock.calls.length;
+
+		const parsed = new URL(url);
+		const response = await fetch(`http://127.0.0.1:${parsed.port}/api/close`, {
+			method: "POST",
+			headers: { "x-plan-token": parsed.searchParams.get("t") ?? "" },
+		});
+		expect(response.status).toBe(200);
+		await waitUntilClosed(url);
+		expect(h.sendUserMessage).toHaveBeenCalledTimes(messagesBefore);
+		expect(h.activeTools()).toContain(SPEC_SUBMIT_TOOL); // closing is not leaving the phase
+
+		await handler("open", h.ctx);
+		expect(h.openBrowser).toHaveBeenCalledTimes(2);
 		await handler("off", h.ctx);
 	});
 

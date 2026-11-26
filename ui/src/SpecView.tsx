@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import * as api from "./api";
 import { initialLang, rememberLang, translate, type Lang, type MessageKey } from "./i18n";
-import { BackToTop, Outline, useFooterHeight } from "./shared";
+import { BackToTop, ClosePageButton, ManualCloseNotice, Outline, useFooterHeight } from "./shared";
 
 type EditorTarget = { blockId?: string } | undefined;
 
@@ -25,6 +25,9 @@ export function SpecView(props: { initial: api.SpecState }) {
 	const [draft, setDraft] = createSignal("");
 	const [verdict, setVerdict] = createSignal<api.Verdict>("change");
 	const [tabClosed, setTabClosed] = createSignal(false);
+	/** undefined = open; true/false = manually closed, server reachable or not. */
+	const [manualClose, setManualClose] = createSignal<boolean>();
+	let stopEvents: (() => void) | undefined;
 
 	const t = (key: MessageKey, vars?: Record<string, string | number>) => translate(lang(), key, vars);
 
@@ -47,7 +50,7 @@ export function SpecView(props: { initial: api.SpecState }) {
 	}
 
 	onMount(() => {
-		const stop = api.subscribe({
+		stopEvents = api.subscribe({
 			onRevision: () => {
 				if (viewVersion() === undefined) void load();
 			},
@@ -56,7 +59,10 @@ export function SpecView(props: { initial: api.SpecState }) {
 			},
 			onDecided: (decision) => setOutcome(decision.action),
 		});
-		onCleanup(stop);
+		onCleanup(() => {
+			stopEvents?.();
+			stopEvents = undefined;
+		});
 	});
 
 	createEffect(() => {
@@ -218,6 +224,14 @@ export function SpecView(props: { initial: api.SpecState }) {
 		});
 	}
 
+	function closedManually(serverClosed: boolean): void {
+		// Do not let EventSource reconnect forever after its server was closed or
+		// disappeared during /reload. The fallback page has no live state.
+		stopEvents?.();
+		stopEvents = undefined;
+		setManualClose(serverClosed);
+	}
+
 	async function decide(action: api.Decision) {
 		const current = state();
 		if (!current) return;
@@ -240,6 +254,10 @@ export function SpecView(props: { initial: api.SpecState }) {
 	const verdictClass = (value: api.Verdict) => `note-verdict verdict-${value}`;
 
 	return (
+		<Show
+			when={manualClose() === undefined}
+			fallback={<ManualCloseNotice lang={lang()} serverClosed={manualClose() === true} />}
+		>
 		<div class="page">
 			<header class="topbar">
 				<div class="masthead">
@@ -263,6 +281,7 @@ export function SpecView(props: { initial: api.SpecState }) {
 						>
 							{lang() === "en" ? "中文" : "EN"}
 						</button>
+						<ClosePageButton lang={lang()} onClosed={closedManually} />
 					</div>
 				</div>
 
@@ -563,6 +582,7 @@ export function SpecView(props: { initial: api.SpecState }) {
 			<Outline headings={state()?.headings ?? []} onJump={jumpFromOutline} />
 			<BackToTop />
 		</div>
+		</Show>
 	);
 }
 

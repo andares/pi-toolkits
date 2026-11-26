@@ -9,6 +9,8 @@ renames that heading to the version being published and refuses an empty section
 (`--skip-changelog` bypasses the gate).
 ## Unreleased
 
+- **spec/talk** — both pages have a confirmed **Close** action that stops the review server without sending a decision or a reply, including a closed-state fallback when the server is already gone.
+
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
 ## 1.2.0 — 2026-11-26

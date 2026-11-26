@@ -242,6 +242,16 @@ export async function startSpecServer(options: StartSpecServerOptions): Promise<
 				return true;
 			}
 
+			if (ctx.url.pathname === "/api/close" && ctx.req.method === "POST") {
+				// Manual close is deliberately NOT a decision: no message, no approval,
+				// no revision change. It only stops this review's HTTP server. Reply to
+				// the page first; closing on the next tick lets the response flush.
+				closing = true;
+				ctx.json({ ok: true });
+				setTimeout(() => void closeHandle(), 0).unref();
+				return true;
+			}
+
 			if (ctx.url.pathname === "/api/decide" && ctx.req.method === "POST") {
 				const body = (await ctx.readBody()) as { action?: unknown; version?: number };
 				const action =
