@@ -6,6 +6,7 @@ import { audit } from "./audit.js";
 import { stateToToml } from "./apply.js";
 import { detect } from "./detect.js";
 import { AUDIT_CODES, CONTRACT_FILE, UAT_CONTRACT_FILE } from "./spec.js";
+import { isoMinute } from "../uat/records.js";
 import { installedProject, remove } from "./test-helpers.js";
 
 const roots: string[] = [];
@@ -64,8 +65,11 @@ describe("UAT audit findings", () => {
 
 	it("warns about a recent non-canonical change record", () => {
 		const root = installed();
+		// "Recent" is a 14-day window from now, so the fixture date has to move
+		// with the clock — a hardcoded day silently turned this green test red
+		// once the window passed it (2026-11-27).
 		writeFileSync(
-			join(root, ".agents/implementations/2026-11-13_handwritten.md"),
+			join(root, ".agents/implementations", `${isoMinute(new Date()).slice(0, 10)}_handwritten.md`),
 			"# Handwritten\n\nno time\n",
 			"utf8",
 		);
