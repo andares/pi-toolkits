@@ -11,6 +11,8 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+## 1.2.4 — 2026-11-28
+
 - **ask-review / ask-spec** — the retired command spellings `/third-review` and `/ask-plan` are no longer registered; use `/ask-review` and `/ask-spec`. An autostart entry still spelled the old way is skipped with a warning instead of being sent to the model as chat.
 - **spec** — a new note starts as `suggest` and the verdict pills read `suggest` / `must change` / `question`, so writing the everyday note no longer means undoing a default of `must change`.
 - **release** — `pnpm release` now validates every release material before it runs a single gate: uncommitted work, an empty `## Unreleased`, a `package.json` without `CHANGELOG.md`, or a tag that already exists for the target version each stop it in seconds with a list of what to fix, instead of surfacing after the two-minute test run.
@@ -96,4 +98,5 @@ renames that heading to the version being published and refuses an empty section
 ## 0.10.0 — 2026-10-24
 
 - permission — a capped rolling JSONL approval log records each ask, its parsed units and your answer; `pnpm approval-report` turns it into rule candidates.
+
 
