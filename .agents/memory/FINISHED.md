@@ -121,3 +121,14 @@
 - 证据：change record `.agents/implementations/2026-11-26_2018_release-material-preflight.md`；
   `pnpm test` 61 文件 / 1036 测试全绿；实机脏树 + 空备注时 4.5 秒中止（此前要跑完门禁）。
 
+### M9 — 去掉兼容性指令别名（2026-11-27）
+
+- **决定（崔总 2026-11-27）**：`/third-review`、`/ask-plan` 这两个改名遗留的别名删掉——它们
+  只教会人旧拼写。autostart 的预校验会把未注册命令跳过并告警，旧配置不会变成普通消息。
+- 保留的兼容只有数据层：`<agent-dir>/ask-plan/` 历史目录迁移、相位判定识别旧工具名
+  `plan_submit`（升级前已打开的会话）。
+- 顺手修：`audit-uat.test.ts` 把「近期记录」的日期写成 2026-11-13，14 天窗口在今天越过它
+  → 用例无端变红，改为按当前时间现算。
+- 证据：change record `.agents/implementations/2026-11-27_1031_drop-command-aliases.md`；
+  `pnpm test` 61 文件 / 1035 测试全绿。
+
