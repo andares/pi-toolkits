@@ -5,6 +5,14 @@ import { BackToTop, ClosePageButton, ManualCloseNotice, Outline, useFooterHeight
 
 type EditorTarget = { blockId?: string } | undefined;
 
+/**
+ * Read weakest first: "suggest" is the everyday note, "must change" blocks the
+ * spec, "question" asks for an answer. The first entry is also the default, so
+ * the common note needs no click on a verdict; keep the two in one place.
+ */
+const VERDICT_ORDER: api.Verdict[] = ["suggest", "change", "question"];
+const DEFAULT_VERDICT: api.Verdict = VERDICT_ORDER[0];
+
 interface NoteEntry {
 	key: string;
 	blockId?: string;
@@ -23,7 +31,7 @@ export function SpecView(props: { initial: api.SpecState }) {
 	const [showAll, setShowAll] = createSignal(false);
 	const [editor, setEditor] = createSignal<EditorTarget>();
 	const [draft, setDraft] = createSignal("");
-	const [verdict, setVerdict] = createSignal<api.Verdict>("change");
+	const [verdict, setVerdict] = createSignal<api.Verdict>(DEFAULT_VERDICT);
 	const [tabClosed, setTabClosed] = createSignal(false);
 	/** undefined = open; true/false = manually closed, server reachable or not. */
 	const [manualClose, setManualClose] = createSignal<boolean>();
@@ -195,7 +203,7 @@ export function SpecView(props: { initial: api.SpecState }) {
 		if (!readOnly() && !globalEditorOpen()) {
 			setEditor({ blockId: undefined });
 			setDraft("");
-			setVerdict("change");
+			setVerdict(DEFAULT_VERDICT);
 		}
 		requestAnimationFrame(() => {
 			document.getElementById("global-notes")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -370,7 +378,7 @@ export function SpecView(props: { initial: api.SpecState }) {
 										onClick={() => {
 											setEditor({ blockId: undefined });
 											setDraft("");
-											setVerdict("change");
+											setVerdict(DEFAULT_VERDICT);
 										}}
 									>
 										+ {t("addNote")}
@@ -439,7 +447,7 @@ export function SpecView(props: { initial: api.SpecState }) {
 													onClick={() => {
 														setEditor({ blockId: item.id });
 														setDraft("");
-														setVerdict("change");
+														setVerdict(DEFAULT_VERDICT);
 													}}
 												>
 													+ {t("addNote")}
@@ -600,7 +608,7 @@ function NoteEditor(props: NoteEditorProps) {
 	return (
 		<div class="editor">
 			<div class="verdicts">
-				<For each={["change", "suggest", "question"] as api.Verdict[]}>
+				<For each={VERDICT_ORDER}>
 					{(value) => (
 						<label classList={{ active: props.verdict() === value }}>
 							<input
