@@ -11,6 +11,7 @@ renames that heading to the version being published and refuses an empty section
 
 <!-- Notes for the next release go here; `pnpm release` renames this heading. -->
 
+- **ask-review / ask-spec** — the retired command spellings `/third-review` and `/ask-plan` are no longer registered; use `/ask-review` and `/ask-spec`. An autostart entry still spelled the old way is skipped with a warning instead of being sent to the model as chat.
 - **release** — `pnpm release` now validates every release material before it runs a single gate: uncommitted work, an empty `## Unreleased`, a `package.json` without `CHANGELOG.md`, or a tag that already exists for the target version each stop it in seconds with a list of what to fix, instead of surfacing after the two-minute test run.
 - **changelog** — released sections no longer keep the "notes for the next release go here" comment that used to be promoted along with them.
 

@@ -291,7 +291,7 @@ After a development task is done, type the `/ask-review` command to summon **a d
 
 <a name="spec"></a>
 
-`/ask-spec [topic]` opens a spec-review phase: the agent explores the code, asks what it cannot infer, and writes a spec — no code changes while the spec is under review. Then it calls `spec_submit`, the review opens in **your browser**, and you annotate it **paragraph by paragraph**: every blank-line-separated block can carry notes, and every note comes back to the agent as its next message. `/ask-plan` is kept as an alias.
+`/ask-spec [topic]` opens a spec-review phase: the agent explores the code, asks what it cannot infer, and writes a spec — no code changes while the spec is under review. Then it calls `spec_submit`, the review opens in **your browser**, and you annotate it **paragraph by paragraph**: every blank-line-separated block can carry notes, and every note comes back to the agent as its next message. The pre-rename `/ask-plan` alias was removed.
 
 - **Blocks are the unit of review.** Each paragraph is one block, with a badge telling you what changed since the previous round: `new`, `modified`, `moved`, `removed`. Unchanged blocks collapse, so a three-line edit does not look like a rewrite. Fenced code blocks stay whole.
 - **Two levels of notes.** On a block, or global. Nothing finer — no text ranges to re-anchor after an edit.

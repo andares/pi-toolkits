@@ -37,7 +37,6 @@ import {
 	pickReviewModel,
 	registerReview,
 	REVIEW_COMMAND,
-	REVIEW_COMMAND_ALIAS,
 } from "./index.js";
 import {
 	modelKey,
@@ -498,7 +497,7 @@ describe("createReviewRunner", () => {
 // ─── command registration ──────────────────────────────────────
 
 describe("registerReview", () => {
-	it("registers /ask-review and keeps /third-review as a working alias", async () => {
+	it("registers /ask-review only, with the retired alias gone", async () => {
 		type RegisteredCommand = {
 			description: string;
 			handler: (args: string, ctx: ExtensionContext) => Promise<unknown>;
@@ -515,23 +514,21 @@ describe("registerReview", () => {
 
 		registerReview(pi);
 
-		// The canonical name carries the family prefix (/ask-*); the old spelling
-		// stays registered so pre-rename notes and autostart configs keep working.
+		// One name only. `/third-review` was removed 2026-11-27 (崔总): it had
+		// been absent from the docs since the rename, so the second entry point
+		// only taught the old spelling. An autostart entry still using it is
+		// skipped by the pre-flight instead of being sent to the model.
 		expect(REVIEW_COMMAND).toBe("ask-review");
-		expect(REVIEW_COMMAND_ALIAS).toBe("third-review");
-		expect([...commands.keys()]).toEqual([REVIEW_COMMAND, REVIEW_COMMAND_ALIAS]);
+		expect([...commands.keys()]).toEqual([REVIEW_COMMAND]);
+		expect(commands.has("third-review")).toBe(false);
 
 		// `review-model` was removed 2026-11-10: every /ask-review already opens
 		// the picker with the configured model preselected, so a second command
 		// was a second way to do the same thing. Keep it gone.
 		expect(commands.has("review-model")).toBe(false);
 
-		// Both entry points reach the same runner: same picker, same guards, same
-		// review turn — the alias is a name, not a second implementation.
 		const { ctx } = fakeCtx({ customResult: MODELS[0] });
 		await commands.get(REVIEW_COMMAND)?.handler("", ctx);
 		expect(pi.sendUserMessage).toHaveBeenCalledTimes(1);
-		await commands.get(REVIEW_COMMAND_ALIAS)?.handler("", ctx);
-		expect(pi.sendUserMessage).toHaveBeenCalledTimes(2);
 	});
 });

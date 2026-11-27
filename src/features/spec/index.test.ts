@@ -16,7 +16,7 @@ import type { GateHub, GateVerdict } from "../../lib/gates.js";
 import { setPermissionControl, type PermissionControl } from "../../lib/permission-control.js";
 import { setAskControl } from "../../lib/ask-control.js";
 import { LEGACY_SPEC_PHASE_TOOL } from "../../lib/phases.js";
-import { registerSpec, SPEC_COMMAND, SPEC_COMMAND_ALIAS, SPEC_SUBMIT_TOOL } from "./index.js";
+import { registerSpec, SPEC_COMMAND, SPEC_SUBMIT_TOOL } from "./index.js";
 
 /**
  * Distinct port per server, never reused inside this file.
@@ -212,19 +212,10 @@ describe("ask-spec command", () => {
 		expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("specs/ask-spec-work.md"), "info");
 	});
 
-	it("keeps /ask-plan as an alias for the same handler", () => {
+	it("registers only /ask-spec — the /ask-plan alias is gone", () => {
 		const h = harness();
-		const primary = h.commands.get(SPEC_COMMAND);
-		const alias = h.commands.get(SPEC_COMMAND_ALIAS);
-		expect(primary).toBeDefined();
-		expect(alias).toBeDefined();
-		expect(alias!.handler).toBe(primary!.handler);
-	});
-
-	it("runs the same flow through the alias", async () => {
-		const h = harness();
-		await h.commands.get(SPEC_COMMAND_ALIAS)!.handler("legacy topic", h.ctx);
-		expect(h.sendUserMessage).toHaveBeenCalledWith(expect.stringContaining("Task: legacy topic"));
+		expect(h.commands.get(SPEC_COMMAND)).toBeDefined();
+		expect(h.commands.has("ask-plan")).toBe(false);
 	});
 
 	it("defaults the spec file to specs/spec.md without a topic", async () => {

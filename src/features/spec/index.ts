@@ -46,7 +46,6 @@ import {
 } from "./store.js";
 
 export const SPEC_COMMAND = "ask-spec";
-export const SPEC_COMMAND_ALIAS = "ask-plan";
 export const SPEC_SUBMIT_TOOL = SPEC_PHASE_TOOL;
 
 /** Files the spec-review phase may write: project markdown, nothing else. */
@@ -342,11 +341,11 @@ export function registerSpec(pi: ExtensionAPI, gates: GateHub, options: SpecOpti
 		},
 	};
 
-	// `/ask-plan` stays as an alias: the workflow predates the rename, and a
-	// half-remembered command must not drop the operator into a plain chat.
-	for (const command of [SPEC_COMMAND, SPEC_COMMAND_ALIAS]) {
-		pi.registerCommand(command, specCommand);
-	}
+	// One name only. The pre-rename `/ask-plan` alias was removed 2026-11-27
+	// (it had been undocumented since the rename; autostart entries still
+	// spelled that way are skipped by the pre-flight and reported, so they are
+	// not sent to the model as chat).
+	pi.registerCommand(SPEC_COMMAND, specCommand);
 
 	// ── Tool ───────────────────────────────────────────────────────────────
 

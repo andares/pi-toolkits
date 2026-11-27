@@ -1190,7 +1190,7 @@ ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`�
 ## Feature: spec（`/ask-spec` 浏览器批注式规格评审，2026-11-11 实现；2026-11-16 由 `/ask-plan` 改名）
 
 `/ask` 讨论 → `/ask-spec` 调研 → 写 `specs/<slug>.md` → 浏览器逐段批注 → 多轮 → 批准 → 实施。
-`/ask-plan` 保留为别名；工具是 `spec_submit`；不带主题时默认 `specs/spec.md`（不再生成 `specs/plan.md`）。
+`/ask-plan` 别名已于 2026-11-27 移除（崔总定；旧拼写的 autostart 条目会被预校验跳过并告警）；工具是 `spec_submit`；不带主题时默认 `specs/spec.md`（不再生成 `specs/plan.md`）。
 
 ### 不变量
 
@@ -1215,7 +1215,7 @@ ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`�
   右「本版统计 + 可点击批注索引」）；全局批注卡片即使编辑框关着也常显；底部决策栏左侧是
   `Only changed` / `Global notes`，中间只放笔记总数，右侧 `Send feedback` / `Approve spec`。
   「How review works」「Approve means go」「Two ways out」这类解释性卡片不再实现，顶部红字提示已删。
-- **命名**：命令 `/ask-spec`（别名 `/ask-plan`）、工具 `spec_submit`、默认文件 `specs/spec.md`；
+- **命名**：命令 `/ask-spec`（旧名 `/ask-plan` 的别名已移除）、工具 `spec_submit`、默认文件 `specs/spec.md`；
   相位标记 `SPEC_PHASE_TOOL`，同时识别旧的 `plan_submit`（升级前已打开的会话）；评审历史
   `<agent-dir>/ask-plan/` 在首次使用时迁移到 `<agent-dir>/ask-spec/`，迁移失败就继续用旧目录。
 
@@ -1231,7 +1231,7 @@ ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`�
 | `src/features/spec/store.ts` | `<agent-dir>/ask-spec/<slug>/vNNN.md` + `state.json`（原子写、50 版上限、旧目录迁移） |
 | `src/features/spec/server.ts` | 评审路由（`/api/state`、`/api/annotate`、`/api/decide`）；`active()` 报告句柄死活；HTTP 壳在 `src/lib/web-review.ts` |
 | `src/lib/opener.ts` | WSL 探测、绑定地址、打开器选择（spec 与 uat 共用） |
-| `src/features/spec/index.ts` | `/ask-spec` + `/ask-plan` 别名、`spec_submit`、gate、系统提示注入、决策回投 |
+| `src/features/spec/index.ts` | `/ask-spec`、`spec_submit`、gate、系统提示注入、决策回投 |
 | `src/lib/phases.ts` | `SPEC_PHASE_TOOL` + 旧 `plan_submit` 识别；phase 名 `spec` |
 | `ui/` | Solid 1.9 + Vite 8 单页，产物落 `src/features/review-page/assets/`（`pnpm ui:check` 防过期） |
 | `design/ask-spec.ptr` | 已确认的评审页设计稿（暖纸/玫瑰、双栏、批注索引、底部决策栏） |
@@ -1239,7 +1239,7 @@ ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`�
 ### 已验证
 
 - `pnpm typecheck` 绿；`pnpm test` **61 文件 / 1064 测试**全绿（spec 113 例）；`pnpm ui:typecheck` 绿；`pnpm ui:build` 已更新 assets（`ui:check` 的 git-clean 断言需在提交 assets 后成立）。
-- 命令：`/ask-spec` 与 `/ask-plan` 指向同一个 handler；不带主题默认 `specs/spec.md`；
+- 命令：只注册 `/ask-spec`（`/ask-plan` 别名 2026-11-27 移除）；不带主题默认 `specs/spec.md`；
   `spec_submit` 默认不在工具集里，进入评审期才激活；旧 `plan_submit` 仍被相位判定识别。
 - 评审期写入边界：`echo x > src/a.ts` / `cp a.ts b.ts` 被 gate 拒；写入 `specs/` 下的
   `.md`、项目外临时文件与纯读命令放行（`spec/index.test.ts` 的 write-boundary 用例）。
@@ -1266,7 +1266,7 @@ ssh 嵌套引号、`$(basename)` 产生的未知输出目标、`sed -i $FILES`�
   `?version=N` 回看都还在。重开窗口是「新窗口」，不是「新评审」。
 - 批注按版本存放：新版本会清空上一版批注（不做跨版本重新锚定，这是块模型换来的简化）。
 - 端口固定从 **7600** 起、**只在本百位段内走**（7600–7699，`portAttempts` 可注入、仅测试用），不做配置项（崔总 2026-11-11 定；段位 2026-11-26 从 34xx 上移到 76xx——34xx 常被 WSL / Windows 端口转发先占掉，页面静默丢端口与没启动长得一模一样）；spec / uat / talk 共用这一池，多个会话/多次重启各自走这条递增链，互不抢端口；整段用尽就报错不启动（`portWalk` 与 `startWebServer` 的用例在 `src/lib/web-review.test.ts`）。
-- `/ask-plan` 别名只保证命令入口；提示语、日志与文档一律以 `/ask-spec` 为准。
+- 命令只有一个名字 `/ask-spec`：旧的 `/ask-plan` 不再注册，配在 autostart 里的旧拼写会被预校验跳过并告警（不会当成普通消息发给模型）。`/third-review` 同理已移除。
 
 ## Feature: talk（`/ask-talk` 回复批注，2026-11-25 实现）
 

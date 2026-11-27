@@ -6,7 +6,7 @@
  * (full tool access — this is check AND fix, not a read-only audit), runs a
  * review turn, and the session then stays on that model (no auto-restore).
  *
- * Trigger: the /ask-review slash command. `/third-review` stays registered as
+ * Trigger: the /ask-review slash command (the old `/third-review` spelling was
  * a compatibility alias (same handler, same state, no separate behaviour).
  * Bare-message keyword matching was deliberately removed — a plain
  * "ask-review" message goes to the model as ordinary text, so an accidental
@@ -51,20 +51,6 @@ import { getReviewStore, type ReviewStore } from "./store.js";
  * dialog and doc says this name, so using the alias still teaches the new one.
  */
 export const REVIEW_COMMAND = "ask-review";
-
-/**
- * Compatibility alias, registered on purpose and delegating to the same
- * runner. Why it exists: older session notes, muscle memory and autostart
- * configs (`/third-review` in `.pi/autostart.toml`) keep working across the
- * rename — a renamed command that silently disappears would turn those config
- * entries into plain chat messages sent to the model.
- *
- * **Slated for removal**: this is a deprecation shuttle, not a permanent
- * second name. It is deliberately absent from every external doc. Delete it
- * (`/third-review` constant + its `registerCommand` block + the registration
- * test case) once the old spelling has been unused for a release or two.
- */
-export const REVIEW_COMMAND_ALIAS = "third-review";
 
 /**
  * Let the user pick a review model with the /model-style picker and persist
@@ -196,10 +182,10 @@ export function createReviewRunner(
 export function registerReview(pi: ExtensionAPI): void {
 	const runReview = createReviewRunner(pi);
 
-	// Slash-command triggers. The handler awaits the runner, which may block on
-	// the model picker and the review turn. `ask-review` is canonical;
-	// `third-review` is registered only as a compatibility alias (see the
-	// constant's comment) — both reach the same runner and the same guards.
+	// Slash-command trigger. The handler awaits the runner, which may block on
+	// the model picker and the review turn. The pre-rename `/third-review`
+	// alias was removed 2026-11-27 (the name had been out of the docs since the
+	// `/ask-*` rename; a second entry point was only teaching the old spelling).
 	pi.registerCommand(REVIEW_COMMAND, {
 		description:
 			"Pick the review model (defaults to the configured one) and review the just-completed work (check + fix)",
@@ -208,12 +194,6 @@ export function registerReview(pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand(REVIEW_COMMAND_ALIAS, {
-		description: "Same as /ask-review (compatibility alias)",
-		handler: async (_args: string, ctx: ExtensionContext) => {
-			await runReview(ctx);
-		},
-	});
 
 	// Configuration has no command of its own: every /ask-review opens the
 	// picker with the current default preselected, so "view" and "change" both
