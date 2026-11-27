@@ -605,3 +605,10 @@ if (!releaseOk) {
 		`${C.dim}补建 Release：pnpm release:github v${next}（幂等，不碰 npm 与版本号）${C.reset}`,
 	);
 }
+// 旁路过的物料在收尾再说一次：预检的 ⚠ 会随终端滚走，而「这一版没有公告条目」
+// 是升级后才会被发现的事实，值得在最后一行还看得见。
+const bypassed = materials.items.filter((item) => item.level === "warn");
+if (bypassed.length > 0) {
+	console.log(`\n${C.yellow}本次带着旁路发布：${C.reset}`);
+	for (const item of bypassed) console.log(`  ${C.yellow}⚠ ${item.title}${C.reset}`);
+}
